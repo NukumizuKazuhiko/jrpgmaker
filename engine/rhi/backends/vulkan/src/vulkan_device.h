@@ -61,6 +61,7 @@ private:
     VkInstance instance_ = VK_NULL_HANDLE;
     VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
     VkDevice device_ = VK_NULL_HANDLE;
+    std::uint32_t queue_family_ = 0;
     VkQueue queue_ = VK_NULL_HANDLE;
     VkCommandPool command_pool_ = VK_NULL_HANDLE;
     VkFence fence_ = VK_NULL_HANDLE;
