@@ -16,6 +16,9 @@ option(JRPGMAKER_BUILD_TESTS "Build unit tests" ON)
 
 add_subdirectory(engine/core)
 add_subdirectory(engine/rhi)
+if(WIN32)
+  add_subdirectory(engine/rhi/backends/d3d12)
+endif()
 add_subdirectory(app)
 
 if(JRPGMAKER_BUILD_TESTS)
