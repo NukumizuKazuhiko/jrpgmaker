@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 
 #include <volk.h>
 
@@ -10,9 +11,11 @@
 
 namespace jrpgmaker::rhi::vulkan {
 
+class VulkanDevice;
+
 class VulkanCommandList final : public ICommandList {
 public:
-    VulkanCommandList(VkDevice device, VkCommandPool pool);
+    explicit VulkanCommandList(VulkanDevice* owner);
     ~VulkanCommandList() override = default;
 
     void Begin() override;
@@ -25,7 +28,12 @@ public:
 
     VkCommandBuffer Native() { return command_buffer_; }
 
+    void CopyTextureToReadBack(VkImage source, VkBuffer staging, VkExtent3D extent);
+
 private:
+    VulkanDevice* owner_ = nullptr;
+    VkImage rendering_image_ = VK_NULL_HANDLE;
+    VkDevice device_ = VK_NULL_HANDLE;
     VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
 };
 
@@ -52,10 +60,34 @@ public:
     void Submit(ICommandList& command_list) override;
     void WaitForGpuIdle() override;
 
-    const std::byte* MapReadBack(TextureHandle handle) override;
+    MappedTexture MapReadBack(TextureHandle handle) override;
 
 private:
+    friend class VulkanCommandList;
+
+    struct TextureEntry {
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkImageView view = VK_NULL_HANDLE;
+        VkFormat format = VK_FORMAT_UNDEFINED;
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+    };
+
+    struct ReadBackEntry {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        std::byte* mapped = nullptr;
+        VkDeviceSize size = 0;
+    };
+
     VulkanDevice() = default;
+
+    VkDevice Native() { return device_; }
+    VkCommandPool CommandPool() { return command_pool_; }
+    const TextureEntry* LookupTexture(TextureHandle handle);
+    VkBuffer EnsureReadBackBuffer(TextureHandle handle);
+    std::uint32_t FindMemoryType(std::uint32_t type_bits, VkMemoryPropertyFlags properties) const;
 
     VkInstance instance_ = VK_NULL_HANDLE;
     VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
@@ -64,6 +96,10 @@ private:
     VkQueue queue_ = VK_NULL_HANDLE;
     VkCommandPool command_pool_ = VK_NULL_HANDLE;
     VkFence fence_ = VK_NULL_HANDLE;
+
+    std::unordered_map<std::uint64_t, TextureEntry> textures_;
+    std::unordered_map<std::uint64_t, ReadBackEntry> read_backs_;
+    std::uint64_t next_handle_ = 1;
 };
 
 } // namespace jrpgmaker::rhi::vulkan

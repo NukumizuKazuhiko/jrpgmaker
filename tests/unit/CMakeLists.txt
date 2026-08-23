@@ -12,6 +12,8 @@ else()
   target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::rhi_vulkan)
 endif()
 
+target_sources(jrpgmaker_unit_tests PRIVATE clear_baseline_test.cpp)
+
 list(APPEND CMAKE_MODULE_PATH "${Catch2_DIR}")
 include(Catch)
 catch_discover_tests(jrpgmaker_unit_tests)

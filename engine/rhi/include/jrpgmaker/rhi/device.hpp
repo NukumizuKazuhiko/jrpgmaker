@@ -11,6 +11,11 @@ namespace jrpgmaker::rhi {
 class ICommandList;
 class ISwapchain;
 
+struct MappedTexture {
+    const std::byte* data;
+    std::uint64_t row_pitch_bytes;
+};
+
 class IDevice {
 public:
     virtual ~IDevice() = default;
@@ -37,7 +42,7 @@ public:
     virtual void Submit(ICommandList& command_list) = 0;
     virtual void WaitForGpuIdle() = 0;
 
-    virtual const std::byte* MapReadBack(TextureHandle handle) = 0;
+    virtual MappedTexture MapReadBack(TextureHandle handle) = 0;
 
 protected:
     IDevice() = default;

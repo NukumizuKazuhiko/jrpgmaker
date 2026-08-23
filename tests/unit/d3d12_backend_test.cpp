@@ -1,5 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <memory>
+#include <stdexcept>
+
 #include "jrpgmaker/rhi/command_list.hpp"
 #include "jrpgmaker/rhi/device.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
@@ -49,19 +52,13 @@ TEST_CASE("d3d12 backend unimplemented resource surface returns invalid handles"
     REQUIRE(device != nullptr);
 
     CHECK(device->CreateBuffer(BufferDesc{.size_bytes = 16}) == BufferHandle::kInvalid);
-    CHECK(device->CreateTexture(
-              TextureDesc{.width = 4,
-                          .height = 4,
-                          .format = Format::kB8G8R8A8Unorm,
-                          .usage = TextureUsage::kRenderTarget | TextureUsage::kReadBack}) ==
-          TextureHandle::kInvalid);
     CHECK(device->CreatePipeline(GraphicsPipelineDesc{
               .vertex_shader = ShaderBytecode{nullptr, 0},
               .pixel_shader = ShaderBytecode{nullptr, 0},
               .color_format = Format::kB8G8R8A8Unorm,
           }) == PipelineHandle::kInvalid);
     CHECK(device->CreateSwapchain(nullptr, 1, 1, Format::kB8G8R8A8Unorm) == nullptr);
-    CHECK(device->MapReadBack(TextureHandle::kInvalid) == nullptr);
+    REQUIRE_THROWS_AS(device->MapReadBack(TextureHandle::kInvalid), std::runtime_error);
 }
 
 } // namespace

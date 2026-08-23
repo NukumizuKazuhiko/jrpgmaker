@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -11,9 +12,11 @@
 
 namespace jrpgmaker::rhi::d3d12 {
 
+class D3D12Device;
+
 class D3D12CommandList final : public ICommandList {
 public:
-    D3D12CommandList(ID3D12Device* device, ID3D12CommandAllocator* allocator);
+    explicit D3D12CommandList(D3D12Device* owner);
     ~D3D12CommandList() override = default;
 
     void Begin() override;
@@ -26,7 +29,10 @@ public:
 
     ID3D12CommandList* Native() { return command_list_.Get(); }
 
+    void CopyTextureToReadBack(ID3D12Resource* source, ID3D12Resource* staging);
+
 private:
+    D3D12Device* owner_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator_;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> command_list_;
 };
@@ -54,14 +60,43 @@ public:
     void Submit(ICommandList& command_list) override;
     void WaitForGpuIdle() override;
 
-    const std::byte* MapReadBack(TextureHandle handle) override;
+    MappedTexture MapReadBack(TextureHandle handle) override;
 
 private:
+    friend class D3D12CommandList;
+
+    struct TextureEntry {
+        Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+        D3D12_RESOURCE_DESC desc{};
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
+        bool has_rtv = false;
+    };
+
+    struct ReadBackEntry {
+        Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+        std::byte* mapped = nullptr;
+        std::uint64_t row_pitch_bytes = 0;
+    };
+
     D3D12Device() = default;
+
+    ID3D12Device* Native() { return device_.Get(); }
+    ID3D12CommandAllocator* Allocator() { return allocator_.Get(); }
+    D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandle(TextureHandle handle);
+    ID3D12Resource* TextureResource(TextureHandle handle);
+    ID3D12Resource* EnsureReadBack(TextureHandle handle);
 
     Microsoft::WRL::ComPtr<ID3D12Device> device_;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue_;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator_;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtv_heap_;
+    UINT rtv_descriptor_size_ = 0;
+    UINT rtv_allocated_ = 0;
+
+    std::unordered_map<std::uint64_t, TextureEntry> textures_;
+    std::unordered_map<std::uint64_t, ReadBackEntry> read_backs_;
+    std::uint64_t next_handle_ = 1;
+
     Microsoft::WRL::ComPtr<ID3D12Fence> fence_;
     void* fence_event_ = nullptr;
     std::uint64_t fence_value_ = 0;
