@@ -1,3 +1,4 @@
+#include <regex>
 #include <string_view>
 
 #include <catch2/catch_test_macros.hpp>
@@ -10,7 +11,8 @@ TEST_CASE("core reports its version", "[smoke]") {
     REQUIRE(v == "0.0.1");
 }
 
-TEST_CASE("core version matches project version", "[smoke]") {
-    constexpr std::string_view kExpected = "0.0.1";
-    REQUIRE(jrpgmaker::core::version().size() == kExpected.size());
+TEST_CASE("core version follows semantic versioning", "[smoke]") {
+    const std::string_view v = jrpgmaker::core::version();
+    const std::regex semver(R"(\d+\.\d+\.\d+)");
+    REQUIRE(std::regex_match(v.begin(), v.end(), semver));
 }
