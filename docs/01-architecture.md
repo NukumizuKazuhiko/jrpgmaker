@@ -117,6 +117,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 <repo-root>/
 ├── AGENTS.md                  # 项目宪法
 ├── docs/                      # 真源文档（见 README.md 索引）
+├── .github/workflows/ci.yml   # CI 三平台门禁
 ├── CMakeLists.txt
 ├── CMakePresets.json
 ├── vcpkg.json
@@ -132,7 +133,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 │   │   └── event/ dialogue/ battle/ cutscene/ save/ script/
 │   └── platform/
 ├── app/                       # 主循环装配 + demo 宿主
-├── tools/                     # lint / assetimport / goldenimage CLI
+├── tools/                     # lint / assetimport / goldenimage CLI（tools/ci 现有私有头审计）
 ├── assets/
 │   ├── data/                  # 事件/对话/数值表 JSON
 │   ├── schemas/               # JSON schema（生成物与校验的真源）

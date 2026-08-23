@@ -16,8 +16,9 @@
 
 ## P0 奠基
 
+- **状态**：已完成（2026-08-23）。证据：CI run `32626959709` 全绿（六矩阵 + format + 私有头审计）；本地 win-debug/win-release 双配置零警告、ctest 2/2；AGENTS.md @@COMMAND@@ 已回填。
 - **目的**：让"构建-测试-CI"的骨架先于一切功能存在。
-- **范围内**：git init、`.gitignore`、`vcpkg.json`、根 `CMakeLists.txt`、`CMakePresets.json`(win/linux/mac × debug/release)、目录骨架（docs/01 §目录结构，各 engine 模块含 include/src 分离模板）、GitHub Actions 三平台工作流（含模块私有头审计脚本）、`.clang-format`/`.editorconfig`、一个冒烟单测。
+- **范围内**：git init、`.gitignore`、`.gitattributes`（P0 执行时补充的跨平台换行治理，超出原清单在此显性记录）、`vcpkg.json`、根 `CMakeLists.txt`、`CMakePresets.json`(win/linux/mac × debug/release)、目录骨架（docs/01 §目录结构，各 engine 模块含 include/src 分离模板）、GitHub Actions 三平台工作流（含模块私有头审计脚本）、`.clang-format`/`.editorconfig`、一个冒烟单测。
 - **范围外**：任何引擎功能代码。
 - **验收命令与证据**：CI 三平台绿灯；本地 `cmake --preset <triple>-debug && cmake --build --preset <triple>-debug && ctest --preset <triple>-debug` 通过。
 - **停止条件**：全局门禁 1–3 通过；AGENTS.md @@COMMAND@@ 节回填实际命令组。

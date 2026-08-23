@@ -1,6 +1,6 @@
 # jrpgmaker 项目宪法
 
-> 本文件是全局《通用 Agent 宪法》（`C:\Users\Vens_\AppData\Local\Temp` 外的用户级 `~/.config/opencode/AGENTS.md`）在本项目的适配层。全局宪法继续完全生效，本文只写项目特化条款；冲突时以更严格者为准。
+> 本文件是用户级全局宪法（`~/.config/opencode/AGENTS.md`）在本项目的适配层。全局宪法继续完全生效，本文只写项目特化条款；冲突时以更严格者为准。
 
 ## 基本信息
 
@@ -18,6 +18,7 @@
 | `docs/00-product.md` | 产品定义、目标游戏形态、边界、成功标准 |
 | `docs/01-architecture.md` | 分层 owner 与边界合同、技术栈锁定、目录结构 |
 | `docs/02-milestones.md` | P0–P7 里程碑、每阶段验收门禁与停止条件、风险清单 |
+| `docs/03-engine-survey.md` | 四引擎架构调研、对象模型重评证据、采纳/拒绝清单 |
 
 规则：新增真源文档必须先登记进 `docs/README.md`；未登记或已归档的文档不得作为事实依据。
 
@@ -68,7 +69,7 @@
 
 本机（Windows）实况注记，供后续会话复用：MSVC 在 `F:\code`（经 `F:\code\Common7\Tools\VsDevCmd.bat -arch=x64` 进入环境）；CMake 4.4.2 经 winget 安装于 `C:\Program Files\CMake\bin`，Ninja 位于 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Ninja-build.Ninja_*`（两者均需显式注入 PATH）；vcpkg 于 `C:\Users\Vens_\vcpkg`（builtin-baseline 已锁 commit）；代理需设 `HTTP(S)_PROXY=http://127.0.0.1:7897`。
 
-- 全局门禁（P0 起生效）：CI 三平台 build+test 绿灯、编译 warning 清零（MSVC `/WX`、GCC/Clang `-Werror`）、`clang-format` diff 为空。本节为摘要；完整门禁清单（golden image、数据 lint、文档回写、模块私有头审计等分阶段项）以 `docs/02-milestones.md` §全局门禁为准。
+全局门禁（P0 起生效）：CI 三平台 build+test 绿灯、编译 warning 清零（MSVC `/WX`、GCC/Clang `-Werror`）、`clang-format` diff 为空。本节为摘要；完整门禁清单（golden image、数据 lint、文档回写、模块私有头审计等分阶段项）以 `docs/02-milestones.md` §全局门禁为准。
 
 ## Owner 边界速记（详见 docs/01-architecture.md）
 
