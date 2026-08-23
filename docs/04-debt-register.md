@@ -8,6 +8,9 @@
 | DEBT-002 | 2026-08-23 | `tools/ci/check_private_headers.ps1` 缺自动化自测 fixture：本轮修复后用手工构造的正反例 probe 验证，回归无保障 | 可记录债务 | P0 收尾时点手工验证证据充分（相对路径跨模块引用、`<mod/src/...>` 可疑模式两反例均正确拦截）；自动化 fixture 属测试基建增量 | P1 内顺手补 `tools/ci/selftest_private_headers.ps1`（内置正反例临时文件）并入 CI 私有头审计 job | 开放 |
 | DEBT-003 | 2026-08-23 | `tests/unit/CMakeLists.txt` 以 `list(APPEND CMAKE_MODULE_PATH "${Catch2_DIR}")` + `include(Catch)` 接入 Catch2 脚本模块，依赖上游安装目录布局 | 可记录债务 | 当前 vcpkg 锁定的 Catch2 版本下工作正常（win-debug/release 双配置 ctest 通过） | 下次升级 vcpkg builtin-baseline 时复核该路径假设是否仍成立 | 开放 |
 | NOISE-001 | 2026-08-23 | 本机 `git add` 时出现 "LF will be replaced by CRLF" 提示 | 已接受噪音 | `.gitattributes` 已定义仓库内统一 LF 存储，提示仅为本机 autocrlf 工作区行为说明，仓库内容与 CI 不受影响 | 无需行动；避免后续会话误判为缺陷 | 已接受 |
+| DEBT-004 | 2026-08-23 | D3D12 后端 v0 所有命令列表共享单一 command allocator：两个列表同时 recording 或 Submit 后未等 GPU 即 Begin 均属误用且仅有 HRESULT 级报错（合同已声明串行约束，代码无防护） | 设计风险 | 当前测试与用法严格串行；per-list/per-frame allocator 演进是主循环轮次的必然工作，届时一并消除该简化 | P1 主循环接线前演进 allocator 模型；01 §RHI v0 语义补充 "Begin 前须 GPU idle" 条款 | 开放 |
+| DEBT-005 | 2026-08-23 | `D3D12CommandList` 与 `D3D12Device` 同住 d3d12_device.{h,cpp}；后续轮次加入资源管理后将膨胀失控 | 可记录债务 | 骨架期两文件共约 270 行尚可控；拆分动作本身零风险但单独成 commit 无收益 | 下一次 D3D12 功能轮次开工时先拆出 d3d12_command_list.{h,cpp} | 开放 |
+| DEBT-006 | 2026-08-23 | D3D12 后端开了 debug layer 但未挂 ID3D12InfoQueue 错误回调与退出时 ReportLiveObjects，GPU 侧错误与对象泄漏不可见 | 可记录债务 | 骨架期无资源创建，泄漏面为零；挂钩代码在清屏/资源轮次才有真实价值 | 清屏基线轮次顺手接入 InfoQueue + live-object 报告并入测试断言 | 开放 |
 
 ## 已关闭
 

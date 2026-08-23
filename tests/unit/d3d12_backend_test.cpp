@@ -29,6 +29,21 @@ TEST_CASE("d3d12 backend submits an empty command stream", "[rhi][d3d12]") {
     device->DestroyCommandList(command_list);
 }
 
+TEST_CASE("d3d12 backend survives repeated submit and wait cycles", "[rhi][d3d12]") {
+    const std::unique_ptr<IDevice> device = CreateDevice(Backend::kD3D12);
+    REQUIRE(device != nullptr);
+
+    for (int cycle = 0; cycle < 4; ++cycle) {
+        ICommandList* command_list = device->CreateCommandList();
+        REQUIRE(command_list != nullptr);
+        command_list->Begin();
+        command_list->End();
+        device->Submit(*command_list);
+        device->WaitForGpuIdle();
+        device->DestroyCommandList(command_list);
+    }
+}
+
 TEST_CASE("d3d12 backend unimplemented resource surface returns invalid handles", "[rhi][d3d12]") {
     const std::unique_ptr<IDevice> device = CreateDevice(Backend::kD3D12);
     REQUIRE(device != nullptr);
