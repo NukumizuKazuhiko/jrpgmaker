@@ -69,6 +69,8 @@
 
 本机（Windows）实况注记，供后续会话复用：MSVC 在 `F:\code`（经 `F:\code\Common7\Tools\VsDevCmd.bat -arch=x64` 进入环境）；CMake 4.4.2 经 winget 安装于 `C:\Program Files\CMake\bin`，Ninja 位于 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Ninja-build.Ninja_*`（两者均需显式注入 PATH）；vcpkg 于 `C:\Users\Vens_\vcpkg`（builtin-baseline 已锁 commit）；代理需设 `HTTP(S)_PROXY=http://127.0.0.1:7897`。
 
+本机 WSL2 Linux 验收路径（2026-08-23 建立，供后续会话复用）：WSL2 Ubuntu 26.04（默认用户 root）。工具链已装齐：build-essential (g++ 15)、ninja、libvulkan-dev、mesa-vulkan-drivers（lavapipe ICD，可本地跑 vulkan 后端测试）；apt 的 cmake 4.2 由 vcpkg 自动补下 4.4。WSL 内 vcpkg 实例位于 `/root/vcpkg`（与项目锁同一 baseline commit）。NAT 模式下 WSL 内不可用 `127.0.0.1` 代理，必须用 Windows 主机 IP（`ip route show default` 第三列，当前 `172.27.0.1`）拼 `http://<host-ip>:7897`；vcpkg 触发下载时同样需要该代理变量。标准验收命令：`wsl -e bash -c "bash <setup-or-build-script>"`，脚本内 `export VCPKG_ROOT=$HOME/vcpkg && cd /mnt/f/jrpgengine && cmake --preset linux-debug && cmake --build --preset linux-debug && ctest --preset linux-debug`。用途：Vulkan TU 的 GCC 编译错误与 Linux 运行时行为（如 volk 函数指针加载）在推送 CI 前本地秒级验证；临时脚本放 `C:\Users\Vens_\AppData\Local\Temp\opencode\` 经 `/mnt/c/...` 执行。
+
 全局门禁（P0 起生效）：CI 三平台 build+test 绿灯、编译 warning 清零（MSVC `/WX`、GCC/Clang `-Werror`）、`clang-format` diff 为空。本节为摘要；完整门禁清单（golden image、数据 lint、文档回写、模块私有头审计等分阶段项）以 `docs/02-milestones.md` §全局门禁为准。
 
 ## Owner 边界速记（详见 docs/01-architecture.md）
