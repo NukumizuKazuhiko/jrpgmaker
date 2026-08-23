@@ -38,6 +38,19 @@ jobs:
           vcpkgDirectory: '${{ github.workspace }}/vcpkg'
           vcpkgGitCommitId: '127402f1c75bb3d5ff6bce04b285faa4930a5aca'
 
+      - name: Install Vulkan software driver (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libvulkan-dev mesa-vulkan-drivers
+
+      - name: Install lavapipe software Vulkan driver (macOS arm64)
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          brew install zstd spirv-tools llvm
+          curl -sSL -o "$RUNNER_TEMP/lavapipe.tar.gz" https://github.com/rerun-io/lavapipe-build/releases/latest/download/lavapipe-macos-arm64.tar.gz
+          tar xzf "$RUNNER_TEMP/lavapipe.tar.gz" -C "$RUNNER_TEMP"
+          echo "VK_DRIVER_FILES=$RUNNER_TEMP/lavapipe-macos-arm64/lvp_icd.aarch64.json" >> "$GITHUB_ENV"
+
       - name: Configure, build and test
         uses: lukka/run-cmake@v10
         with:

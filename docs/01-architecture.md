@@ -114,6 +114,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 | 数学 | GLM | 与 GLSL 语义对齐，减少 shader 侧转换错误 |
 | 窗口/输入 | SDL3 | 三平台窗口、输入、剪贴板一站式 |
 | 图形 | 自研 RHI + D3D12(Win) / Vulkan(Linux/macOS via MoltenVK) | 平台边界决定的双后端结构 |
+| Vulkan 加载 | volk（header-only 运行时加载，vcpkg `volk` port） | 免链接平台 loader 库；macOS CI 用 lavapipe 软件驱动时 loader 由预编译包提供 |
 | 着色语言/编译器 | HLSL 2021 + DXC（单源双目标，见 ADR-003） | 双后端 shader 语义同源是 golden image 一致性的前提 |
 | 脚本 | sol2 + Lua 5.4 | 逃生舱定位，见事件指令集合同 |
 | 序列化 | nlohmann/json | 数据先行工作流基础设施 |

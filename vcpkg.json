@@ -4,7 +4,9 @@
   "version": "0.0.1",
   "description": "Reusable engine for Persona-style JRPGs",
   "dependencies": [
-    "catch2"
+    "catch2",
+    "vulkan-headers",
+    "volk"
   ],
   "builtin-baseline": "127402f1c75bb3d5ff6bce04b285faa4930a5aca"
 }
