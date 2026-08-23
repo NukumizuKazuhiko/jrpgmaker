@@ -25,8 +25,14 @@
 
 ## P1 垂直切片〇：三角形（最高风险期）
 
+- **状态**：预检完成，待开工。
 - **目的**：打通主循环 + RHI 双后端最小闭环，验证合同层设计成立。
 - **范围内**：固定时间步主循环(SDL3 窗口/输入接线)；Stage 合同框架落地（Input→Domain Sim→Animation→Presentation Sync→Render Submit 显式阶段序列，空阶段占位，系统注册须声明所属 Stage 与 before/after）；RHI 合同 v0（device/swapchain/command list/graphics pipeline/buffer 最小集）；D3D12 与 Vulkan 后端各自实现；合同测试框架 v0 + golden image 流水线。
+- **开工前预检结论**（2026-08-23）：
+  - 依赖可用性：vcpkg 树内已有 `sdl3 3.4.14`、`vulkan`、`volk`、`directx-headers`；无 `dxc` port。shader 编译器选型是 P1 第一个 ADR：候选主线 = DXC 单源双目标（HLSL → DXIL 供 D3D12 + `-spirv` SPIR-V 供 Vulkan），保证双后端 shader 语义同源。
+  - CI 渲染策略（golden image 前提）：Windows runner 用 WARP 软件光栅化创建 D3D12 设备；Linux runner 安装 mesa lavapipe；macOS runner 使用 arm64 lavapipe 预编译包（rerun-io/lavapipe-build，2026-02 起）作为 ICD——同一 Vulkan 后端代码，CI 用 lavapipe、真机用 MoltenVK，仅 ICD 不同。三平台均为软件光栅化，golden 基准图必须由同环境生成并标定跨驱动容差。
+  - 头号技术风险：WARP 与 lavapipe 的像素输出差异容差标定。golden 流水线第一个实验应为"纯色清屏帧"基线，先证明零几何场景可跨后端零容差一致，再引入三角形与插值容差。
+  - 债务联动：DEBT-001（action 升级）、DEBT-002（审计脚本自测）计划在 P1 内顺手关闭（见 [04-debt-register.md](04-debt-register.md)）。
 - **范围外**：材质、纹理、3D 数学以外的场景概念。
 - **验收命令与证据**：两后端各渲染同一三角形，golden image 比对通过（截图+测试日志）；窗口开关、resize 不崩溃。
 - **停止条件**：全局门禁全过。**若合同设计不稳，宁可延期重构，不带病进入 P2。**
