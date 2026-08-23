@@ -146,16 +146,7 @@ PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc&) {
 void VulkanDevice::DestroyPipeline(PipelineHandle) {}
 
 ICommandList* VulkanDevice::CreateCommandList() {
-    VkCommandBufferAllocateInfo allocate_info{};
-    allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocate_info.commandPool = command_pool_;
-    allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocate_info.commandBufferCount = 1;
-
-    auto* command_list = new VulkanCommandList(device_, command_pool_);
-    ThrowIfFailed(vkAllocateCommandBuffers(device_, &allocate_info, &command_list->command_buffer_),
-                  "vkAllocateCommandBuffers");
-    return command_list;
+    return new VulkanCommandList(device_, command_pool_);
 }
 
 void VulkanDevice::DestroyCommandList(ICommandList* command_list) {
@@ -190,7 +181,15 @@ const std::byte* VulkanDevice::MapReadBack(TextureHandle) {
     return nullptr;
 }
 
-VulkanCommandList::VulkanCommandList(VkDevice device, VkCommandPool) : device_(device) {}
+VulkanCommandList::VulkanCommandList(VkDevice device, VkCommandPool pool) : device_(device) {
+    VkCommandBufferAllocateInfo allocate_info{};
+    allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocate_info.commandPool = pool;
+    allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocate_info.commandBufferCount = 1;
+    ThrowIfFailed(vkAllocateCommandBuffers(device, &allocate_info, &command_buffer_),
+                  "vkAllocateCommandBuffers");
+}
 
 void VulkanCommandList::Begin() {
     VkCommandBufferBeginInfo begin_info{};
