@@ -79,6 +79,15 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - macOS 经 MoltenVK 走 Vulkan 后端，不单独维护 Metal 后端。
 - Shader 编译（ADR-003）：HLSL 单一源，构建期经 DXC 编出 DXIL 与 SPIR-V 两种字节码；RHI pipeline 接口只消费预编译字节码，后端各自选择消费格式；运行时无 shader 编译器依赖。CI 三平台经 Vulkan SDK 提供 dxc。
 
+### RHI v0 合同语义（P1 落地版）
+
+- 对象模型：接口类（`IDevice`/`ICommandList`/`ISwapchain`）+ 强类型句柄（`BufferHandle` 等，`kInvalid` 表示失败）；描述符全部为 POD 聚合。
+- 渲染模型：dynamic rendering 风格（`BeginRendering`/`EndRendering` 直接绑定 target），无显式 render-pass 对象——这是 D3D12 与 Vulkan 1.3 的公共面；viewport/scissor 默认全 target，由后端内部维护。
+- 后端选择：合同层仅暴露 `CreateDevice(Backend)` 工厂声明；各后端静态库提供该符号定义，app 按平台链接对应后端目标。合同头禁止出现任何后端类型或 SDL 类型（窗口以 `void* native_window_handle` 传入，由 platform/app 层负责提取）。
+- golden image 路径：CI 无窗口环境走离屏渲染——`CreateTexture(RenderTarget|ReadBack)` → `CopyTexture` 到 readback 纹理 → `WaitForGpuIdle` → `MapReadBack` 取像素比对；swapchain 仅 app 主循环使用，不进 CI。
+- 生命周期约束：`DestroyXxx` 要求调用方保证 GPU 已空闲（即 `Submit` + `WaitForGpuIdle` 之后）；延迟删除是后端后续增强，不属于 v0 合同语义。
+- v0 裁剪：三角形用例经 `SV_VertexID`/`gl_VertexIndex` 在顶点着色器内生成几何，故 v0 无顶点缓冲与输入布局概念；顶点输入随 P2 glTF 导入进入合同。
+
 ### BattleRules 插件合同
 
 - 接口要素：阶段推进(tick)、玩家意图提交、输入钩子注册(QTE 时间轴/输入缓冲)、结算投影(发给 UI 的结构化结果)。
