@@ -152,6 +152,18 @@ void VulkanDevice::DestroyBuffer(BufferHandle) {}
 TextureHandle VulkanDevice::CreateTexture(const TextureDesc& desc) {
     const VkFormat native_format = ToNativeFormat(desc.format);
 
+    VkImageUsageFlags usage_flags = 0;
+    if ((desc.usage & TextureUsage::kRenderTarget) != TextureUsage::kNone) {
+        usage_flags |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    }
+    if ((desc.usage & TextureUsage::kReadBack) != TextureUsage::kNone) {
+        usage_flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
+    if (usage_flags == 0) {
+        throw std::runtime_error(
+            "vulkan backend: texture creation requires at least one usage bit");
+    }
+
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
@@ -161,8 +173,7 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDesc& desc) {
     image_info.arrayLayers = 1;
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                       VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    image_info.usage = usage_flags;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     TextureEntry entry{};

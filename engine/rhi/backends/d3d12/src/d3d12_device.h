@@ -35,6 +35,7 @@ private:
     D3D12Device* owner_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator_;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> command_list_;
+    ID3D12Resource* rendering_target_ = nullptr;
 };
 
 class D3D12Device final : public IDevice {

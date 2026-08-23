@@ -84,7 +84,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - 对象模型：接口类（`IDevice`/`ICommandList`/`ISwapchain`）+ 强类型句柄（`BufferHandle` 等，`kInvalid` 表示失败）；描述符全部为 POD 聚合。
 - 渲染模型：dynamic rendering 风格（`BeginRendering`/`EndRendering` 直接绑定 target），无显式 render-pass 对象——这是 D3D12 与 Vulkan 1.3 的公共面；viewport/scissor 默认全 target，由后端内部维护。
 - 后端选择：合同层仅暴露 `CreateDevice(Backend)` 工厂声明；各后端静态库提供该符号定义，app 按平台链接对应后端目标。合同头禁止出现任何后端类型或 SDL 类型（窗口以 `void* native_window_handle` 传入，由 platform/app 层负责提取）。
-- golden image 路径：CI 无窗口环境走离屏渲染——`CreateTexture(RenderTarget|ReadBack)` → `CopyTexture` 到 readback 纹理 → `WaitForGpuIdle` → `MapReadBack` 取像素比对；swapchain 仅 app 主循环使用，不进 CI。
+- golden image 路径：CI 无窗口环境走离屏渲染——`CreateTexture(RenderTarget|ReadBack)` → `BeginRendering`+clear（当前无几何阶段仅清屏）→ `Submit` + `WaitForGpuIdle` → `MapReadBack`（返回 `MappedTexture{data, row_pitch_bytes}`，行距由后端各自报告：D3D12 为 footprint.RowPitch，Vulkan 为紧密 `width*4`）→ 按行距逐像素比对；readback copy 由后端在 `MapReadBack` 内部完成（每次调用重建 command list 执行 copy 并等待），合同层不暴露 copy 命令。swapchain 仅 app 主循环使用，不进 CI。
 - 生命周期约束：`DestroyXxx` 要求调用方保证 GPU 已空闲（即 `Submit` + `WaitForGpuIdle` 之后）；延迟删除是后端后续增强，不属于 v0 合同语义。
 - v0 裁剪：三角形用例经 `SV_VertexID`/`gl_VertexIndex` 在顶点着色器内生成几何，故 v0 无顶点缓冲与输入布局概念；顶点输入随 P2 glTF 导入进入合同。
 

@@ -171,8 +171,10 @@ TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc) {
 }
 
 void D3D12Device::DestroyTexture(TextureHandle handle) {
+    const std::uint64_t key = static_cast<std::uint64_t>(handle);
     WaitForGpuIdle();
-    textures_.erase(static_cast<std::uint64_t>(handle));
+    read_backs_.erase(key);
+    textures_.erase(key);
 }
 
 PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc&) {
@@ -266,6 +268,9 @@ ID3D12Resource* D3D12Device::EnsureReadBack(TextureHandle handle) {
     entry.row_pitch_bytes = footprint.Footprint.RowPitch;
     D3D12_RANGE mapped_range{0, 0};
     resource->Map(0, &mapped_range, reinterpret_cast<void**>(&entry.mapped));
+    if (entry.mapped == nullptr) {
+        throw std::runtime_error("d3d12 backend: failed to map read-back buffer");
+    }
     entry.resource = std::move(resource);
 
     auto [inserted, ok] = read_backs_.emplace(key, std::move(entry));
@@ -313,10 +318,11 @@ void D3D12CommandList::End() {
 
 void D3D12CommandList::BeginRendering(TextureHandle color_target, const ClearColor& clear_color) {
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = owner_->RtvCpuHandle(color_target);
+    rendering_target_ = owner_->TextureResource(color_target);
 
     D3D12_RESOURCE_BARRIER to_render_target{};
     to_render_target.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    to_render_target.Transition.pResource = owner_->TextureResource(color_target);
+    to_render_target.Transition.pResource = rendering_target_;
     to_render_target.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
     to_render_target.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     to_render_target.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
@@ -327,7 +333,19 @@ void D3D12CommandList::BeginRendering(TextureHandle color_target, const ClearCol
     command_list_->ClearRenderTargetView(rtv, color, 0, nullptr);
 }
 
-void D3D12CommandList::EndRendering() {}
+void D3D12CommandList::EndRendering() {
+    if (rendering_target_ == nullptr) {
+        return;
+    }
+    D3D12_RESOURCE_BARRIER to_common{};
+    to_common.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    to_common.Transition.pResource = rendering_target_;
+    to_common.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    to_common.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+    to_common.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    command_list_->ResourceBarrier(1, &to_common);
+    rendering_target_ = nullptr;
+}
 
 void D3D12CommandList::CopyTextureToReadBack(ID3D12Resource* source, ID3D12Resource* staging) {
     D3D12_RESOURCE_BARRIER to_copy_source{};
