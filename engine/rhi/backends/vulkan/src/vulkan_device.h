@@ -26,7 +26,6 @@ public:
     VkCommandBuffer Native() { return command_buffer_; }
 
 private:
-    VkDevice device_ = VK_NULL_HANDLE;
     VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
 };
 

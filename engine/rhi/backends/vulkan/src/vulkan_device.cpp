@@ -165,10 +165,11 @@ void VulkanDevice::Submit(ICommandList& command_list) {
                   "vkWaitForFences(pre-submit)");
     ThrowIfFailed(vkResetFences(device_, 1, &fence_), "vkResetFences");
 
+    VkCommandBuffer command_buffer = vulkan_list.Native();
     VkSubmitInfo submit_info{};
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &vulkan_list.Native();
+    submit_info.pCommandBuffers = &command_buffer;
 
     ThrowIfFailed(vkQueueSubmit(queue_, 1, &submit_info, fence_), "vkQueueSubmit");
 }
@@ -181,7 +182,7 @@ const std::byte* VulkanDevice::MapReadBack(TextureHandle) {
     return nullptr;
 }
 
-VulkanCommandList::VulkanCommandList(VkDevice device, VkCommandPool pool) : device_(device) {
+VulkanCommandList::VulkanCommandList(VkDevice device, VkCommandPool pool) {
     VkCommandBufferAllocateInfo allocate_info{};
     allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocate_info.commandPool = pool;
