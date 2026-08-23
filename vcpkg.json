@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "jrpgmaker",
+  "version": "0.0.1",
+  "description": "Reusable engine for Persona-style JRPGs",
+  "dependencies": [
+    "catch2"
+  ],
+  "builtin-baseline": "127402f1c75bb3d5ff6bce04b285faa4930a5aca"
+}

@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            preset: win-debug
+          - os: windows-latest
+            preset: win-release
+          - os: ubuntu-latest
+            preset: linux-debug
+          - os: ubuntu-latest
+            preset: linux-release
+          - os: macos-latest
+            preset: mac-debug
+          - os: macos-latest
+            preset: mac-release
+    runs-on: ${{ matrix.os }}
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Setup vcpkg (pinned commit, manifest mode)
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+          vcpkgGitCommitId: '127402f1c75bb3d5ff6bce04b285faa4930a5aca'
+
+      - name: Configure, build and test
+        uses: lukka/run-cmake@v10
+        with:
+          configurePreset: '${{ matrix.preset }}'
+          buildPreset: '${{ matrix.preset }}'
+          testPreset: '${{ matrix.preset }}'
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: clang-format diff must be empty
+        run: |
+          clang-format --version
+          git ls-files '*.cpp' '*.hpp' | xargs clang-format --dry-run --Werror
+
+  private-headers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Engine private headers are not referenced outside their module
+        run: pwsh ./tools/ci/check_private_headers.ps1
