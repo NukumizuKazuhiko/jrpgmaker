@@ -51,6 +51,7 @@ presentation 层禁止反推业务结论（如"谁赢了""权限够不够"）
 |---|---|---|---|
 | ADR-001 | 运行时唯一对象模型 owner = EnTT ECS；场景树只允许作为远期编辑器的视图投影，禁止进入运行时 | 已决 | [03-engine-survey.md](03-engine-survey.md) §JRPG 需求侧判断 |
 | ADR-002 | 主线 P0–P7 不实现 ACT 物理战斗；ACT 战斗定位为远期 BattleRules 插件植入，P5 建立的插件合同必须保证零引擎核心改动接入 | 已决（用户确认） | [00-product.md](00-product.md) §边界 |
+| ADR-003 | 着色语言与编译器 = HLSL 源码 + DXC 单源双目标：DXIL 供 D3D12 后端、SPIR-V（`-spirv`，Khronos 官方维护）供 Vulkan 后端；禁止双语言双编译链 | 已决（用户确认） | golden image 双后端一致性要求 shader 语义同源；GLSL 无 DXIL 原生路径，Slang 工具链成熟度不足（P1-A1 论证） |
 
 从外部架构模式采纳的合同增强（A1–A6 清单及拒绝项理由见调研文档）：rhi/render/audio 保持 server 式无状态服务形状，三段间接映射为 render(高层渲染语义)→rhi(图形合同)→backend(d3d12/vulkan, driver 角色)（Godot）；显式 Stage 序列与变更检测投影同步（Bevy）；单向 hybrid 红线（Unity/V Rising）；Public/Private 可见性纪律（Unreal）。
 
@@ -76,6 +77,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - 合同测试套件：同一组渲染行为用例参数化跑 D3D12 与 Vulkan 两后端，输出 golden image 比对（容差阈值）。
 - 改动合同必须同一提交内同步两个后端并通过合同测试，否则不得声称完成（AGENTS.md 纪律 1）。
 - macOS 经 MoltenVK 走 Vulkan 后端，不单独维护 Metal 后端。
+- Shader 编译（ADR-003）：HLSL 单一源，构建期经 DXC 编出 DXIL 与 SPIR-V 两种字节码；RHI pipeline 接口只消费预编译字节码，后端各自选择消费格式；运行时无 shader 编译器依赖。CI 三平台经 Vulkan SDK 提供 dxc。
 
 ### BattleRules 插件合同
 
@@ -103,6 +105,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 | 数学 | GLM | 与 GLSL 语义对齐，减少 shader 侧转换错误 |
 | 窗口/输入 | SDL3 | 三平台窗口、输入、剪贴板一站式 |
 | 图形 | 自研 RHI + D3D12(Win) / Vulkan(Linux/macOS via MoltenVK) | 平台边界决定的双后端结构 |
+| 着色语言/编译器 | HLSL 2021 + DXC（单源双目标，见 ADR-003） | 双后端 shader 语义同源是 golden image 一致性的前提 |
 | 脚本 | sol2 + Lua 5.4 | 逃生舱定位，见事件指令集合同 |
 | 序列化 | nlohmann/json | 数据先行工作流基础设施 |
 | 字体 | FreeType + HarfBuzz | CJK 整形与禁则处理必需 |
