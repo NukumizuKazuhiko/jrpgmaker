@@ -3,7 +3,7 @@
 namespace jrpgmaker::core {
 
 auto version() -> std::string_view {
-  return "0.0.1";
+    return "0.0.1";
 }
 
-}
+} // namespace jrpgmaker::core
