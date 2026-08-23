@@ -46,10 +46,11 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -e
-          brew install zstd spirv-tools llvm
+          brew install zstd spirv-tools llvm vulkan-loader
           curl -sSL -o "$RUNNER_TEMP/lavapipe.tar.gz" https://github.com/rerun-io/lavapipe-build/releases/latest/download/lavapipe-macos-arm64.tar.gz
           tar xzf "$RUNNER_TEMP/lavapipe.tar.gz" -C "$RUNNER_TEMP"
           echo "VK_DRIVER_FILES=$RUNNER_TEMP/lavapipe-macos-arm64/lvp_icd.aarch64.json" >> "$GITHUB_ENV"
+          echo "DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib" >> "$GITHUB_ENV"
 
       - name: Configure, build and test
         uses: lukka/run-cmake@v10

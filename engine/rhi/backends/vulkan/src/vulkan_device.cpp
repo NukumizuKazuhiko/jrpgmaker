@@ -78,6 +78,7 @@ std::unique_ptr<IDevice> VulkanDevice::Create() {
 
     auto instance = std::unique_ptr<VulkanDevice>(new VulkanDevice());
     instance->instance_ = CreateInstance();
+    volkLoadInstance(instance->instance_);
     instance->physical_device_ = SelectPhysicalDevice(instance->instance_);
     instance->queue_family_ = FindGraphicsQueueFamily(instance->physical_device_);
 
