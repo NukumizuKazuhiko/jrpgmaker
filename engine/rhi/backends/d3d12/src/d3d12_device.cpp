@@ -238,12 +238,9 @@ TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc) {
                   "CreateCommittedResource(texture)");
 
     if ((desc.usage & TextureUsage::kRenderTarget) != TextureUsage::kNone) {
-        if (rtv_allocated_ >= kRtvHeapCapacity) {
-            throw std::runtime_error("d3d12 backend: render target view heap exhausted");
-        }
+        entry.rtv_slot = AllocateRtvSlot();
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap_->GetCPUDescriptorHandleForHeapStart();
-        rtv.ptr += static_cast<SIZE_T>(rtv_allocated_) * rtv_descriptor_size_;
-        ++rtv_allocated_;
+        rtv.ptr += static_cast<SIZE_T>(entry.rtv_slot) * rtv_descriptor_size_;
         device_->CreateRenderTargetView(entry.resource.Get(), nullptr, rtv);
         entry.rtv = rtv;
         entry.has_rtv = true;
@@ -263,6 +260,9 @@ void D3D12Device::DestroyTexture(TextureHandle handle) {
     }
     WaitForGpuIdle();
     read_backs_.erase(key);
+    if (it != textures_.end() && it->second.has_rtv) {
+        ReleaseRtvSlot(it->second.rtv_slot);
+    }
     textures_.erase(key);
 }
 
@@ -290,15 +290,12 @@ TextureHandle D3D12Device::RegisterSwapchainBuffer(ID3D12Resource* resource, std
     (void) width;
     (void) height;
     (void) format;
-    if (rtv_allocated_ >= kRtvHeapCapacity) {
-        throw std::runtime_error("d3d12 backend: RTV descriptor heap exhausted");
-    }
+    TextureEntry entry{};
+    entry.rtv_slot = AllocateRtvSlot();
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap_->GetCPUDescriptorHandleForHeapStart();
-    rtv.ptr += static_cast<SIZE_T>(rtv_allocated_) * rtv_descriptor_size_;
-    ++rtv_allocated_;
+    rtv.ptr += static_cast<SIZE_T>(entry.rtv_slot) * rtv_descriptor_size_;
     device_->CreateRenderTargetView(resource, nullptr, rtv);
 
-    TextureEntry entry{};
     entry.resource = resource;
     entry.desc = resource->GetDesc();
     entry.rtv = rtv;
@@ -312,7 +309,30 @@ TextureHandle D3D12Device::RegisterSwapchainBuffer(ID3D12Resource* resource, std
 
 void D3D12Device::UnregisterSwapchainBuffer(TextureHandle handle) {
     const std::uint64_t key = static_cast<std::uint64_t>(handle);
+    const auto it = textures_.find(key);
+    if (it == textures_.end()) {
+        return;
+    }
+    if (it->second.has_rtv) {
+        ReleaseRtvSlot(it->second.rtv_slot);
+    }
     textures_.erase(key);
+}
+
+UINT D3D12Device::AllocateRtvSlot() {
+    if (!rtv_free_slots_.empty()) {
+        const UINT slot = rtv_free_slots_.back();
+        rtv_free_slots_.pop_back();
+        return slot;
+    }
+    if (rtv_allocated_ >= kRtvHeapCapacity) {
+        throw std::runtime_error("d3d12 backend: render target view heap exhausted");
+    }
+    return rtv_allocated_++;
+}
+
+void D3D12Device::ReleaseRtvSlot(UINT slot) {
+    rtv_free_slots_.push_back(slot);
 }
 
 void D3D12Device::Submit(ICommandList& command_list) {

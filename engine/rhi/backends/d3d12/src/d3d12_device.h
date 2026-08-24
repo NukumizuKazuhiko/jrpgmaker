@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 #include <d3d12.h>
 #include <dxgi1_4.h>
@@ -76,6 +77,7 @@ private:
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
         D3D12_RESOURCE_DESC desc{};
         D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
+        UINT rtv_slot = 0;
         bool has_rtv = false;
         bool is_swapchain = false;
     };
@@ -104,6 +106,9 @@ private:
     ID3D12RootSignature* RootSignature() { return root_signature_.Get(); }
     void CheckGpuErrors();
 
+    UINT AllocateRtvSlot();
+    void ReleaseRtvSlot(UINT slot);
+
     Microsoft::WRL::ComPtr<ID3D12Device> device_;
     Microsoft::WRL::ComPtr<ID3D12InfoQueue> info_queue_;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue_;
@@ -112,6 +117,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtv_heap_;
     UINT rtv_descriptor_size_ = 0;
     UINT rtv_allocated_ = 0;
+    std::vector<UINT> rtv_free_slots_;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> root_signature_;
 
     std::unordered_map<std::uint64_t, TextureEntry> textures_;

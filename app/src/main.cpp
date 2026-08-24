@@ -48,6 +48,8 @@ void RunMainLoop(jrpgmaker::rhi::IDevice& device, jrpgmaker::rhi::ISwapchain* sw
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
                 running = false;
+            } else if (event.type == SDL_EVENT_WINDOW_RESIZED) {
+                swapchain->Resize(event.window.data1, event.window.data2);
             }
         }
         if (!running) {

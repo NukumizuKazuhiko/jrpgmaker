@@ -27,6 +27,11 @@
 | DEBT-021 | 2026-08-24 | Vulkan swapchain 复用 graphics 队列族进行 present（`vkGetPhysicalDeviceSurfaceSupportKHR` 仅运行时校验 graphics 队列可 present），未独立选择 present 专用队列族 | 可记录债务 | 目标平台（MoltenVK/lavapipe/主流桌面驱动）graphics 队列族恒可 present；独立 present 队列是异质平台（如部分移动 SoC）才需要 | 引入独立 present 队列支持的平台时，device 创建改为按 surface 支持选择队列族并创建第二队列 | 开放 |
 | DEBT-022 | 2026-08-24 | swapchain back buffer 图像布局状态语义未合同化：D3D12 EndRendering 回 COMMON、Vulkan EndRendering 转 TRANSFER_SRC；Present 前 swapchain image 应处 PRESENT_SRC/COMMON，当前 Vulkan 无呈现前显式布局转换 | 设计风险 | 当前 app 实机（D3D12）工作正常；Vulkan surface 未实机验证故布局问题未暴露；真机若校验报错会暴露 | Vulkan 实机验收轮次：EndRendering 对 swapchain image 增加 COMMON/PRESENT 转换或合同层约定"present 目标渲染后回可呈现状态" | 开放 |
 | DEBT-023 | 2026-08-24 | app 主循环把 SDL3 接线直接放 app（未建 `engine/platform` 模块），与 docs/01 目录结构"platform(adapter) 负责 SDL3 窗口/输入接线"不一致 | 可记录债务 | P1 为最小装配验证，SDL 直接接线可跑通；platform 模块空置 | P2 起把窗口/输入/文件抽象迁移到 `engine/platform`，app 只做装配 | 开放 |
+| DEBT-024 | 2026-08-24 | `SystemRegistration.stage` 是死字段：`RegisterSystem(stage, {stage, order}, cb)` 强制调用方重复传 stage，实现只按参数索引、只读 order，不校验 `registration.stage == stage` | 可记录债务 | 冗余字段 + 调用冗余；v0 阶段语义简单未暴露问题 | Stage 合同成熟（before/after 图落地）时删除字段或改为仅 order 参数 | 开放 |
+| DEBT-025 | 2026-08-24 | D3D12 `RegisterSwapchainBuffer` 的 width/height/format 参数全部 `(void)` 未使用，调用方硬编码 `kB8G8R8A8Unorm` | 可记录债务 | swapchain 创建路径当前固定 B8G8R8A8；参数预留但未消费 | swapchain 支持多格式时消费参数，或移除参数 | 开放 |
+| DEBT-026 | 2026-08-24 | `StageRunner::Tick` 每帧对全表 `std::sort`；注册时即可维护有序性 | 可记录债务 | 系统数小（v0 空占位），每帧排序成本可忽略 | Stage 成熟时改为注册期排序或按序插入 | 开放 |
+| DEBT-027 | 2026-08-24 | `EnabledInstanceExtensions` 对必需扩展（`VK_KHR_surface` 等）不支持时静默跳过而非硬失败，问题推迟到 CreateSwapchain 才暴露 | 可记录债务 | 离屏测试环境（lavapipe）可能缺 surface 扩展但无需 swapchain；静默跳过让离屏可用 | CreateSwapchain 已对 swapchain_supported_ 检查；若需更早失败可在 instance 创建时校验 surface 必需扩展 | 开放 |
+| DEBT-028 | 2026-08-24 | `vkAcquireNextImageKHR` 用 `VK_NULL_HANDLE` semaphore/fence：单线程+FIFO present 可用但非规范用法，无帧内同步信号量 | 可记录债务 | 当前单命令列表顺序执行、Present 前有 WaitForGpuIdle 间接同步；未暴露竞争 | 多帧 in-flight 或双缓冲流水线落地时引入 acquire semaphore + present wait semaphore | 开放 |
 
 ## 已关闭
 

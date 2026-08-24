@@ -33,42 +33,57 @@ VkSurfaceKHR CreateSurface(VkInstance instance, void* native_window_handle) {
 VulkanSwapchain::VulkanSwapchain(VulkanDevice* owner, void* native_window_handle,
                                  std::uint32_t width, std::uint32_t height, Format format)
     : owner_(owner) {
-    surface_ = CreateSurface(owner->instance_, native_window_handle);
+    try {
+        surface_ = CreateSurface(owner->instance_, native_window_handle);
 
-    VkBool32 present_supported = VK_FALSE;
-    ThrowIfFailed(vkGetPhysicalDeviceSurfaceSupportKHR(
-                      owner->physical_device_, owner->queue_family_, surface_, &present_supported),
-                  "vkGetPhysicalDeviceSurfaceSupportKHR");
-    if (present_supported == VK_FALSE) {
-        throw std::runtime_error("vulkan swapchain: graphics queue family cannot present");
-    }
-
-    std::uint32_t format_count = 0;
-    ThrowIfFailed(vkGetPhysicalDeviceSurfaceFormatsKHR(owner->physical_device_, surface_,
-                                                       &format_count, nullptr),
-                  "vkGetPhysicalDeviceSurfaceFormatsKHR(count)");
-    std::vector<VkSurfaceFormatKHR> formats(format_count);
-    ThrowIfFailed(vkGetPhysicalDeviceSurfaceFormatsKHR(owner->physical_device_, surface_,
-                                                       &format_count, formats.data()),
-                  "vkGetPhysicalDeviceSurfaceFormatsKHR");
-
-    const VkFormat requested_format = ToNativeFormat(format);
-    bool found_format = false;
-    VkSurfaceFormatKHR selected_format{};
-    for (const VkSurfaceFormatKHR& candidate : formats) {
-        if (candidate.format == requested_format &&
-            candidate.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-            selected_format = candidate;
-            found_format = true;
-            break;
+        VkBool32 present_supported = VK_FALSE;
+        ThrowIfFailed(vkGetPhysicalDeviceSurfaceSupportKHR(owner->physical_device_,
+                                                           owner->queue_family_, surface_,
+                                                           &present_supported),
+                      "vkGetPhysicalDeviceSurfaceSupportKHR");
+        if (present_supported == VK_FALSE) {
+            throw std::runtime_error("vulkan swapchain: graphics queue family cannot present");
         }
-    }
-    if (!found_format) {
-        throw std::runtime_error("vulkan swapchain: requested format is not supported by surface");
-    }
-    format_ = selected_format.format;
 
-    CreateSwapchainKHR(width, height);
+        std::uint32_t format_count = 0;
+        ThrowIfFailed(vkGetPhysicalDeviceSurfaceFormatsKHR(owner->physical_device_, surface_,
+                                                           &format_count, nullptr),
+                      "vkGetPhysicalDeviceSurfaceFormatsKHR(count)");
+        std::vector<VkSurfaceFormatKHR> formats(format_count);
+        ThrowIfFailed(vkGetPhysicalDeviceSurfaceFormatsKHR(owner->physical_device_, surface_,
+                                                           &format_count, formats.data()),
+                      "vkGetPhysicalDeviceSurfaceFormatsKHR");
+
+        const VkFormat requested_format = ToNativeFormat(format);
+        bool found_format = false;
+        VkSurfaceFormatKHR selected_format{};
+        for (const VkSurfaceFormatKHR& candidate : formats) {
+            if (candidate.format == requested_format &&
+                candidate.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                selected_format = candidate;
+                found_format = true;
+                break;
+            }
+        }
+        if (!found_format) {
+            throw std::runtime_error(
+                "vulkan swapchain: requested format is not supported by surface");
+        }
+        format_ = selected_format.format;
+
+        CreateSwapchainKHR(width, height);
+    } catch (...) {
+        for (TextureHandle handle : image_handles_) {
+            owner_->UnregisterSwapchainTexture(handle);
+        }
+        image_handles_.clear();
+        DestroySwapchainKHR();
+        if (surface_ != VK_NULL_HANDLE) {
+            vkDestroySurfaceKHR(owner_->instance_, surface_, nullptr);
+            surface_ = VK_NULL_HANDLE;
+        }
+        throw;
+    }
 }
 
 VulkanSwapchain::~VulkanSwapchain() {
