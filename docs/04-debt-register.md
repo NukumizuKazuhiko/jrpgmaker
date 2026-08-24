@@ -30,6 +30,7 @@
 | DEBT-026 | 2026-08-24 | `StageRunner::Tick` 每帧对全表 `std::sort`；注册时即可维护有序性 | 可记录债务 | 系统数小（v0 空占位），每帧排序成本可忽略 | Stage 成熟时改为注册期排序或按序插入 | 开放 |
 | DEBT-027 | 2026-08-24 | `EnabledInstanceExtensions` 对必需扩展（`VK_KHR_surface` 等）不支持时静默跳过而非硬失败，问题推迟到 CreateSwapchain 才暴露 | 可记录债务 | 离屏测试环境（lavapipe）可能缺 surface 扩展但无需 swapchain；静默跳过让离屏可用 | CreateSwapchain 已对 swapchain_supported_ 检查；若需更早失败可在 instance 创建时校验 surface 必需扩展 | 开放 |
 | DEBT-028 | 2026-08-24 | `vkAcquireNextImageKHR` 用 `VK_NULL_HANDLE` semaphore/fence：单线程+FIFO present 可用但非规范用法，无帧内同步信号量 | 可记录债务 | 当前单命令列表顺序执行、Present 前有 WaitForGpuIdle 间接同步；未暴露竞争 | 多帧 in-flight 或双缓冲流水线落地时引入 acquire semaphore + present wait semaphore | 开放 |
+| DEBT-029 | 2026-08-24 | 材质/纹理（PBR 兼容输入）未落地：cgltf 已能解析材质数据，但引擎侧 PBR 渲染（stb 纹理解码 + 纹理上传 RHI + 采样器 + shader 采样）涉及 RHI 纹理采样管线横切，P2 收尾时经用户确认不进入 P2 范围 | 可记录债务 | P2 聚焦渲染数据文件闭环（网格/变换/相机 golden），材质纹理是下一个数据维度；cgltf/stb 已在 vcpkg.json 锁定待用（ADR-004） | 进入 P3 时作为前置或并行项评估：`TextureHandle` 采样器合同 + stb_image 解码 + material 数据入 `SceneLoad` | 开放 |
 
 ## 已关闭
 
