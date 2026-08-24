@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 
+#include "jrpgmaker/assetimport/asset_import.hpp"
 #include "jrpgmaker/rhi/command_list.hpp"
 #include "jrpgmaker/rhi/device.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
@@ -30,14 +31,7 @@ constexpr ClearColor kClearColor{0.0f, 0.0f, 0.0f, 1.0f};
 
 constexpr int kTolerance = 2;
 
-// The triangle positions must match the pre-P2 SV_VertexID-generated geometry
-// (see shaders/triangle.hlsl) so the golden reference stays valid: the golden
-// gate verifies the RHI vertex-input path without re-baselining the image.
-constexpr float kTriangleVertices[] = {
-    -0.5f, -0.5f, 0.0f, //
-    0.5f,  -0.5f, 0.0f, //
-    0.0f,  0.5f,  0.0f, //
-};
+// Vertex input: single interleaved buffer with one float3 position attribute.
 constexpr std::uint32_t kTriangleStride = 3u * sizeof(float);
 constexpr VertexAttribute kTriangleAttributes[] = {
     VertexAttribute{
@@ -50,9 +44,16 @@ constexpr VertexAttribute kTriangleAttributes[] = {
 #ifndef JRPGMAKER_GOLDEN_DIR
 #error "JRPGMAKER_GOLDEN_DIR must be defined by the build"
 #endif
+#ifndef JRPGMAKER_ASSET_DIR
+#error "JRPGMAKER_ASSET_DIR must be defined by the build"
+#endif
 
 std::filesystem::path GoldenPath(const char* name) {
     return std::filesystem::path(JRPGMAKER_GOLDEN_DIR) / name;
+}
+
+std::filesystem::path AssetPath(const char* relative) {
+    return std::filesystem::path(JRPGMAKER_ASSET_DIR) / relative;
 }
 
 } // namespace
@@ -60,7 +61,21 @@ std::filesystem::path GoldenPath(const char* name) {
 // Full-frame comparison against the committed lavapipe-generated reference
 // (tests/golden/triangle_64x64.ppm). The reference is asymmetric about the
 // horizontal midline, so this locks the NDC-Y convention of both backends.
+//
+// The geometry is no longer hard-coded: it is imported from a glTF asset file
+// (assets/art/meshes/triangle.gltf) whose vertices match the pre-P2
+// SV_VertexID-generated triangle exactly, so the golden reference stays valid.
+// P2 adds the index-buffer path: positions go to a vertex buffer, indices to
+// an index buffer, and the draw is DrawIndexed(3, 1).
 TEST_CASE("triangle renders match the committed golden reference", "[rhi][golden][triangle]") {
+    const std::filesystem::path gltf_path = AssetPath("art/meshes/triangle.gltf");
+    REQUIRE(std::filesystem::exists(gltf_path));
+    const std::optional<jrpgmaker::core::MeshData> mesh =
+        jrpgmaker::assetimport::LoadGltfMesh(gltf_path);
+    REQUIRE(mesh.has_value());
+    REQUIRE(mesh->vertex_count() == 3);
+    REQUIRE(mesh->index_count() == 3);
+
     const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
     REQUIRE(device != nullptr);
 
@@ -101,9 +116,18 @@ TEST_CASE("triangle renders match the committed golden reference", "[rhi][golden
     REQUIRE(pipeline != PipelineHandle::kInvalid);
 
     const BufferHandle vertex_buffer = device->CreateBuffer(
-        BufferDesc{.size_bytes = sizeof(kTriangleVertices), .usage = BufferUsage::kVertex});
+        BufferDesc{.size_bytes = static_cast<std::uint64_t>(mesh->positions.size()) * sizeof(float),
+                   .usage = BufferUsage::kVertex});
     REQUIRE(vertex_buffer != BufferHandle::kInvalid);
-    device->MapWrite(vertex_buffer, kTriangleVertices, sizeof(kTriangleVertices));
+    device->MapWrite(vertex_buffer, mesh->positions.data(),
+                     static_cast<std::uint64_t>(mesh->positions.size()) * sizeof(float));
+
+    const BufferHandle index_buffer = device->CreateBuffer(BufferDesc{
+        .size_bytes = static_cast<std::uint64_t>(mesh->indices.size()) * sizeof(std::uint32_t),
+        .usage = BufferUsage::kIndex});
+    REQUIRE(index_buffer != BufferHandle::kInvalid);
+    device->MapWrite(index_buffer, mesh->indices.data(),
+                     static_cast<std::uint64_t>(mesh->indices.size()) * sizeof(std::uint32_t));
 
     ICommandList* command_list = device->CreateCommandList();
     REQUIRE(command_list != nullptr);
@@ -111,12 +135,14 @@ TEST_CASE("triangle renders match the committed golden reference", "[rhi][golden
     command_list->BeginRendering(target, kClearColor);
     command_list->SetPipeline(pipeline);
     command_list->SetVertexBuffer(vertex_buffer, kTriangleStride);
-    command_list->Draw(3, 1);
+    command_list->SetIndexBuffer(index_buffer, true);
+    command_list->DrawIndexed(3, 1);
     command_list->EndRendering();
     command_list->End();
     device->Submit(*command_list);
     device->WaitForGpuIdle();
     device->DestroyCommandList(command_list);
+    device->DestroyBuffer(index_buffer);
     device->DestroyBuffer(vertex_buffer);
 
     const MappedTexture mapped = device->MapReadBack(target);

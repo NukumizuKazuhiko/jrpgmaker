@@ -26,7 +26,7 @@ core      engine/core 数学 · ECS · 资产句柄 · 事件总线 · 时间 ·
 
 | 层 | 目录 | 唯一 owner 职责 | 允许依赖 | 禁止事项 |
 |---|---|---|---|---|
-| core | `engine/core` | 数学类型(GLM 封装)、EnTT registry 封装、句柄式资产管理、事件总线、时钟/时间步、日志、诊断 | 仅标准库 + GLM/EnTT | 任何图形 API、平台 API、JRPG 语义 |
+| core | `engine/core` | 数学类型(GLM 封装)、EnTT registry 封装、句柄式资产管理（`MeshData` 等 CPU 侧资产数据结构）、事件总线、时钟/时间步、日志、诊断 | 仅标准库 + GLM/EnTT | 任何图形 API、平台 API、JRPG 语义 |
 | rhi 合同 | `engine/rhi` | 图形 API 语义：设备、swapchain、pipeline、buffer/texture/sampler、command list、同步原语 | core | 出现任何游戏概念；暴露后端类型 |
 | rhi 后端 | `engine/rhi/backends/{d3d12,vulkan}` | 实现 RHI 合同 | rhi 合同 + core | 相互引用；后端头文件泄漏出 `backends/` |
 | render | `engine/render` | 场景渲染器、材质系统、光照、相机投影、后处理栈(bloom/LUT)、toon shading 与描边 | rhi, core | 私造游戏状态；读取战斗/存档数据 |
@@ -128,7 +128,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 | 着色语言/编译器 | HLSL 2021 + DXC（单源双目标，见 ADR-003） | 双后端 shader 语义同源是 golden image 一致性的前提 |
 | 脚本 | sol2 + Lua 5.4 | 逃生舱定位，见事件指令集合同 |
 | 序列化 | nlohmann/json | 数据先行工作流基础设施 |
-| glTF 解析 | cgltf（vcpkg port 1.15） | 零依赖单文件 C99 库；glTF 2.0 全特性覆盖；仅作资产导入的兼容输入（ADR-004） |
+| glTF 解析 | cgltf（vcpkg port 1.15） | 零依赖单文件 C99 库；glTF 2.0 全特性覆盖；仅作资产导入的兼容输入（ADR-004）。vcpkg port 无 CMake config，tools/assetimport 用 `find_path(CGLTF_INCLUDE_DIRS NAMES cgltf.h)` 解析 include；`CGLTF_IMPLEMENTATION` 仅在 asset_import.cpp 单 TU 实例化；MSVC 下该 TU 局部抑制 `_CRT_SECURE_NO_WARNINGS`（C 头合法使用 fopen/strcpy 会被仓库级 `/WX` 提升为错误，抑制范围限定在该 target） |
 | 纹理解码 | stb（stb_image，vcpkg port） | 与 cgltf 同属零依赖工具族；PBR 纹理/立绘导入兼容输入（ADR-004） |
 | 字体 | FreeType + HarfBuzz | CJK 整形与禁则处理必需 |
 | 音频 | miniaudio | 单文件起步够用；总线混音自研 |
@@ -159,10 +159,14 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 │   └── platform/
 ├── app/                       # 主循环装配 + demo 宿主
 ├── tools/                     # lint / assetimport / goldenimage CLI（tools/ci 现有私有头审计）
+│   ├── assetimport/           # cgltf 适配器静态库（glTF → core::MeshData，ADR-004 落地）
+│   ├── goldenimage/           # golden image 生成/比对 CLI + 纯算法库
+│   └── ci/                    # 私有头审计、shader 编译等脚本
 ├── assets/
 │   ├── data/                  # 事件/对话/数值表 JSON
 │   ├── schemas/               # JSON schema（生成物与校验的真源）
-│   └── art/ fonts/ audio/
+│   ├── art/                   # 美术资产（meshes/ 等，P2 起 glTF 兼容输入）
+│   └── fonts/ audio/
 └── tests/
     ├── unit/                  # Catch2 单测
     └── golden/                # 渲染基准图与比对脚本（生成物只读）

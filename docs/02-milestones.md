@@ -42,7 +42,9 @@
 - **目的**：从"渲染代码"走向"渲染数据文件"。
 - **范围内**：glTF 2.0 导入管线（静态网格+PBR 材质兼容输入）、句柄式异步资产系统(含卸载)、EnTT 场景+变换层级、飞行动态观察相机、资源泄漏检测。
 - **范围外**：骨骼动画、角色控制。
-- **开工前预检结论**（2026-08-24）：glTF 解析库选型 **cgltf 1.15**（vcpkg port，零依赖单文件 C99，ADR-004，用户已确认）；纹理解码配 vcpkg `stb`（stb_image）。对比淘汰项：tinygltf（nlohmann-json+stb 双依赖、API 重）、fastgltf（simdjson 传递依赖，性能极致非 P2 需求）、assimp（8 个传递依赖，通用格式违背"glTF 仅兼容输入"边界）。P2 首个子任务建议：**RHI 顶点输入扩展**（docs/01 RHI v0 合同明文"顶点输入随 P2 glTF 导入进入合同"，是 glTF 网格数据落入 GPU 的地基，独立可验收）——新增 `BufferHandle`/`BufferDesc`/`CreateBuffer`/`MapWrite` + 顶点输入布局 + `DrawIndexed`，triangle_test 改为顶点缓冲驱动同一三角形（几何不变 → golden 基准图不变），双后端同步；随后再演进 core 资产子系统句柄合同与 cgltf 适配器。
+- **开工前预检结论**（2026-08-24）：glTF 解析库选型 **cgltf 1.15**（vcpkg port，零依赖单文件 C99，ADR-004，用户已确认）；纹理解码配 vcpkg `stb`（stb_image）。对比淘汰项：tinygltf（nlohmann-json+stb 双依赖、API 重）、fastgltf（simdjson 传递依赖，性能极致非 P2 需求）、assimp（8 个传递依赖，通用格式违背"glTF 仅兼容输入"边界）。
+- **子任务 1（已完成，2026-08-24，commit `713e4ed`）**：**RHI 顶点输入扩展**（docs/01 RHI v0 合同明文"顶点输入随 P2 glTF 导入进入合同"，是 glTF 网格数据落入 GPU 的地基，独立可验收）——新增 `BufferHandle`/`BufferDesc`/`CreateBuffer`/`MapWrite` + 顶点输入布局 + `DrawIndexed`，triangle_test 改为顶点缓冲驱动同一三角形（几何不变 → golden 基准图不变），双后端同步。验证：双端构建零警告、ctest 15/15、golden 比对通过、Windows 实机冒烟通过；顺带修复 P1 遗留的 `compile_shaders.ps1` 输出命名不一致缺陷（`.dxil` vs `_dxil`，P1 从未重编译故未暴露）。
+- **子任务 2（已完成，2026-08-24）**：**core 资产网格数据合同 + cgltf 适配器 + glTF 驱动 triangle golden**。core 新增 `MeshData`（CPU 侧 positions/indices 纯数据结构，owner 依据 docs/01 core"句柄式资产管理"）；tools/assetimport 新增 cgltf 适配器静态库 `LoadGltfMesh`（ADR-004 落地，owner 依据 docs/01 tools"资产导入"）；新增 `assets/art/meshes/triangle.gltf`（内嵌 base64，几何与 golden 逐顶点一致）；triangle_test 与 goldenimage CLI 均改为 glTF 数据文件驱动 + index buffer + `DrawIndexed(3,1)`（数据先行纪律），golden 基准图未重标定。验证：双端构建零警告、ctest 18/18、goldenimage compare 双模式 delta=0、Windows 实机冒烟通过。
 - **验收命令与证据**：CLI 加载指定 glTF 场景 → 两后端 golden image 一致；资产句柄泄漏计数为零的测试通过。
 - **停止条件**：全局门禁全过。
 

@@ -12,11 +12,14 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include <jrpgmaker/assetimport/asset_import.hpp>
 #include <jrpgmaker/rhi/command_list.hpp>
 #include <jrpgmaker/rhi/device.hpp>
 #include <jrpgmaker/rhi/device_factory.hpp>
@@ -40,13 +43,7 @@ constexpr std::uint32_t kWidth = 64;
 constexpr std::uint32_t kHeight = 64;
 constexpr ClearColor kClearColor{0.0f, 0.0f, 0.0f, 1.0f};
 
-// Same triangle as the committed golden reference, now fed through the RHI
-// vertex-input path (P2). Positions must match shaders/triangle.hlsl.
-constexpr float kTriangleVertices[] = {
-    -0.5f, -0.5f, 0.0f, //
-    0.5f,  -0.5f, 0.0f, //
-    0.0f,  0.5f,  0.0f, //
-};
+// Vertex input: single interleaved buffer with one float3 position attribute.
 constexpr std::uint32_t kTriangleStride = 3u * sizeof(float);
 constexpr VertexAttribute kTriangleAttributes[] = {
     VertexAttribute{
@@ -56,8 +53,21 @@ constexpr VertexAttribute kTriangleAttributes[] = {
     },
 };
 
-// Renders the triangle into tightly-packed RGBA8 (row pitch == width*4).
-bool RenderTriangle(std::vector<std::uint8_t>& rgba) {
+#ifndef JRPGMAKER_ASSET_DIR
+#error "JRPGMAKER_ASSET_DIR must be defined by the build"
+#endif
+
+// Renders the triangle from the committed glTF asset into tightly-packed RGBA8
+// (row pitch == width*4). The mesh positions match the pre-P2
+// SV_VertexID-generated geometry exactly, so the golden reference stays valid.
+bool RenderTriangle(std::vector<std::uint8_t>& rgba, const std::filesystem::path& gltf_path) {
+    const std::optional<jrpgmaker::core::MeshData> mesh =
+        jrpgmaker::assetimport::LoadGltfMesh(gltf_path);
+    if (!mesh.has_value()) {
+        std::cerr << "failed to load glTF mesh: " << gltf_path.string() << '\n';
+        return false;
+    }
+
     const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
     if (device == nullptr) {
         std::cerr << "failed to create device\n";
@@ -108,18 +118,34 @@ bool RenderTriangle(std::vector<std::uint8_t>& rgba) {
     }
 
     const BufferHandle vertex_buffer = device->CreateBuffer(
-        BufferDesc{.size_bytes = sizeof(kTriangleVertices), .usage = BufferUsage::kVertex});
+        BufferDesc{.size_bytes = static_cast<std::uint64_t>(mesh->positions.size()) * sizeof(float),
+                   .usage = BufferUsage::kVertex});
     if (vertex_buffer == BufferHandle::kInvalid) {
         std::cerr << "failed to create vertex buffer\n";
         device->DestroyPipeline(pipeline);
         device->DestroyTexture(target);
         return false;
     }
-    device->MapWrite(vertex_buffer, kTriangleVertices, sizeof(kTriangleVertices));
+    device->MapWrite(vertex_buffer, mesh->positions.data(),
+                     static_cast<std::uint64_t>(mesh->positions.size()) * sizeof(float));
+
+    const BufferHandle index_buffer = device->CreateBuffer(BufferDesc{
+        .size_bytes = static_cast<std::uint64_t>(mesh->indices.size()) * sizeof(std::uint32_t),
+        .usage = BufferUsage::kIndex});
+    if (index_buffer == BufferHandle::kInvalid) {
+        std::cerr << "failed to create index buffer\n";
+        device->DestroyBuffer(vertex_buffer);
+        device->DestroyPipeline(pipeline);
+        device->DestroyTexture(target);
+        return false;
+    }
+    device->MapWrite(index_buffer, mesh->indices.data(),
+                     static_cast<std::uint64_t>(mesh->indices.size()) * sizeof(std::uint32_t));
 
     ICommandList* command_list = device->CreateCommandList();
     if (command_list == nullptr) {
         std::cerr << "failed to create command list\n";
+        device->DestroyBuffer(index_buffer);
         device->DestroyBuffer(vertex_buffer);
         device->DestroyPipeline(pipeline);
         device->DestroyTexture(target);
@@ -129,12 +155,14 @@ bool RenderTriangle(std::vector<std::uint8_t>& rgba) {
     command_list->BeginRendering(target, kClearColor);
     command_list->SetPipeline(pipeline);
     command_list->SetVertexBuffer(vertex_buffer, kTriangleStride);
-    command_list->Draw(3, 1);
+    command_list->SetIndexBuffer(index_buffer, true);
+    command_list->DrawIndexed(3, 1);
     command_list->EndRendering();
     command_list->End();
     device->Submit(*command_list);
     device->WaitForGpuIdle();
     device->DestroyCommandList(command_list);
+    device->DestroyBuffer(index_buffer);
     device->DestroyBuffer(vertex_buffer);
     device->DestroyPipeline(pipeline);
 
@@ -157,9 +185,9 @@ bool RenderTriangle(std::vector<std::uint8_t>& rgba) {
     return true;
 }
 
-int Generate(const std::string& output_path) {
+int Generate(const std::string& output_path, const std::filesystem::path& gltf_path) {
     std::vector<std::uint8_t> rgba;
-    if (!RenderTriangle(rgba)) {
+    if (!RenderTriangle(rgba, gltf_path)) {
         return 1;
     }
 
@@ -180,7 +208,8 @@ int Generate(const std::string& output_path) {
     return 0;
 }
 
-int Compare(const std::string& reference_path, int tolerance) {
+int Compare(const std::string& reference_path, int tolerance,
+            const std::filesystem::path& gltf_path) {
     golden::Image reference;
     std::string error;
     if (!golden::ReadPpm(reference_path, reference, error)) {
@@ -189,7 +218,7 @@ int Compare(const std::string& reference_path, int tolerance) {
     }
 
     std::vector<std::uint8_t> rgba;
-    if (!RenderTriangle(rgba)) {
+    if (!RenderTriangle(rgba, gltf_path)) {
         return 1;
     }
 
@@ -204,22 +233,33 @@ int Compare(const std::string& reference_path, int tolerance) {
 } // namespace
 
 int main(int argc, char** argv) {
+    // Usage:
+    //   goldenimage generate <out.ppm> [gltf_path]
+    //   goldenimage compare <ref.ppm> [tolerance] [gltf_path]
+    // The glTF path defaults to the committed triangle asset
+    // (assets/art/meshes/triangle.gltf), whose geometry matches the golden
+    // reference.
+    const std::filesystem::path default_gltf =
+        std::filesystem::path(JRPGMAKER_ASSET_DIR) / "art" / "meshes" / "triangle.gltf";
+
     if (argc < 3) {
-        std::cerr << "usage: goldenimage generate <out.ppm>\n"
-                  << "       goldenimage compare <ref.ppm> [tolerance]\n";
+        std::cerr << "usage: goldenimage generate <out.ppm> [gltf_path]\n"
+                  << "       goldenimage compare <ref.ppm> [tolerance] [gltf_path]\n";
         return 2;
     }
 
     const std::string command = argv[1];
     if (command == "generate") {
-        return Generate(argv[2]);
+        const std::filesystem::path gltf_path = argc >= 4 ? argv[3] : default_gltf;
+        return Generate(argv[2], gltf_path);
     }
     if (command == "compare") {
         int tolerance = 1;
+        const std::filesystem::path gltf_path = argc >= 5 ? argv[4] : default_gltf;
         if (argc >= 4) {
             tolerance = std::atoi(argv[3]);
         }
-        return Compare(argv[2], tolerance);
+        return Compare(argv[2], tolerance, gltf_path);
     }
 
     std::cerr << "unknown command '" << command << "'\n";
