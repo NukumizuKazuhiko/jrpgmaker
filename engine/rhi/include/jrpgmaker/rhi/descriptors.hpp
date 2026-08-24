@@ -16,6 +16,8 @@ struct TextureDesc {
     std::uint32_t width;
     std::uint32_t height;
     Format format;
+    // At least one usage bit is required; kNone alone is rejected by both
+    // backends (D3D12 and Vulkan) so the contract is backend-independent.
     TextureUsage usage;
 };
 

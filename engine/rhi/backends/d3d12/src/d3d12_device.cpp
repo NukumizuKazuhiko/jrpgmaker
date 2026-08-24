@@ -198,6 +198,10 @@ ID3D12PipelineState* D3D12Device::PipelineState(PipelineHandle handle) {
 TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc) {
     const DXGI_FORMAT native_format = ToNativeFormat(desc.format);
 
+    if (desc.usage == TextureUsage::kNone) {
+        throw std::runtime_error("d3d12 backend: texture creation requires at least one usage bit");
+    }
+
     D3D12_RESOURCE_DESC resource_desc{};
     resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     resource_desc.Width = desc.width;
