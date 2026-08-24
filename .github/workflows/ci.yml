@@ -40,7 +40,7 @@ jobs:
 
       - name: Install Vulkan software driver (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libvulkan-dev mesa-vulkan-drivers
+        run: sudo apt-get update && sudo apt-get install -y libvulkan-dev mesa-vulkan-drivers libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev libdbus-1-dev libudev-dev libasound2-dev
 
       - name: Install lavapipe software Vulkan driver (macOS arm64)
         if: runner.os == 'macOS'
@@ -84,6 +84,10 @@ jobs:
         with:
           vcpkgDirectory: '${{ github.workspace }}/vcpkg'
           vcpkgGitCommitId: '127402f1c75bb3d5ff6bce04b285faa4930a5aca'
+
+      - name: Install SDL3 system dependencies (vcpkg configure needs them)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev libdbus-1-dev libudev-dev libasound2-dev
 
       - name: Configure to install dxc under vcpkg_installed
         uses: lukka/run-cmake@v10

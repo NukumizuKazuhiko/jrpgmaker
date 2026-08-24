@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 #include <volk.h>
 
@@ -11,7 +12,10 @@
 
 namespace jrpgmaker::rhi::vulkan {
 
+VkFormat ToNativeFormat(Format format);
+
 class VulkanDevice;
+class VulkanSwapchain;
 
 class VulkanCommandList final : public ICommandList {
 public:
@@ -64,6 +68,7 @@ public:
 
 private:
     friend class VulkanCommandList;
+    friend class VulkanSwapchain;
 
     struct TextureEntry {
         VkImage image = VK_NULL_HANDLE;
@@ -72,6 +77,7 @@ private:
         VkFormat format = VK_FORMAT_UNDEFINED;
         std::uint32_t width = 0;
         std::uint32_t height = 0;
+        bool is_swapchain = false;
     };
 
     struct ReadBackEntry {
@@ -90,6 +96,9 @@ private:
     VkDevice Native() { return device_; }
     VkCommandPool CommandPool() { return command_pool_; }
     const TextureEntry* LookupTexture(TextureHandle handle);
+    TextureHandle RegisterSwapchainTexture(VkImage image, VkFormat format, std::uint32_t width,
+                                           std::uint32_t height, VkImageView view);
+    void UnregisterSwapchainTexture(TextureHandle handle);
     VkBuffer EnsureReadBackBuffer(TextureHandle handle);
     VkPipeline PipelineState(PipelineHandle handle);
     VkPipelineLayout PipelineLayout();

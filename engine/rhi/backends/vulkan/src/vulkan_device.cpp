@@ -1,9 +1,14 @@
 #include "vulkan_device.h"
 
+#include <algorithm>
+#include <cstring>
 #include <format>
+#include <iterator>
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include "vulkan_swapchain.h"
 
 namespace jrpgmaker::rhi::vulkan {
 namespace {
@@ -15,14 +20,53 @@ void ThrowIfFailed(VkResult result, const char* context) {
     }
 }
 
+std::vector<const char*> EnabledInstanceExtensions() {
+    std::vector<VkExtensionProperties> available;
+    std::uint32_t extension_count = 0;
+    ThrowIfFailed(vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr),
+                  "vkEnumerateInstanceExtensionProperties");
+    available.resize(extension_count);
+    ThrowIfFailed(
+        vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available.data()),
+        "vkEnumerateInstanceExtensionProperties");
+
+    constexpr const char* kRequired[] = {
+        "VK_KHR_surface",
+#if defined(_WIN32)
+        "VK_KHR_win32_surface",
+#elif defined(__linux__)
+        "VK_KHR_xcb_surface",
+        "VK_KHR_wayland_surface",
+#elif defined(__APPLE__)
+        "VK_EXT_metal_surface",
+#endif
+    };
+
+    std::vector<const char*> enabled;
+    for (const char* required : kRequired) {
+        const bool supported = std::any_of(
+            available.begin(), available.end(), [required](const VkExtensionProperties& candidate) {
+                return std::strcmp(candidate.extensionName, required) == 0;
+            });
+        if (supported) {
+            enabled.push_back(required);
+        }
+    }
+    return enabled;
+}
+
 VkInstance CreateInstance() {
     VkApplicationInfo app_info{};
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app_info.apiVersion = VK_API_VERSION_1_3;
 
+    const std::vector<const char*> extensions = EnabledInstanceExtensions();
+
     VkInstanceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     create_info.pApplicationInfo = &app_info;
+    create_info.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
+    create_info.ppEnabledExtensionNames = extensions.data();
 
     VkInstance instance = VK_NULL_HANDLE;
     ThrowIfFailed(vkCreateInstance(&create_info, nullptr, &instance), "vkCreateInstance");
@@ -43,16 +87,6 @@ std::uint32_t FindGraphicsQueueFamily(VkPhysicalDevice physical_device) {
     }
     throw std::runtime_error(
         "vulkan backend: no graphics-capable queue family on the selected device");
-}
-
-VkFormat ToNativeFormat(Format format) {
-    switch (format) {
-    case Format::kB8G8R8A8Unorm:
-        return VK_FORMAT_B8G8R8A8_UNORM;
-    case Format::kR8G8B8A8Unorm:
-        return VK_FORMAT_R8G8B8A8_UNORM;
-    }
-    throw std::runtime_error("vulkan backend: unsupported texture format");
 }
 
 VkPhysicalDevice SelectPhysicalDevice(VkInstance instance) {
@@ -83,6 +117,16 @@ VkPhysicalDevice SelectPhysicalDevice(VkInstance instance) {
 
 } // namespace
 
+VkFormat ToNativeFormat(Format format) {
+    switch (format) {
+    case Format::kB8G8R8A8Unorm:
+        return VK_FORMAT_B8G8R8A8_UNORM;
+    case Format::kR8G8B8A8Unorm:
+        return VK_FORMAT_R8G8B8A8_UNORM;
+    }
+    throw std::runtime_error("vulkan backend: unsupported texture format");
+}
+
 std::unique_ptr<IDevice> VulkanDevice::Create() {
     ThrowIfFailed(volkInitialize(), "volkInitialize");
 
@@ -103,6 +147,10 @@ std::unique_ptr<IDevice> VulkanDevice::Create() {
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     device_info.queueCreateInfoCount = 1;
     device_info.pQueueCreateInfos = &queue_info;
+
+    const char* device_extensions[] = {"VK_KHR_swapchain"};
+    device_info.enabledExtensionCount = static_cast<std::uint32_t>(std::size(device_extensions));
+    device_info.ppEnabledExtensionNames = device_extensions;
 
     VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering_features{};
     dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
@@ -145,6 +193,9 @@ VulkanDevice::~VulkanDevice() {
             vkDestroyBuffer(device_, entry.buffer, nullptr);
         }
         for (const auto& [key, entry] : textures_) {
+            if (entry.is_swapchain) {
+                continue;
+            }
             vkDestroyImageView(device_, entry.view, nullptr);
             vkFreeMemory(device_, entry.memory, nullptr);
             vkDestroyImage(device_, entry.image, nullptr);
@@ -228,6 +279,11 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDesc& desc) {
 
 void VulkanDevice::DestroyTexture(TextureHandle handle) {
     const std::uint64_t key = static_cast<std::uint64_t>(handle);
+    const auto it = textures_.find(key);
+    if (it != textures_.end() && it->second.is_swapchain) {
+        throw std::runtime_error(
+            "vulkan backend: swapchain back buffers are owned by the swapchain");
+    }
     WaitForGpuIdle();
     const auto staged = read_backs_.find(key);
     if (staged != read_backs_.end()) {
@@ -235,14 +291,14 @@ void VulkanDevice::DestroyTexture(TextureHandle handle) {
         vkFreeMemory(device_, staged->second.memory, nullptr);
         read_backs_.erase(staged);
     }
-    const auto it = textures_.find(key);
-    if (it == textures_.end()) {
+    const auto destroy_it = textures_.find(key);
+    if (destroy_it == textures_.end()) {
         return;
     }
-    vkDestroyImageView(device_, it->second.view, nullptr);
-    vkDestroyImage(device_, it->second.image, nullptr);
-    vkFreeMemory(device_, it->second.memory, nullptr);
-    textures_.erase(it);
+    vkDestroyImageView(device_, destroy_it->second.view, nullptr);
+    vkDestroyImage(device_, destroy_it->second.image, nullptr);
+    vkFreeMemory(device_, destroy_it->second.memory, nullptr);
+    textures_.erase(destroy_it);
 }
 
 VkPipelineLayout VulkanDevice::PipelineLayout() {
@@ -456,11 +512,42 @@ void VulkanDevice::DestroyCommandList(ICommandList* command_list) {
     delete command_list;
 }
 
-ISwapchain* VulkanDevice::CreateSwapchain(void*, std::uint32_t, std::uint32_t, Format) {
-    return nullptr;
+ISwapchain* VulkanDevice::CreateSwapchain(void* native_window_handle, std::uint32_t width,
+                                          std::uint32_t height, Format format) {
+    return new VulkanSwapchain(this, native_window_handle, width, height, format);
 }
 
-void VulkanDevice::DestroySwapchain(ISwapchain*) {}
+void VulkanDevice::DestroySwapchain(ISwapchain* swapchain) {
+    delete static_cast<VulkanSwapchain*>(swapchain);
+}
+
+TextureHandle VulkanDevice::RegisterSwapchainTexture(VkImage image, VkFormat format,
+                                                     std::uint32_t width, std::uint32_t height,
+                                                     VkImageView view) {
+    TextureEntry entry{};
+    entry.image = image;
+    entry.format = format;
+    entry.width = width;
+    entry.height = height;
+    entry.view = view;
+    entry.is_swapchain = true;
+
+    const std::uint64_t handle_value = next_handle_++;
+    textures_.emplace(handle_value, entry);
+    return static_cast<TextureHandle>(handle_value);
+}
+
+void VulkanDevice::UnregisterSwapchainTexture(TextureHandle handle) {
+    const std::uint64_t key = static_cast<std::uint64_t>(handle);
+    const auto it = textures_.find(key);
+    if (it == textures_.end()) {
+        return;
+    }
+    if (it->second.view != VK_NULL_HANDLE) {
+        vkDestroyImageView(device_, it->second.view, nullptr);
+    }
+    textures_.erase(it);
+}
 
 void VulkanDevice::Submit(ICommandList& command_list) {
     auto& vulkan_list = static_cast<VulkanCommandList&>(command_list);

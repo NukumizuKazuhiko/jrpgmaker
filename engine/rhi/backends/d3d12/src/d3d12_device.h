@@ -5,14 +5,17 @@
 #include <unordered_map>
 
 #include <d3d12.h>
+#include <dxgi1_4.h>
 #include <wrl/client.h>
 
 #include "jrpgmaker/rhi/command_list.hpp"
 #include "jrpgmaker/rhi/device.hpp"
+#include "jrpgmaker/rhi/swapchain.hpp"
 
 namespace jrpgmaker::rhi::d3d12 {
 
 class D3D12Device;
+class D3D12Swapchain;
 
 class D3D12CommandList final : public ICommandList {
 public:
@@ -67,12 +70,14 @@ public:
 
 private:
     friend class D3D12CommandList;
+    friend class D3D12Swapchain;
 
     struct TextureEntry {
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
         D3D12_RESOURCE_DESC desc{};
         D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
         bool has_rtv = false;
+        bool is_swapchain = false;
     };
 
     struct ReadBackEntry {
@@ -91,6 +96,9 @@ private:
     ID3D12CommandAllocator* Allocator() { return allocator_.Get(); }
     D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandle(TextureHandle handle);
     ID3D12Resource* TextureResource(TextureHandle handle);
+    TextureHandle RegisterSwapchainBuffer(ID3D12Resource* resource, std::uint32_t width,
+                                          std::uint32_t height, Format format);
+    void UnregisterSwapchainBuffer(TextureHandle handle);
     ID3D12Resource* EnsureReadBack(TextureHandle handle);
     ID3D12PipelineState* PipelineState(PipelineHandle handle);
     ID3D12RootSignature* RootSignature() { return root_signature_.Get(); }
@@ -99,6 +107,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Device> device_;
     Microsoft::WRL::ComPtr<ID3D12InfoQueue> info_queue_;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue_;
+    Microsoft::WRL::ComPtr<IDXGIFactory4> factory_;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtv_heap_;
     UINT rtv_descriptor_size_ = 0;

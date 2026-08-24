@@ -47,8 +47,7 @@ TEST_CASE("vulkan backend survives repeated submit and wait cycles", "[rhi][vulk
     }
 }
 
-TEST_CASE("vulkan backend unimplemented resource surface returns invalid handles",
-          "[rhi][vulkan]") {
+TEST_CASE("vulkan backend rejects invalid swapchain window and pipeline handles", "[rhi][vulkan]") {
     const std::unique_ptr<IDevice> device = CreateDevice(Backend::kVulkan);
     REQUIRE(device != nullptr);
 
@@ -59,7 +58,8 @@ TEST_CASE("vulkan backend unimplemented resource surface returns invalid handles
                           .color_format = Format::kB8G8R8A8Unorm,
                       }),
                       std::runtime_error);
-    CHECK(device->CreateSwapchain(nullptr, 1, 1, Format::kB8G8R8A8Unorm) == nullptr);
+    REQUIRE_THROWS_AS(device->CreateSwapchain(nullptr, 1, 1, Format::kB8G8R8A8Unorm),
+                      std::runtime_error);
     REQUIRE_THROWS_AS(device->MapReadBack(TextureHandle::kInvalid), std::runtime_error);
 }
 

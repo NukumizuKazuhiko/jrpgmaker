@@ -86,8 +86,15 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - **NDC 方向约定**：顶点着色器输出 clip space 坐标，NDC Y 轴方向在两后端由后端各自保证一致（D3D12 原生 NDC 映射；Vulkan 后端在 `BeginRendering` 设置**负高度 viewport**（`y = height, height = -height`，Vulkan 1.1+ 核心特性）翻转 Y，使同一 shader 在两后端产生相同的 framebuffer 位置）。golden 采样点以该统一约定设计。
 - 后端选择：合同层仅暴露 `CreateDevice(Backend)` 工厂声明；各后端静态库提供该符号定义，app 按平台链接对应后端目标。合同头禁止出现任何后端类型或 SDL 类型（窗口以 `void* native_window_handle` 传入，由 platform/app 层负责提取）。
 - golden image 路径：CI 无窗口环境走离屏渲染——`CreateTexture(RenderTarget|ReadBack)` → `BeginRendering`+clear → `SetPipeline` + `Draw`（v0 三角形用例）或仅 clear（清屏基线）→ `Submit` + `WaitForGpuIdle` → `MapReadBack`（返回 `MappedTexture{data, row_pitch_bytes}`，行距由后端各自报告：D3D12 为 footprint.RowPitch，Vulkan 为紧密 `width*4`）→ 按行距逐像素比对；readback copy 由后端在 `MapReadBack` 内部完成（每次调用重建 command list 执行 copy 并等待，独立 command allocator），合同层不暴露 copy 命令。swapchain 仅 app 主循环使用，不进 CI。
-- 生命周期约束：`DestroyXxx` 要求调用方保证 GPU 已空闲（即 `Submit` + `WaitForGpuIdle` 之后）；延迟删除是后端后续增强，不属于 v0 合同语义。
+- **swapchain（P1 落地版）**：`CreateSwapchain(void* native_window_handle, width, height, format)` 创建呈现链。**native_window_handle 语义**：D3D12 后端接收 HWND（app 经 SDL 属性提取）；Vulkan 后端接收 `SDL_Window*`（backend 私有用 `SDL_Vulkan_CreateSurface` 建 surface，SDL3 是 Vulkan backend 的链接依赖）。`AcquireTexture()` 返回当前 back buffer 的 `TextureHandle`，该 handle **注册进 device 的 texture 表**（D3D12 分配 RTV、Vulkan 建 image view），可直接用于 `BeginRendering`；back buffer 生命周期由 swapchain 持有，`DestroyTexture` 对 swapchain 纹理抛错（`is_swapchain` 标记）。`Present()` 提交呈现；`Resize(w,h)` 内部 `WaitForGpuIdle` 后重建。Vulkan 用 FIFO present mode + sRGB 色彩空间，D3D12 用 FLIP_DISCARD。
+- 生命周期约束：`DestroyXxx` 要求调用方保证 GPU 已空闲（即 `Submit` + `WaitForGpuIdle` 之后）；延迟删除是后端后续增强，不属于 v0 合同语义。swapchain back buffer 由 `DestroySwapchain` 统一释放（先 `UnregisterSwapchain*` 反注册再销毁呈现资源）。
 - v0 裁剪：三角形用例经 `SV_VertexID`/`gl_VertexIndex` 在顶点着色器内生成几何，故 v0 无顶点缓冲与输入布局概念；顶点输入随 P2 glTF 导入进入合同。
+
+### Stage 运行框架合同（P1 落地版）
+
+- 显式阶段序列：`kInput → kDomainSim → kAnimation → kPresentationSync → kRenderSubmit`（`engine/core` 的 `stage.hpp`）。主循环每个 tick 依序推进全部阶段。
+- 系统注册声明：任何系统通过 `StageRunner::RegisterSystem(stage, {stage, order}, callback)` 声明所属 Stage 与 within-stage 顺序（升序）。跨 Stage 顺序即枚举顺序，禁止越级依赖。
+- v0 语义：阶段为**空占位**（空回调合法）；before/after 依赖图、系统对象模型随 P3 领域核心落地。delta 秒由主循环传入，固定时间步在 app 主循环实现（60Hz，accumulator 上限 0.25s 防螺旋死亡）。
 
 ### BattleRules 插件合同
 

@@ -47,7 +47,7 @@ TEST_CASE("d3d12 backend survives repeated submit and wait cycles", "[rhi][d3d12
     }
 }
 
-TEST_CASE("d3d12 backend unimplemented resource surface returns invalid handles", "[rhi][d3d12]") {
+TEST_CASE("d3d12 backend rejects invalid swapchain window and pipeline handles", "[rhi][d3d12]") {
     const std::unique_ptr<IDevice> device = CreateDevice(Backend::kD3D12);
     REQUIRE(device != nullptr);
 
@@ -58,7 +58,8 @@ TEST_CASE("d3d12 backend unimplemented resource surface returns invalid handles"
                           .color_format = Format::kB8G8R8A8Unorm,
                       }),
                       std::runtime_error);
-    CHECK(device->CreateSwapchain(nullptr, 1, 1, Format::kB8G8R8A8Unorm) == nullptr);
+    REQUIRE_THROWS_AS(device->CreateSwapchain(nullptr, 1, 1, Format::kB8G8R8A8Unorm),
+                      std::runtime_error);
     REQUIRE_THROWS_AS(device->MapReadBack(TextureHandle::kInvalid), std::runtime_error);
 }
 

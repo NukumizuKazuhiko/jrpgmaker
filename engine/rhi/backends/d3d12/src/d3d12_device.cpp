@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "d3d12_swapchain.h"
+
 namespace jrpgmaker::rhi::d3d12 {
 namespace {
 
@@ -83,6 +85,8 @@ ComPtr<ID3D12Device> CreateNativeDevice() {
 
 std::unique_ptr<IDevice> D3D12Device::Create() {
     auto instance = std::unique_ptr<D3D12Device>(new D3D12Device());
+    ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(instance->factory_.GetAddressOf())),
+                  "CreateDXGIFactory1");
     instance->device_ = CreateNativeDevice();
     instance->device_.As(&instance->info_queue_);
 
@@ -252,6 +256,11 @@ TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc) {
 
 void D3D12Device::DestroyTexture(TextureHandle handle) {
     const std::uint64_t key = static_cast<std::uint64_t>(handle);
+    const auto it = textures_.find(key);
+    if (it != textures_.end() && it->second.is_swapchain) {
+        throw std::runtime_error(
+            "d3d12 backend: swapchain back buffers are owned by the swapchain");
+    }
     WaitForGpuIdle();
     read_backs_.erase(key);
     textures_.erase(key);
@@ -267,11 +276,44 @@ void D3D12Device::DestroyCommandList(ICommandList* command_list) {
     delete command_list;
 }
 
-ISwapchain* D3D12Device::CreateSwapchain(void*, std::uint32_t, std::uint32_t, Format) {
-    return nullptr;
+ISwapchain* D3D12Device::CreateSwapchain(void* native_window_handle, std::uint32_t width,
+                                         std::uint32_t height, Format format) {
+    return new D3D12Swapchain(this, native_window_handle, width, height, format);
 }
 
-void D3D12Device::DestroySwapchain(ISwapchain*) {}
+void D3D12Device::DestroySwapchain(ISwapchain* swapchain) {
+    delete static_cast<D3D12Swapchain*>(swapchain);
+}
+
+TextureHandle D3D12Device::RegisterSwapchainBuffer(ID3D12Resource* resource, std::uint32_t width,
+                                                   std::uint32_t height, Format format) {
+    (void) width;
+    (void) height;
+    (void) format;
+    if (rtv_allocated_ >= kRtvHeapCapacity) {
+        throw std::runtime_error("d3d12 backend: RTV descriptor heap exhausted");
+    }
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap_->GetCPUDescriptorHandleForHeapStart();
+    rtv.ptr += static_cast<SIZE_T>(rtv_allocated_) * rtv_descriptor_size_;
+    ++rtv_allocated_;
+    device_->CreateRenderTargetView(resource, nullptr, rtv);
+
+    TextureEntry entry{};
+    entry.resource = resource;
+    entry.desc = resource->GetDesc();
+    entry.rtv = rtv;
+    entry.has_rtv = true;
+    entry.is_swapchain = true;
+
+    const std::uint64_t handle_value = next_handle_++;
+    textures_.emplace(handle_value, std::move(entry));
+    return static_cast<TextureHandle>(handle_value);
+}
+
+void D3D12Device::UnregisterSwapchainBuffer(TextureHandle handle) {
+    const std::uint64_t key = static_cast<std::uint64_t>(handle);
+    textures_.erase(key);
+}
 
 void D3D12Device::Submit(ICommandList& command_list) {
     auto& d3d12_list = static_cast<D3D12CommandList&>(command_list);

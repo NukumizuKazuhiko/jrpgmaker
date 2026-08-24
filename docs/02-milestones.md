@@ -25,7 +25,7 @@
 
 ## P1 垂直切片〇：三角形（最高风险期）
 
-- **状态**：进行中。已落地：ADR-003 shader 选型、RHI 合同 v0 头文件（commit `507105c`）、D3D12 后端骨架（设备/命令队列/围栏/空提交链路，WARP 回退路径）、Vulkan 后端骨架（instance→物理设备选择→graphics 队列族→逻辑设备→pool/fence→空提交，volk 加载器，pre-submit fence 等待规避连续提交误用）、清屏基线 golden 实验（R8G8B8A8 离屏 render target clear→readback→逐像素断言；D3D12 真机与 Vulkan/lavapipe 各自落在期望色 ±1 LSB 内，跨后端一致性为间接等价证明——单 CI job 单后端，靠"两后端均命中同一期望色"成立）、**pipeline+三角形 golden 实验**（HLSL 单源经 DXC 编译 DXIL+SPIR-V 字节码提交入库；两后端各自实现 pipeline 创建/绑定/绘制；统一 NDC 方向约定——Vulkan 用负高度 viewport 翻转 Y；D3D12 需显式 `RenderTargetWriteMask` 否则 BlendState 默认 0 导致颜色不写入；三角形逐像素断言双后端一致）。CI 已接入软件光栅器：Linux 用 mesa-vulkan-drivers（lavapipe），macOS 用 rerun-io/lavapipe-build arm64 预编译包（`VK_DRIVER_FILES` 指向 ICD）。已落地 shader-sync 门禁 job（Linux 重新生成字节码→`git diff` 为空）。待做：swapchain+SDL3 主循环、CI golden 流水线。
+- **状态**：进行中。已落地：ADR-003 shader 选型、RHI 合同 v0 头文件（commit `507105c`）、D3D12 后端骨架（设备/命令队列/围栏/空提交链路，WARP 回退路径）、Vulkan 后端骨架（instance→物理设备选择→graphics 队列族→逻辑设备→pool/fence→空提交，volk 加载器，pre-submit fence 等待规避连续提交误用）、清屏基线 golden 实验（R8G8B8A8 离屏 render target clear→readback→逐像素断言；D3D12 真机与 Vulkan/lavapipe 各自落在期望色 ±1 LSB 内，跨后端一致性为间接等价证明——单 CI job 单后端，靠"两后端均命中同一期望色"成立）、**pipeline+三角形 golden 实验**（HLSL 单源经 DXC 编译 DXIL+SPIR-V 字节码提交入库；两后端各自实现 pipeline 创建/绑定/绘制；统一 NDC 方向约定——Vulkan 用负高度 viewport 翻转 Y；D3D12 需显式 `RenderTargetWriteMask` 否则 BlendState 默认 0 导致颜色不写入；三角形逐像素断言双后端一致）、**swapchain+SDL3 主循环**（ISwapchain 双后端实现：D3D12 DXGI FLIP_DISCARD、Vulkan FIFO+sRGB；back buffer 注册进 device texture 表，`AcquireTexture` 返回可直接 `BeginRendering` 的 handle；app 用 SDL3 建窗+固定时间步 60Hz 主循环+Stage 框架占位。本机 D3D12 实机验收：800×600 窗口渲染深灰背景+中央蓝三角形，窗口开关/循环 4 秒无崩溃，截图证据存本机；Vulkan surface 路径在无显示环境（WSL/CI）不可实机跑，仅离屏+错误路径测试覆盖）。CI 已接入软件光栅器：Linux 用 mesa-vulkan-drivers（lavapipe），macOS 用 rerun-io/lavapipe-build arm64 预编译包（`VK_DRIVER_FILES` 指向 ICD）。已落地 shader-sync 门禁 job（Linux 重新生成字节码→`git diff` 为空）。待做：CI golden 流水线（截图+全帧比对，含 DEBT-016/017 闭环）。
 - **目的**：打通主循环 + RHI 双后端最小闭环，验证合同层设计成立。
 - **范围内**：固定时间步主循环(SDL3 窗口/输入接线)；Stage 合同框架落地（Input→Domain Sim→Animation→Presentation Sync→Render Submit 显式阶段序列，空阶段占位，系统注册须声明所属 Stage 与 before/after）；RHI 合同 v0（device/swapchain/command list/graphics pipeline/buffer 最小集）；D3D12 与 Vulkan 后端各自实现；合同测试框架 v0 + golden image 流水线。
 - **开工前预检结论**（2026-08-23）：
@@ -34,7 +34,7 @@
   - 头号技术风险：WARP 与 lavapipe 的像素输出差异容差标定。golden 流水线第一个实验应为"纯色清屏帧"基线，先证明零几何场景可跨后端零容差一致，再引入三角形与插值容差。
   - 债务联动：DEBT-001（action 升级）、DEBT-002（审计脚本自测）计划在 P1 内顺手关闭（见 [04-debt-register.md](04-debt-register.md)）。
 - **范围外**：材质、纹理、3D 数学以外的场景概念。
-- **验收命令与证据**：两后端各渲染同一三角形，golden image 比对通过（截图+测试日志）；窗口开关、resize 不崩溃。
+- **验收命令与证据**：两后端各渲染同一三角形，golden image 比对通过（截图+测试日志）；窗口开关、resize 不崩溃。swapchain 验收为 app 实机证据（本机 D3D12 窗口渲染截图；Vulkan surface 需真实桌面环境，WSL/CI 无显示不可跑，纳入 CI golden 流水线前的离屏近似覆盖）。
 - **停止条件**：全局门禁全过。**若合同设计不稳，宁可延期重构，不带病进入 P2。**
 
 ## P2 资源与场景
