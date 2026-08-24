@@ -41,3 +41,4 @@
 | DEBT-014 | 2026-08-24 显式设 `D3D12_COLOR_WRITE_ENABLE_ALL`（D3D12_BLEND_DESC 零初始化使 RenderTargetWriteMask=0 导致三角形颜色不写） | 已设 write mask 修复；未来引入混合时扩展完整 BlendState |
 | DEBT-016 | 2026-08-24 NDC Y 翻转约定零验证：triangle 采样点关于中线对称，去掉 Vulkan 翻转测试仍通过 | 2026-08-24 CI golden 流水线落地：triangle_test 改为全帧比对 `tests/golden/triangle_64x64.ppm`（lavapipe 权威生成），三角形顶点非对称，Y 翻转必然全帧差异 → 约定被锁定 |
 | DEBT-017 | 2026-08-24 triangle golden 未达 P1 验收字面：无 golden 参考图、无全帧比对、无截图产物，仅 9 采样点断言蓝通道 | 2026-08-24 CI golden 流水线落地：基准图提交入库、triangle_test 全帧逐像素比对、CI golden-sync job 上传基准图截图 artifact；P1 验收达成 |
+| （审计轮 R1）2026-08-24 Vulkan `SelectPhysicalDevice` 用 `deviceType > best_type` 选最大枚举值，而 `VK_PHYSICAL_DEVICE_TYPE_CPU=4` 是最大 → 真机同时装 lavapipe 与硬件 GPU 时必选软件光栅，与 D3D12 硬件优先策略不一致 | 2026-08-24 `vulkan_device.cpp` 引入 `DeviceTypePriority`：离散>集成>虚拟>other>CPU，硬件优先、CPU 兜底（离屏/CI 仍选 lavapipe）；WSL linux-debug 构建 + ctest 15/15 通过 |

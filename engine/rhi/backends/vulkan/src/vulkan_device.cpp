@@ -89,6 +89,29 @@ std::uint32_t FindGraphicsQueueFamily(VkPhysicalDevice physical_device) {
         "vulkan backend: no graphics-capable queue family on the selected device");
 }
 
+// Selection priority: discrete GPU > integrated GPU > virtual GPU > other > CPU.
+// The VK_PHYSICAL_DEVICE_TYPE_* enum values are NOT ordered by desirability
+// (CPU == 4 is the largest), so a bare `>` comparison would always prefer
+// software rasterizers like lavapipe on machines that also have a real GPU.
+// This mirrors the D3D12 backend: hardware first, software rasterizer as the
+// fallback so offscreen tests still run in headless CI.
+int DeviceTypePriority(VkPhysicalDeviceType type) {
+    switch (type) {
+    case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+        return 4;
+    case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+        return 3;
+    case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+        return 2;
+    case VK_PHYSICAL_DEVICE_TYPE_OTHER:
+        return 1;
+    case VK_PHYSICAL_DEVICE_TYPE_CPU:
+    case VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM:
+        return 0;
+    }
+    return 0;
+}
+
 VkPhysicalDevice SelectPhysicalDevice(VkInstance instance) {
     std::uint32_t device_count = 0;
     ThrowIfFailed(vkEnumeratePhysicalDevices(instance, &device_count, nullptr),
@@ -102,14 +125,14 @@ VkPhysicalDevice SelectPhysicalDevice(VkInstance instance) {
                   "vkEnumeratePhysicalDevices");
 
     VkPhysicalDevice best = VK_NULL_HANDLE;
-    VkPhysicalDeviceType best_type = VK_PHYSICAL_DEVICE_TYPE_CPU;
+    int best_priority = -1;
     for (VkPhysicalDevice candidate : devices) {
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(candidate, &properties);
-        if (best == VK_NULL_HANDLE ||
-            static_cast<int>(properties.deviceType) > static_cast<int>(best_type)) {
+        const int priority = DeviceTypePriority(properties.deviceType);
+        if (best == VK_NULL_HANDLE || priority > best_priority) {
             best = candidate;
-            best_type = properties.deviceType;
+            best_priority = priority;
         }
     }
     return best;
