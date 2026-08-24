@@ -16,7 +16,8 @@ else()
   target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::rhi_vulkan)
 endif()
 
-target_sources(jrpgmaker_unit_tests PRIVATE clear_baseline_test.cpp triangle_test.cpp)
+target_sources(jrpgmaker_unit_tests PRIVATE clear_baseline_test.cpp triangle_test.cpp
+                                               scene_golden_test.cpp)
 
 target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::golden)
 target_compile_definitions(jrpgmaker_unit_tests PRIVATE

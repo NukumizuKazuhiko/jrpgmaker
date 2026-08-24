@@ -52,10 +52,12 @@ TEST_CASE("gltf scene import builds a parent-child hierarchy", "[core][assetimpo
     REQUIRE(root != jrpgmaker::core::kNullEntity);
     REQUIRE(child != jrpgmaker::core::kNullEntity);
 
-    // Root has translation (5,0,0); child is parented under root.
+    // Root has translation (0.25,0,0) and scale (0.5); child is parented under
+    // root.
     const Transform& root_transform = load->scene.Registry().get<Transform>(root);
     REQUIRE(TranslationOf(glm::mat4_cast(root_transform.rotation)) == glm::vec3(0.0f));
-    REQUIRE(root_transform.translation == glm::vec3(5.0f, 0.0f, 0.0f));
+    REQUIRE(root_transform.translation == glm::vec3(0.25f, 0.0f, 0.0f));
+    REQUIRE(root_transform.scale == glm::vec3(0.5f, 0.5f, 0.5f));
 
     const Parent* child_parent = load->scene.Registry().try_get<Parent>(child);
     REQUIRE(child_parent != nullptr);
@@ -81,11 +83,11 @@ TEST_CASE("gltf scene import composes world transforms through the hierarchy",
     const Entity child = load->node_entities[1];
     REQUIRE(child != jrpgmaker::core::kNullEntity);
 
-    // Child local translation (1,0,0) composed with root translation (5,0,0)
-    // yields a world position of (6,0,0).
+    // Child local translation (0.4,0,0) composed with root translation
+    // (0.25,0,0) and scale (0.5) yields a world position of (0.45,0,0).
     const glm::mat4 child_world = load->scene.WorldMatrix(child);
     const glm::vec3 world_pos = TranslationOf(child_world);
-    REQUIRE(world_pos.x == Catch::Approx(6.0f).margin(1e-5f));
+    REQUIRE(world_pos.x == Catch::Approx(0.45f).margin(1e-5f));
     REQUIRE(world_pos.y == Catch::Approx(0.0f).margin(1e-5f));
     REQUIRE(world_pos.z == Catch::Approx(0.0f).margin(1e-5f));
 }
