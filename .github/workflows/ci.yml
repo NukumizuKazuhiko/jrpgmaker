@@ -144,3 +144,6 @@ jobs:
 
       - name: Engine private headers are not referenced outside their module
         run: pwsh ./tools/ci/check_private_headers.ps1
+
+      - name: Private-header audit script self-test
+        run: pwsh ./tools/ci/selftest_private_headers.ps1

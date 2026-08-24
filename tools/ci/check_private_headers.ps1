@@ -1,9 +1,16 @@
 [CmdletBinding()]
-param()
+param(
+  [string]$RepoRoot = ''
+)
 
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
+if ($RepoRoot -eq '') {
+  $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
+}
+else {
+  $repoRoot = (Resolve-Path $RepoRoot).Path
+}
 $engineRoot = (Resolve-Path (Join-Path $repoRoot 'engine')).Path
 
 $includePattern = '^(?:#include\s*)[<"](.*?)[">]'
@@ -68,6 +75,7 @@ foreach ($file in $files) {
 }
 
 if ($failures.Count -gt 0) {
+  $ErrorActionPreference = 'Continue'
   $failures | ForEach-Object { Write-Error $_ }
   exit 1
 }
