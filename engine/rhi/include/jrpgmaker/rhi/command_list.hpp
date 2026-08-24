@@ -23,8 +23,6 @@ public:
     virtual void SetPipeline(PipelineHandle handle) = 0;
     virtual void Draw(std::uint32_t vertex_count, std::uint32_t instance_count) = 0;
 
-    virtual void CopyTexture(TextureHandle source, TextureHandle destination) = 0;
-
 protected:
     ICommandList() = default;
 };

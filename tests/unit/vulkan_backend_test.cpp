@@ -51,7 +51,6 @@ TEST_CASE("vulkan backend rejects invalid swapchain window and pipeline handles"
     const std::unique_ptr<IDevice> device = CreateDevice(Backend::kVulkan);
     REQUIRE(device != nullptr);
 
-    CHECK(device->CreateBuffer(BufferDesc{.size_bytes = 16}) == BufferHandle::kInvalid);
     REQUIRE_THROWS_AS(device->CreatePipeline(GraphicsPipelineDesc{
                           .vertex_shader = ShaderBytecode{nullptr, 0},
                           .pixel_shader = ShaderBytecode{nullptr, 0},

@@ -12,10 +12,6 @@ struct ShaderBytecode {
     std::size_t size;
 };
 
-struct BufferDesc {
-    std::uint64_t size_bytes;
-};
-
 struct TextureDesc {
     std::uint32_t width;
     std::uint32_t height;

@@ -81,7 +81,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 
 ### RHI v0 合同语义（P1 落地版）
 
-- 对象模型：接口类（`IDevice`/`ICommandList`/`ISwapchain`）+ 强类型句柄（`BufferHandle` 等，`kInvalid` 表示失败）；描述符全部为 POD 聚合。
+- 对象模型：接口类（`IDevice`/`ICommandList`/`ISwapchain`）+ 强类型句柄（`TextureHandle`/`PipelineHandle`，`kInvalid` 表示失败）；描述符全部为 POD 聚合。v0 无 buffer/顶点输入概念（`CreateBuffer`/`CopyTexture` 未进合同，随 P2 glTF 导入按真实需求引入）。
 - 渲染模型：dynamic rendering 风格（`BeginRendering`/`EndRendering` 直接绑定 target），无显式 render-pass 对象——这是 D3D12 与 Vulkan 1.3 的公共面；viewport/scissor 默认全 target，由后端内部维护。
 - **NDC 方向约定**：顶点着色器输出 clip space 坐标，NDC Y 轴方向在两后端由后端各自保证一致（D3D12 原生 NDC 映射；Vulkan 后端在 `BeginRendering` 设置**负高度 viewport**（`y = height, height = -height`，Vulkan 1.1+ 核心特性）翻转 Y，使同一 shader 在两后端产生相同的 framebuffer 位置）。golden 采样点以该统一约定设计。
 - 后端选择：合同层仅暴露 `CreateDevice(Backend)` 工厂声明；各后端静态库提供该符号定义，app 按平台链接对应后端目标。合同头禁止出现任何后端类型或 SDL 类型（窗口以 `void* native_window_handle` 传入，由 platform/app 层负责提取）。

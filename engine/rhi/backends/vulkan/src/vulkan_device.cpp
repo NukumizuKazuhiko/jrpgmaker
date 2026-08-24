@@ -262,12 +262,6 @@ VulkanDevice::~VulkanDevice() {
     }
 }
 
-BufferHandle VulkanDevice::CreateBuffer(const BufferDesc&) {
-    return BufferHandle::kInvalid;
-}
-
-void VulkanDevice::DestroyBuffer(BufferHandle) {}
-
 TextureHandle VulkanDevice::CreateTexture(const TextureDesc& desc) {
     const VkFormat native_format = ToNativeFormat(desc.format);
 
@@ -751,10 +745,6 @@ void VulkanCommandList::SetPipeline(PipelineHandle handle) {
 
 void VulkanCommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_count) {
     vkCmdDraw(command_buffer_, vertex_count, instance_count, 0, 0);
-}
-
-void VulkanCommandList::CopyTexture(TextureHandle, TextureHandle) {
-    throw std::runtime_error("vulkan backend: CopyTexture is not implemented yet");
 }
 
 } // namespace jrpgmaker::rhi::vulkan

@@ -23,9 +23,6 @@ public:
     IDevice(const IDevice&) = delete;
     IDevice& operator=(const IDevice&) = delete;
 
-    virtual BufferHandle CreateBuffer(const BufferDesc& desc) = 0;
-    virtual void DestroyBuffer(BufferHandle handle) = 0;
-
     virtual TextureHandle CreateTexture(const TextureDesc& desc) = 0;
     virtual void DestroyTexture(TextureHandle handle) = 0;
 

@@ -28,7 +28,6 @@ public:
     void EndRendering() override;
     void SetPipeline(PipelineHandle handle) override;
     void Draw(std::uint32_t vertex_count, std::uint32_t instance_count) override;
-    void CopyTexture(TextureHandle source, TextureHandle destination) override;
 
     VkCommandBuffer Native() { return command_buffer_; }
 
@@ -47,8 +46,6 @@ public:
 
     ~VulkanDevice() override;
 
-    BufferHandle CreateBuffer(const BufferDesc& desc) override;
-    void DestroyBuffer(BufferHandle handle) override;
     TextureHandle CreateTexture(const TextureDesc& desc) override;
     void DestroyTexture(TextureHandle handle) override;
     PipelineHandle CreatePipeline(const GraphicsPipelineDesc& desc) override;

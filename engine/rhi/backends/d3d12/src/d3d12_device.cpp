@@ -195,12 +195,6 @@ ID3D12PipelineState* D3D12Device::PipelineState(PipelineHandle handle) {
     return it->second.pipeline.Get();
 }
 
-BufferHandle D3D12Device::CreateBuffer(const BufferDesc&) {
-    return BufferHandle::kInvalid;
-}
-
-void D3D12Device::DestroyBuffer(BufferHandle) {}
-
 TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc) {
     const DXGI_FORMAT native_format = ToNativeFormat(desc.format);
 
@@ -559,10 +553,6 @@ void D3D12CommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_c
     command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list_->DrawInstanced(vertex_count, instance_count, 0, 0);
     owner_->CheckGpuErrors();
-}
-
-void D3D12CommandList::CopyTexture(TextureHandle, TextureHandle) {
-    throw std::runtime_error("d3d12 backend: CopyTexture is not implemented yet");
 }
 
 } // namespace jrpgmaker::rhi::d3d12

@@ -13,7 +13,6 @@
 
 namespace {
 
-using jrpgmaker::rhi::BufferHandle;
 using jrpgmaker::rhi::ClearColor;
 using jrpgmaker::rhi::Format;
 using jrpgmaker::rhi::GraphicsPipelineDesc;
@@ -24,11 +23,9 @@ using jrpgmaker::rhi::TextureHandle;
 using jrpgmaker::rhi::TextureUsage;
 
 TEST_CASE("rhi handles are strongly typed and invalid by default", "[rhi][contract]") {
-    constexpr BufferHandle buffer{};
     constexpr TextureHandle texture{};
     constexpr PipelineHandle pipeline{};
 
-    REQUIRE(buffer == BufferHandle::kInvalid);
     REQUIRE(texture == TextureHandle::kInvalid);
     REQUIRE(pipeline == PipelineHandle::kInvalid);
 }
