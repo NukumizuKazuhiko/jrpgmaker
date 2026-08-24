@@ -115,6 +115,21 @@ VkPhysicalDevice SelectPhysicalDevice(VkInstance instance) {
     return best;
 }
 
+bool DeviceSupportsSwapchain(VkPhysicalDevice physical_device) {
+    std::uint32_t extension_count = 0;
+    ThrowIfFailed(
+        vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count, nullptr),
+        "vkEnumerateDeviceExtensionProperties");
+    std::vector<VkExtensionProperties> available(extension_count);
+    ThrowIfFailed(vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &extension_count,
+                                                       available.data()),
+                  "vkEnumerateDeviceExtensionProperties");
+    return std::any_of(available.begin(), available.end(),
+                       [](const VkExtensionProperties& candidate) {
+                           return std::strcmp(candidate.extensionName, "VK_KHR_swapchain") == 0;
+                       });
+}
+
 } // namespace
 
 VkFormat ToNativeFormat(Format format) {
@@ -148,18 +163,33 @@ std::unique_ptr<IDevice> VulkanDevice::Create() {
     device_info.queueCreateInfoCount = 1;
     device_info.pQueueCreateInfos = &queue_info;
 
+    const bool supports_swapchain = DeviceSupportsSwapchain(instance->physical_device_);
+    instance->swapchain_supported_ = supports_swapchain;
     const char* device_extensions[] = {"VK_KHR_swapchain"};
-    device_info.enabledExtensionCount = static_cast<std::uint32_t>(std::size(device_extensions));
-    device_info.ppEnabledExtensionNames = device_extensions;
+    if (supports_swapchain) {
+        device_info.enabledExtensionCount =
+            static_cast<std::uint32_t>(std::size(device_extensions));
+        device_info.ppEnabledExtensionNames = device_extensions;
+    }
 
     VkPhysicalDeviceDynamicRenderingFeatures dynamic_rendering_features{};
     dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
     dynamic_rendering_features.dynamicRendering = VK_TRUE;
     device_info.pNext = &dynamic_rendering_features;
 
-    ThrowIfFailed(
-        vkCreateDevice(instance->physical_device_, &device_info, nullptr, &instance->device_),
-        "vkCreateDevice");
+    VkResult device_result =
+        vkCreateDevice(instance->physical_device_, &device_info, nullptr, &instance->device_);
+    if (device_result == VK_ERROR_FEATURE_NOT_PRESENT && supports_swapchain) {
+        // Some lavapipe builds advertise VK_KHR_swapchain but reject the device
+        // when it is enabled together with dynamic rendering; fall back to a
+        // swapchain-less device so offscreen tests still run.
+        instance->swapchain_supported_ = false;
+        device_info.enabledExtensionCount = 0;
+        device_info.ppEnabledExtensionNames = nullptr;
+        device_result =
+            vkCreateDevice(instance->physical_device_, &device_info, nullptr, &instance->device_);
+    }
+    ThrowIfFailed(device_result, "vkCreateDevice");
 
     vkGetDeviceQueue(instance->device_, instance->queue_family_, 0, &instance->queue_);
 
@@ -514,6 +544,10 @@ void VulkanDevice::DestroyCommandList(ICommandList* command_list) {
 
 ISwapchain* VulkanDevice::CreateSwapchain(void* native_window_handle, std::uint32_t width,
                                           std::uint32_t height, Format format) {
+    if (!swapchain_supported_) {
+        throw std::runtime_error(
+            "vulkan backend: device does not support the VK_KHR_swapchain extension");
+    }
     return new VulkanSwapchain(this, native_window_handle, width, height, format);
 }
 

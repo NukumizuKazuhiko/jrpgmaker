@@ -10,8 +10,7 @@ TEST_CASE("stage runner executes systems in stage order", "[core][stage]") {
     jrpgmaker::core::StageRunner stages;
 
     std::vector<std::string> visited;
-    stages.RegisterSystem(jrpgmaker::core::Stage::kInput,
-                          {jrpgmaker::core::Stage::kInput, 0},
+    stages.RegisterSystem(jrpgmaker::core::Stage::kInput, {jrpgmaker::core::Stage::kInput, 0},
                           [&visited](double) { visited.push_back("input"); });
     stages.RegisterSystem(jrpgmaker::core::Stage::kRenderSubmit,
                           {jrpgmaker::core::Stage::kRenderSubmit, 0},
@@ -62,8 +61,8 @@ TEST_CASE("stage runner forwards delta seconds to systems", "[core][stage]") {
 TEST_CASE("stage runner rejects duplicate order within a stage", "[core][stage]") {
     jrpgmaker::core::StageRunner stages;
 
-    stages.RegisterSystem(jrpgmaker::core::Stage::kInput,
-                          {jrpgmaker::core::Stage::kInput, 0}, [](double) {});
+    stages.RegisterSystem(jrpgmaker::core::Stage::kInput, {jrpgmaker::core::Stage::kInput, 0},
+                          [](double) {});
     REQUIRE_THROWS_AS(stages.RegisterSystem(jrpgmaker::core::Stage::kInput,
                                             {jrpgmaker::core::Stage::kInput, 0}, [](double) {}),
                       std::runtime_error);

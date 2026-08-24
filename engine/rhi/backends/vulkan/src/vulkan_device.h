@@ -112,6 +112,7 @@ private:
     VkCommandPool command_pool_ = VK_NULL_HANDLE;
     VkFence fence_ = VK_NULL_HANDLE;
     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
+    bool swapchain_supported_ = false;
 
     std::unordered_map<std::uint64_t, TextureEntry> textures_;
     std::unordered_map<std::uint64_t, ReadBackEntry> read_backs_;

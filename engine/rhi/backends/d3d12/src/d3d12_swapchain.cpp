@@ -27,8 +27,8 @@ DXGI_FORMAT ToNativeFormat(Format format) {
 
 } // namespace
 
-D3D12Swapchain::D3D12Swapchain(D3D12Device* owner, void* native_window_handle,
-                               std::uint32_t width, std::uint32_t height, Format format)
+D3D12Swapchain::D3D12Swapchain(D3D12Device* owner, void* native_window_handle, std::uint32_t width,
+                               std::uint32_t height, Format format)
     : owner_(owner) {
     const HWND hwnd = static_cast<HWND>(native_window_handle);
 

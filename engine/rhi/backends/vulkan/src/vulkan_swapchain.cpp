@@ -36,8 +36,8 @@ VulkanSwapchain::VulkanSwapchain(VulkanDevice* owner, void* native_window_handle
     surface_ = CreateSurface(owner->instance_, native_window_handle);
 
     VkBool32 present_supported = VK_FALSE;
-    ThrowIfFailed(vkGetPhysicalDeviceSurfaceSupportKHR(owner->physical_device_, owner->queue_family_,
-                                                       surface_, &present_supported),
+    ThrowIfFailed(vkGetPhysicalDeviceSurfaceSupportKHR(
+                      owner->physical_device_, owner->queue_family_, surface_, &present_supported),
                   "vkGetPhysicalDeviceSurfaceSupportKHR");
     if (present_supported == VK_FALSE) {
         throw std::runtime_error("vulkan swapchain: graphics queue family cannot present");
@@ -114,13 +114,13 @@ void VulkanSwapchain::CreateSwapchainKHR(std::uint32_t width, std::uint32_t heig
                   "vkCreateSwapchainKHR");
 
     std::uint32_t swapchain_image_count = 0;
-    ThrowIfFailed(vkGetSwapchainImagesKHR(owner_->device_, swapchain_, &swapchain_image_count,
-                                          nullptr),
-                  "vkGetSwapchainImagesKHR(count)");
+    ThrowIfFailed(
+        vkGetSwapchainImagesKHR(owner_->device_, swapchain_, &swapchain_image_count, nullptr),
+        "vkGetSwapchainImagesKHR(count)");
     std::vector<VkImage> images(swapchain_image_count);
-    ThrowIfFailed(vkGetSwapchainImagesKHR(owner_->device_, swapchain_, &swapchain_image_count,
-                                          images.data()),
-                  "vkGetSwapchainImagesKHR");
+    ThrowIfFailed(
+        vkGetSwapchainImagesKHR(owner_->device_, swapchain_, &swapchain_image_count, images.data()),
+        "vkGetSwapchainImagesKHR");
 
     for (VkImage image : images) {
         VkImageViewCreateInfo view_info{};
