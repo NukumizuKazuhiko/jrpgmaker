@@ -5,11 +5,13 @@
   "description": "Reusable engine for Persona-style JRPGs",
   "dependencies": [
     "catch2",
+    "cgltf",
     {
       "name": "directx-dxc",
       "platform": "!osx"
     },
     "sdl3",
+    "stb",
     "vulkan-headers",
     "volk"
   ],
