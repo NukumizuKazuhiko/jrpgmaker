@@ -44,7 +44,7 @@ TEST_CASE("gltf scene import builds a parent-child hierarchy", "[core][assetimpo
     const std::optional<jrpgmaker::assetimport::SceneLoad> load = LoadGltfScene(path, &error);
     REQUIRE(load.has_value());
 
-    REQUIRE(load->meshes.size() == 1);
+    REQUIRE(load->assets.live_count() == 1);
     REQUIRE(load->node_entities.size() == 2);
 
     const Entity root = load->node_entities[0];
@@ -61,11 +61,13 @@ TEST_CASE("gltf scene import builds a parent-child hierarchy", "[core][assetimpo
     REQUIRE(child_parent != nullptr);
     REQUIRE(child_parent->parent == root);
 
-    // Mesh reference on the child resolves into the mesh pool.
+    // Mesh reference on the child resolves into the asset registry.
     const MeshRef* ref = load->scene.Registry().try_get<MeshRef>(child);
     REQUIRE(ref != nullptr);
-    REQUIRE(ref->mesh_index == 0);
-    REQUIRE(load->meshes[ref->mesh_index].vertex_count() == 3);
+    REQUIRE(ref->handle != jrpgmaker::core::AssetHandle::kInvalid);
+    const MeshData* mesh = load->assets.FindMesh(ref->handle);
+    REQUIRE(mesh != nullptr);
+    REQUIRE(mesh->vertex_count() == 3);
 }
 
 TEST_CASE("gltf scene import composes world transforms through the hierarchy",

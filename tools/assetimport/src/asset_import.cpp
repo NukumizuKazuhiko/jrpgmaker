@@ -120,10 +120,10 @@ bool NodeTransform(const cgltf_node& node, core::Transform& out) {
 // Imports a glTF node and its descendants into the scene. `node_index` is the
 // node's index in data->nodes (from the prebuilt index map); node_entities is
 // filled so callers can map glTF node index -> scene entity.
-void ImportNode(const cgltf_node& gltf_node, core::Scene& scene,
-                std::vector<core::MeshData>& meshes, std::vector<core::Entity>& node_entities,
-                std::size_t node_index, core::Entity parent,
-                const std::map<const cgltf_mesh*, std::size_t>& mesh_pool,
+void ImportNode(const cgltf_node& gltf_node, core::Scene& scene, core::AssetRegistry& assets,
+                std::vector<core::Entity>& node_entities, std::size_t node_index,
+                core::Entity parent,
+                const std::map<const cgltf_mesh*, core::AssetHandle>& mesh_pool,
                 const std::map<const cgltf_node*, std::size_t>& node_indices, std::string& message,
                 bool& ok) {
     const core::Entity entity = scene.CreateEntity();
@@ -155,7 +155,7 @@ void ImportNode(const cgltf_node& gltf_node, core::Scene& scene,
     for (cgltf_size i = 0; i < gltf_node.children_count; ++i) {
         const auto child_it = node_indices.find(gltf_node.children[i]);
         const std::size_t child_index = child_it != node_indices.end() ? child_it->second : 0;
-        ImportNode(*gltf_node.children[i], scene, meshes, node_entities, child_index, entity,
+        ImportNode(*gltf_node.children[i], scene, assets, node_entities, child_index, entity,
                    mesh_pool, node_indices, message, ok);
         if (!ok) {
             return;
@@ -164,10 +164,11 @@ void ImportNode(const cgltf_node& gltf_node, core::Scene& scene,
 }
 
 // Builds the mesh pool for a scene: one MeshData per glTF mesh (first
-// primitive only, P2 scope). Returns false and sets `message` on the first
-// unreadable mesh.
-bool BuildMeshPool(const cgltf_data* data, std::vector<core::MeshData>& meshes,
-                   std::map<const cgltf_mesh*, std::size_t>& mesh_pool, std::string& message) {
+// primitive only, P2 scope), registered into the asset registry. Returns false
+// and sets `message` on the first unreadable mesh.
+bool BuildMeshPool(const cgltf_data* data, core::AssetRegistry& assets,
+                   std::map<const cgltf_mesh*, core::AssetHandle>& mesh_pool,
+                   std::string& message) {
     for (cgltf_size m = 0; m < data->meshes_count; ++m) {
         const cgltf_mesh& mesh = data->meshes[m];
         if (mesh.primitives_count == 0) {
@@ -178,8 +179,7 @@ bool BuildMeshPool(const cgltf_data* data, std::vector<core::MeshData>& meshes,
         if (!LoadPrimitive(mesh.primitives[0], mesh_data, message)) {
             return false;
         }
-        mesh_pool.emplace(&mesh, meshes.size());
-        meshes.push_back(std::move(mesh_data));
+        mesh_pool.emplace(&mesh, assets.RegisterMesh(mesh_data));
     }
     return true;
 }
@@ -248,10 +248,11 @@ std::optional<SceneLoad> LoadGltfScene(const std::filesystem::path& path, GltfLo
 
     SceneLoad result;
 
-    // Mesh pool: one MeshData per glTF mesh, referenced from nodes via MeshRef.
-    std::map<const cgltf_mesh*, std::size_t> mesh_pool;
+    // Mesh pool: one MeshData per glTF mesh, registered into the asset
+    // registry and referenced from nodes via MeshRef.
+    std::map<const cgltf_mesh*, core::AssetHandle> mesh_pool;
     std::string message;
-    if (!BuildMeshPool(data, result.meshes, mesh_pool, message)) {
+    if (!BuildMeshPool(data, result.assets, mesh_pool, message)) {
         cgltf_free(data);
         return fail(std::move(message));
     }
@@ -269,7 +270,7 @@ std::optional<SceneLoad> LoadGltfScene(const std::filesystem::path& path, GltfLo
         for (cgltf_size i = 0; i < data->scene->nodes_count; ++i) {
             const auto it = node_indices.find(data->scene->nodes[i]);
             const std::size_t node_index = it != node_indices.end() ? it->second : 0;
-            ImportNode(*data->scene->nodes[i], result.scene, result.meshes, result.node_entities,
+            ImportNode(*data->scene->nodes[i], result.scene, result.assets, result.node_entities,
                        node_index, core::kNullEntity, mesh_pool, node_indices, message, ok);
             if (!ok) {
                 cgltf_free(data);
@@ -279,7 +280,7 @@ std::optional<SceneLoad> LoadGltfScene(const std::filesystem::path& path, GltfLo
     } else {
         for (cgltf_size i = 0; i < data->nodes_count; ++i) {
             if (data->nodes[i].parent == nullptr) {
-                ImportNode(data->nodes[i], result.scene, result.meshes, result.node_entities,
+                ImportNode(data->nodes[i], result.scene, result.assets, result.node_entities,
                            static_cast<std::size_t>(i), core::kNullEntity, mesh_pool, node_indices,
                            message, ok);
                 if (!ok) {

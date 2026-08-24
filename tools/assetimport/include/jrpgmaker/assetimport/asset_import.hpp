@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "jrpgmaker/core/asset.hpp"
 #include "jrpgmaker/core/mesh.hpp"
 #include "jrpgmaker/core/scene.hpp"
 
@@ -21,17 +22,18 @@ struct GltfLoadError {
 std::optional<core::MeshData> LoadGltfMesh(const std::filesystem::path& path,
                                            GltfLoadError* error = nullptr);
 
-// Mesh reference attached to a scene entity (index into SceneLoad::meshes).
+// Mesh reference attached to a scene entity: a handle into SceneLoad::assets.
 struct MeshRef {
-    std::size_t mesh_index = 0;
+    core::AssetHandle handle{core::AssetHandle::kInvalid};
 };
 
 // Result of a glTF scene import: the EnTT scene graph (Transform/Parent
-// components on entities, MeshRef on nodes with meshes) plus the mesh data
-// pool. World matrices compose through Scene::WorldMatrix.
+// components on entities, MeshRef on nodes with meshes) plus the mesh asset
+// pool owned by the asset registry. World matrices compose through
+// Scene::WorldMatrix. Unload meshes via AssetRegistry::Unregister.
 struct SceneLoad {
     core::Scene scene;
-    std::vector<core::MeshData> meshes;
+    core::AssetRegistry assets;
 
     // Maps glTF node index -> scene entity, for callers that need to keep the
     // correspondence (e.g. naming or traversal). Empty if the file has no nodes.

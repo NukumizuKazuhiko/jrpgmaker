@@ -3,7 +3,8 @@ find_package(Catch2 REQUIRED CONFIG)
 add_executable(jrpgmaker_unit_tests)
 target_sources(
   jrpgmaker_unit_tests
-  PRIVATE smoke_test.cpp rhi_contract_test.cpp stage_test.cpp asset_import_test.cpp scene_test.cpp)
+  PRIVATE smoke_test.cpp rhi_contract_test.cpp stage_test.cpp asset_import_test.cpp scene_test.cpp
+          asset_test.cpp)
 target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::core jrpgmaker::rhi jrpgmaker::shaders
                                                 jrpgmaker::assetimport Catch2::Catch2WithMain)
 

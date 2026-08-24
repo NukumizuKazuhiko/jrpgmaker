@@ -26,7 +26,7 @@ core      engine/core 数学 · ECS · 资产句柄 · 事件总线 · 时间 ·
 
 | 层 | 目录 | 唯一 owner 职责 | 允许依赖 | 禁止事项 |
 |---|---|---|---|---|
-| core | `engine/core` | 数学类型(GLM 封装)、EnTT registry 封装（`Scene`：实体/变换层级/世界矩阵，ADR-001 执行）、句柄式资产管理（`MeshData` 等 CPU 侧资产数据结构）、事件总线、时钟/时间步、日志、诊断 | 仅标准库 + GLM/EnTT | 任何图形 API、平台 API、JRPG 语义 |
+| core | `engine/core` | 数学类型(GLM 封装)、EnTT registry 封装（`Scene`：实体/变换层级/世界矩阵，ADR-001 执行）、句柄式资产管理（`AssetRegistry`：注册/查询/卸载/泄漏计数 + `MeshData` 等 CPU 侧资产数据结构）、事件总线、时钟/时间步、日志、诊断 | 仅标准库 + GLM/EnTT | 任何图形 API、平台 API、JRPG 语义 |
 | rhi 合同 | `engine/rhi` | 图形 API 语义：设备、swapchain、pipeline、buffer/texture/sampler、command list、同步原语 | core | 出现任何游戏概念；暴露后端类型 |
 | rhi 后端 | `engine/rhi/backends/{d3d12,vulkan}` | 实现 RHI 合同 | rhi 合同 + core | 相互引用；后端头文件泄漏出 `backends/` |
 | render | `engine/render` | 场景渲染器、材质系统、光照、相机投影、后处理栈(bloom/LUT)、toon shading 与描边 | rhi, core | 私造游戏状态；读取战斗/存档数据 |
@@ -96,9 +96,9 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 
 - 运行时对象模型 = EnTT ECS；`core::Scene` 封装 `entt::registry`（owner 依据 core"EnTT registry 封装"，禁止场景树进入运行时）。
 - 组件：`Transform`（GLM TRS，与 glTF node TRS 语义对齐，缺省单位阵）+ `Parent`（单亲层级）。世界矩阵 `Scene::WorldMatrix(entity)` 沿 parent 链组合（缺失 Transform 视为单位阵，缺失 Parent 终止链，循环引用有深度守卫）。
-- 资产引用：场景实体挂 `assetimport::MeshRef{mesh_index}`（索引入 `SceneLoad::meshes` 池）。v0 场景导入仅覆盖静态网格 + node 层级/TRS/matrix；动画、skin、Draco 压缩在 P2 范围外（cgltf 可解析但导入器拒绝并报错）。
+- 资产引用：场景实体挂 `assetimport::MeshRef{handle}`，handle 是 `core::AssetHandle`（强类型，`kInvalid=0`），索引 `SceneLoad::assets`（`core::AssetRegistry`）——`RegisterMesh`/`FindMesh`/`Unregister`/`live_count`（泄漏检测探针，P2 验收"资产句柄泄漏计数为零"）；句柄单调递增不复用。v0 场景导入仅覆盖静态网格 + node 层级/TRS/matrix；动画、skin、Draco 压缩在 P2 范围外（cgltf 可解析但导入器拒绝并报错）。
 - glTF 坐标约定：glTF node matrix 为列主序（与 GLM 一致，`glm::make_mat4` 直读）；matrix 形式经 `glm::decompose`（GTX 实验扩展，`GLM_ENABLE_EXPERIMENTAL` 限定于 assetimport.cpp 单 TU）分解为 TRS；rotation 为 glTF (x,y,z,w) 顺序转 `glm::quat(w,x,y,z)`。
-- 场景导入不缓存（v0 每次调用独立 parse+load）；句柄式异步资产系统是 P2 后续子任务，届时 MeshRef 升级为资产句柄。
+- 场景导入不缓存（v0 每次调用独立 parse+load）；**异步线程加载是 P2 后续子任务**，届时 AssetRegistry 升级为线程安全 + 后台队列，`AssetHandle` 合同不变。
 
 ### Stage 运行框架合同（P1 落地版）
 
