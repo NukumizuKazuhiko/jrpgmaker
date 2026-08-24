@@ -26,7 +26,7 @@ core      engine/core 数学 · ECS · 资产句柄 · 事件总线 · 时间 ·
 
 | 层 | 目录 | 唯一 owner 职责 | 允许依赖 | 禁止事项 |
 |---|---|---|---|---|
-| core | `engine/core` | 数学类型(GLM 封装)、EnTT registry 封装、句柄式资产管理（`MeshData` 等 CPU 侧资产数据结构）、事件总线、时钟/时间步、日志、诊断 | 仅标准库 + GLM/EnTT | 任何图形 API、平台 API、JRPG 语义 |
+| core | `engine/core` | 数学类型(GLM 封装)、EnTT registry 封装（`Scene`：实体/变换层级/世界矩阵，ADR-001 执行）、句柄式资产管理（`MeshData` 等 CPU 侧资产数据结构）、事件总线、时钟/时间步、日志、诊断 | 仅标准库 + GLM/EnTT | 任何图形 API、平台 API、JRPG 语义 |
 | rhi 合同 | `engine/rhi` | 图形 API 语义：设备、swapchain、pipeline、buffer/texture/sampler、command list、同步原语 | core | 出现任何游戏概念；暴露后端类型 |
 | rhi 后端 | `engine/rhi/backends/{d3d12,vulkan}` | 实现 RHI 合同 | rhi 合同 + core | 相互引用；后端头文件泄漏出 `backends/` |
 | render | `engine/render` | 场景渲染器、材质系统、光照、相机投影、后处理栈(bloom/LUT)、toon shading 与描边 | rhi, core | 私造游戏状态；读取战斗/存档数据 |
@@ -92,6 +92,14 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - 生命周期约束：`DestroyXxx` 要求调用方保证 GPU 已空闲（即 `Submit` + `WaitForGpuIdle` 之后）；延迟删除是后端后续增强，不属于 v0 合同语义。swapchain back buffer 由 `DestroySwapchain` 统一释放（先 `UnregisterSwapchain*` 反注册再销毁呈现资源）。
 - v0 裁剪：三角形用例经顶点缓冲 + 单 float3 位置属性（location 0）绘制（P2 起）；几何与 P1 的 `SV_VertexID` 生成三角形完全一致，golden 基准图无需重新标定。顶点输入支持单 interleaved buffer + 可选索引缓冲（uint16/uint32），覆盖 glTF 网格导入需要。
 
+### 场景合同（P2 落地版，ADR-001 执行）
+
+- 运行时对象模型 = EnTT ECS；`core::Scene` 封装 `entt::registry`（owner 依据 core"EnTT registry 封装"，禁止场景树进入运行时）。
+- 组件：`Transform`（GLM TRS，与 glTF node TRS 语义对齐，缺省单位阵）+ `Parent`（单亲层级）。世界矩阵 `Scene::WorldMatrix(entity)` 沿 parent 链组合（缺失 Transform 视为单位阵，缺失 Parent 终止链，循环引用有深度守卫）。
+- 资产引用：场景实体挂 `assetimport::MeshRef{mesh_index}`（索引入 `SceneLoad::meshes` 池）。v0 场景导入仅覆盖静态网格 + node 层级/TRS/matrix；动画、skin、Draco 压缩在 P2 范围外（cgltf 可解析但导入器拒绝并报错）。
+- glTF 坐标约定：glTF node matrix 为列主序（与 GLM 一致，`glm::make_mat4` 直读）；matrix 形式经 `glm::decompose`（GTX 实验扩展，`GLM_ENABLE_EXPERIMENTAL` 限定于 assetimport.cpp 单 TU）分解为 TRS；rotation 为 glTF (x,y,z,w) 顺序转 `glm::quat(w,x,y,z)`。
+- 场景导入不缓存（v0 每次调用独立 parse+load）；句柄式异步资产系统是 P2 后续子任务，届时 MeshRef 升级为资产句柄。
+
 ### Stage 运行框架合同（P1 落地版）
 
 - 显式阶段序列：`kInput → kDomainSim → kAnimation → kPresentationSync → kRenderSubmit`（`engine/core` 的 `stage.hpp`）。主循环每个 tick 依序推进全部阶段。
@@ -120,8 +128,8 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 | 语言 | C++20 | 用户决策；图形行业生态最全 |
 | 构建 | CMake ≥ 3.24 + CMakePresets.json | 三平台统一入口；preset 固化配置矩阵 |
 | 依赖 | vcpkg manifest (`vcpkg.json`) | 三平台一致版本锁定 |
-| ECS | EnTT | header-only、成熟、JRPG 规模下性能充裕 |
-| 数学 | GLM | 与 GLSL 语义对齐，减少 shader 侧转换错误 |
+| ECS | EnTT | header-only、成熟、JRPG 规模下性能充裕（vcpkg 3.16.0，P2 已引入，core::Scene 落地） |
+| 数学 | GLM | 与 GLSL 语义对齐，减少 shader 侧转换错误（vcpkg 1.0.3，P2 已引入；`glm::glm` target） |
 | 窗口/输入 | SDL3 | 三平台窗口、输入、剪贴板一站式 |
 | 图形 | 自研 RHI + D3D12(Win) / Vulkan(Linux/macOS via MoltenVK) | 平台边界决定的双后端结构 |
 | Vulkan 加载 | volk（header-only 运行时加载，vcpkg `volk` port） | 免链接平台 loader 库；macOS CI 用 lavapipe 软件驱动时 loader 由预编译包提供 |

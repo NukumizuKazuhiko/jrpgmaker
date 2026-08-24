@@ -10,6 +10,8 @@
       "name": "directx-dxc",
       "platform": "!osx"
     },
+    "entt",
+    "glm",
     "sdl3",
     "stb",
     "vulkan-headers",
