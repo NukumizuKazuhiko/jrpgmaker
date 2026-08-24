@@ -15,6 +15,7 @@ endif()
 option(JRPGMAKER_BUILD_TESTS "Build unit tests" ON)
 
 add_subdirectory(engine/core)
+add_subdirectory(engine/domain)
 add_subdirectory(engine/rhi)
 add_subdirectory(shaders)
 if(WIN32)

@@ -119,6 +119,21 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - JSON schema 版本化；指令集（移动/等待/对话/分支/flag 操作/演出触发…）是稳定合同。
 - Lua(sol2) 只是复杂逻辑逃生舱：Lua 入口同样过 schema/lint，禁止绕过指令集私造流程。
 
+#### 事件脚本 schema v1（P3 落地，2026-08-24）
+
+- **载体**：`assets/data/*.json`（示例 `events_demo.json`），解析入口 `jrpgmaker::domain::ParseEventScript`（nlohmann/json，技术栈已锁定；`nlohmann_json::nlohmann_json` target，vcpkg 3.12.0）。
+- **文档结构**：顶层 `schema`（必须 =1，否则抛错）+ `events` 数组；每个事件有 `id` + `instructions` 数组。
+- **指令 op 集（v1，封闭）**：
+  - `set_flag {flag, value}` / `clear_flag {flag}`（clear 是 set_flag=false 简写）
+  - `branch {flag, if_set[], if_not_set[]}` — 按 flag 值选子序列；**分支内禁止 `wait`**（线性 runner 无法表达嵌套阻塞，解释器抛 `std::logic_error` 拒绝，禁止静默吞语义）
+  - `dialog {speaker, text_key}` — 发 `DialogRequested{event_id, speaker, text_key}` 到事件总线；**v1 不阻塞**（无 UI 确认机制），阻塞对话随 P3 对话模型子任务落地
+  - `wait {seconds}` — 顶层阻塞（`EventRunner::Tick(delta)` 累积扣减）
+  - 非法 op / 缺字段 / 负 wait / 错误 schema 版本 → 解析期 `std::invalid_argument`（含上下文信息）
+- **解释器**：`jrpgmaker::domain::EventRunner`（持有 `EventScript&` + `FlagStore&` + `core::EventBus&`）。`Start(event_id)`（事件进行中再 Start 抛错）、`Tick(delta)`（固定时间步驱动，wait 阻塞时扣 delta 不推进，到期后继续后续指令）、`IsActive()`/`IsFinished()`（完成后保留事件供查询，`IsActive()` 归 false）。`Start` 对未知事件 id 返回 false 无副作用。
+- **flag 存储**：`jrpgmaker::domain::FlagStore`（`Set`/`Get`，命名 bool，空名抛错；`live_count()` 为诊断探针）。单线程、domain 独占；ui/render 不直读（走事件总线 projection）。
+- **事件总线**：`jrpgmaker::core::EventBus`（类型擦除订阅/发布，docs/01 owner map 规定 domain 只发布、presentation 只消费）。订阅无退订（v0 消费者存活于进程期）。
+- **对话模型 / 变更检测投影同步（A3）/ UI 消费**：P3 后续子任务（docs/02 P3），本轮只落地事件/flag/总线合同。
+
 ### 存档合同
 
 - schema 版本号 + 迁移函数表；读档必须经过校验，禁止裸反序列化。
@@ -137,7 +152,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 | Vulkan 加载 | volk（header-only 运行时加载，vcpkg `volk` port） | 免链接平台 loader 库；macOS CI 用 lavapipe 软件驱动时 loader 由预编译包提供 |
 | 着色语言/编译器 | HLSL 2021 + DXC（单源双目标，见 ADR-003） | 双后端 shader 语义同源是 golden image 一致性的前提 |
 | 脚本 | sol2 + Lua 5.4 | 逃生舱定位，见事件指令集合同 |
-| 序列化 | nlohmann/json | 数据先行工作流基础设施 |
+| 序列化 | nlohmann/json | 数据先行工作流基础设施（vcpkg 3.12.0，P3 引入；`nlohmann_json::nlohmann_json` target，事件脚本 schema v1 解析用） |
 | glTF 解析 | cgltf（vcpkg port 1.15） | 零依赖单文件 C99 库；glTF 2.0 全特性覆盖；仅作资产导入的兼容输入（ADR-004）。vcpkg port 无 CMake config，tools/assetimport 用 `find_path(CGLTF_INCLUDE_DIRS NAMES cgltf.h)` 解析 include；`CGLTF_IMPLEMENTATION` 仅在 asset_import.cpp 单 TU 实例化；MSVC 下该 TU 局部抑制 `_CRT_SECURE_NO_WARNINGS`（C 头合法使用 fopen/strcpy 会被仓库级 `/WX` 提升为错误，抑制范围限定在该 target） |
 | 纹理解码 | stb（stb_image，vcpkg port） | 与 cgltf 同属零依赖工具族；PBR 纹理/立绘导入兼容输入（ADR-004） |
 | 字体 | FreeType + HarfBuzz | CJK 整形与禁则处理必需 |

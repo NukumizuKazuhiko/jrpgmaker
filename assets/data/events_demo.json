@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "events": [
+    {
+      "id": "meet_alice",
+      "instructions": [
+        {
+          "op": "branch",
+          "flag": "alice.met",
+          "if_set": [
+            { "op": "dialog", "speaker": "alice", "text_key": "alice.greeting.again" },
+            { "op": "set_flag", "flag": "alice.conversations", "value": true }
+          ],
+          "if_not_set": [
+            { "op": "dialog", "speaker": "alice", "text_key": "alice.greeting.first" },
+            { "op": "set_flag", "flag": "alice.met", "value": true },
+            { "op": "wait", "seconds": 0.5 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chest_west",
+      "instructions": [
+        { "op": "dialog", "speaker": "system", "text_key": "chest.opened" },
+        { "op": "set_flag", "flag": "chest.west.opened", "value": true }
+      ]
+    }
+  ]
+}

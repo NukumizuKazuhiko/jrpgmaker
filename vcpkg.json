@@ -12,6 +12,7 @@
     },
     "entt",
     "glm",
+    "nlohmann-json",
     "sdl3",
     "stb",
     "vulkan-headers",

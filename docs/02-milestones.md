@@ -61,6 +61,7 @@
 - **范围外**：战斗、动画角色、音频接线（audio 层首接线刻意安排在 P6，避免半截集成）。
 - **验收命令与证据**：demo 地图中 NPC 由纯 JSON 事件驱动完整对话分支（含中文与日文用例 golden image）；lint CLI 对引用缺失报错清晰。
 - **停止条件**：全局门禁全过；CJK 用例不过不得进入 P4（AGENTS.md 纪律 3）。
+- **子任务 1（已完成，2026-08-24）**：**事件/flag 合同 + 事件总线（schema v1 + 解释器 + FlagStore + EventBus）**。core 新增 `EventBus`（类型擦除订阅/发布）；domain 落地 `event_script.hpp`（schema v1：`set_flag`/`clear_flag`/`branch`/`dialog`/`wait`，`Instruction` 递归 variant，解析抛错含上下文）、`flag_store.hpp`（`FlagStore`）、`event_runner.hpp`（`EventRunner`：Start/Tick/IsActive/IsFinished，wait 阻塞用 delta 扣减、branch 按 flag 选子序列、dialog 发 `DialogRequested` 到总线且 v1 不阻塞、分支内 wait 抛 `std::logic_error` 拒绝）。vcpkg 引入 `nlohmann-json` 3.12.0（技术栈已锁定项，`nlohmann_json::nlohmann_json` target）；示例数据 `assets/data/events_demo.json` 被单测实读解析（`event_script` "parses the committed demo data file"）。验证：双端构建零警告、ctest 68/68（event_bus 4 例 + flag_store 4 例 + event_script 8 例含数据文件 + event_runner 7 例含嵌套 wait 拒绝）、Windows 实机冒烟通过。**后续子任务**：对话模型（文本框/打字机/选项分支/立绘/i18n，`DialogRequested` 消费端）、变更检测投影同步 v1、FreeType+HarfBuzz 排版、Lua 绑定、schema lint CLI v1、UI 控件最小集、事件触发器接线。
 
 ## P4 角色与世界
 
