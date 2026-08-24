@@ -24,14 +24,27 @@ $GeneratedDir = Join-Path $ShaderRoot 'generated'
 
 function Find-Dxc {
     if ($DxcPath -and (Test-Path $DxcPath)) { return $DxcPath }
+    $candidates = @()
+    if ($env:VCPKG_INSTALLED_DIR) {
+        foreach ($triplet in @('x64-windows', 'x64-linux', 'x64-osx', 'arm64-osx')) {
+            $candidates += Join-Path $env:VCPKG_INSTALLED_DIR ("$triplet\tools\directx-dxc\dxc.exe")
+            $candidates += Join-Path $env:VCPKG_INSTALLED_DIR ("$triplet\tools\directx-dxc\dxc")
+        }
+    }
     if ($env:VCPKG_ROOT) {
         foreach ($triplet in @('x64-windows', 'x64-linux', 'x64-osx', 'arm64-osx')) {
-            $candidate = Join-Path $env:VCPKG_ROOT ("installed\$triplet\tools\directx-dxc\dxc.exe")
-            if (-not (Test-Path $candidate)) {
-                $candidate = Join-Path $env:VCPKG_ROOT ("installed\$triplet\tools\directx-dxc\dxc")
-            }
-            if (Test-Path $candidate) { return $candidate }
+            $candidates += Join-Path $env:VCPKG_ROOT ("installed\$triplet\tools\directx-dxc\dxc.exe")
+            $candidates += Join-Path $env:VCPKG_ROOT ("installed\$triplet\tools\directx-dxc\dxc")
         }
+    }
+    if ($env:BUILD_DIR) {
+        $candidates += Join-Path $env:BUILD_DIR "vcpkg_installed\x64-windows\tools\directx-dxc\dxc.exe"
+        $candidates += Join-Path $env:BUILD_DIR "vcpkg_installed\x64-linux\tools\directx-dxc\dxc"
+        $candidates += Join-Path $env:BUILD_DIR "vcpkg_installed\x64-windows\x64-windows\tools\directx-dxc\dxc.exe"
+        $candidates += Join-Path $env:BUILD_DIR "vcpkg_installed\x64-linux\x64-linux\tools\directx-dxc\dxc"
+    }
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) { return $candidate }
     }
     throw "dxc not found. Pass -DxcPath or set DXC/VCPKG_ROOT."
 }
@@ -50,7 +63,7 @@ foreach ($hlsl in Get-ChildItem -Path $ShaderRoot -Filter *.hlsl) {
         @{ Profile = 'ps_6_0'; Entry = 'ps_main'; Suffix = 'ps'; Ext = 'spv'; Spirv = $true }
     )
     foreach ($target in $targets) {
-        $out = Join-Path $GeneratedDir ("$base.{$target.Suffix}.{$target.Ext}")
+        $out = Join-Path $GeneratedDir ("$base.$($target.Suffix).$($target.Ext)")
         $args = @()
         if ($target.Spirv) { $args += '-spirv' }
         $args += @('-T', $target.Profile, '-E', $target.Entry, '-Fo', $out, $hlsl.FullName)

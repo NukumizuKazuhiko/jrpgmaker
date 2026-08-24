@@ -85,7 +85,14 @@ jobs:
           vcpkgDirectory: '${{ github.workspace }}/vcpkg'
           vcpkgGitCommitId: '127402f1c75bb3d5ff6bce04b285faa4930a5aca'
 
+      - name: Configure to install dxc under vcpkg_installed
+        uses: lukka/run-cmake@v10
+        with:
+          configurePreset: 'linux-debug'
+
       - name: Recompile committed shader bytecode and assert no drift
+        env:
+          BUILD_DIR: ${{ github.workspace }}/build/linux-debug
         run: |
           pwsh ./tools/ci/compile_shaders.ps1
           git diff --exit-code -- shaders/generated
