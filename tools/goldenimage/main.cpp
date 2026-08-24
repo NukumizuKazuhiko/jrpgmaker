@@ -154,13 +154,11 @@ int Compare(const std::string& reference_path, int tolerance) {
         return 1;
     }
 
-    const golden::CompareResult result =
-        golden::CompareRgba8(rgba.data(), static_cast<std::uint64_t>(kWidth) * 4u, reference,
-                             tolerance);
-    std::cout << "compared " << result.pixels_compared << " pixels against "
-              << reference_path << " (tolerance " << tolerance << "): "
-              << result.pixels_differing << " differing, max channel delta "
-              << result.max_channel_delta << '\n';
+    const golden::CompareResult result = golden::CompareRgba8(
+        rgba.data(), static_cast<std::uint64_t>(kWidth) * 4u, reference, tolerance);
+    std::cout << "compared " << result.pixels_compared << " pixels against " << reference_path
+              << " (tolerance " << tolerance << "): " << result.pixels_differing
+              << " differing, max channel delta " << result.max_channel_delta << '\n';
     return result.passed ? 0 : 1;
 }
 

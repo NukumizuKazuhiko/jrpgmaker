@@ -86,17 +86,15 @@ CompareResult CompareRgba8(const std::uint8_t* data, std::uint64_t row_pitch_byt
     result.pixels_compared = static_cast<std::uint64_t>(reference.width) * reference.height;
 
     for (std::uint32_t y = 0; y < reference.height; ++y) {
-        const std::uint8_t* row =
-            data + static_cast<std::uint64_t>(y) * row_pitch_bytes;
+        const std::uint8_t* row = data + static_cast<std::uint64_t>(y) * row_pitch_bytes;
         const std::uint8_t* ref_row =
             reference.rgb.data() + static_cast<std::size_t>(y) * reference.width * 3u;
         for (std::uint32_t x = 0; x < reference.width; ++x) {
             const std::uint8_t* pixel = row + static_cast<std::size_t>(x) * 4u;
             const std::uint8_t* ref = ref_row + static_cast<std::size_t>(x) * 3u;
             for (int channel = 0; channel < 3; ++channel) {
-                const int delta =
-                    pixel[channel] > ref[channel] ? pixel[channel] - ref[channel]
-                                                  : ref[channel] - pixel[channel];
+                const int delta = pixel[channel] > ref[channel] ? pixel[channel] - ref[channel]
+                                                                : ref[channel] - pixel[channel];
                 if (delta > result.max_channel_delta) {
                     result.max_channel_delta = delta;
                 }
