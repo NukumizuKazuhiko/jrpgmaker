@@ -6,7 +6,6 @@
 #include <memory>
 #include <stdexcept>
 #include <utility>
-#include <vector>
 
 namespace jrpgmaker::rhi::d3d12 {
 namespace {
@@ -299,16 +298,13 @@ void D3D12Device::CheckGpuErrors() {
         return;
     }
     for (UINT64 i = 0; i < info_queue_->GetNumStoredMessages(); ++i) {
-        SIZE_T size = 0;
-        info_queue_->GetMessage(i, nullptr, &size);
-        std::vector<std::byte> buffer(size);
-        if (info_queue_->GetMessage(i, reinterpret_cast<D3D12_MESSAGE*>(buffer.data()), &size) ==
-            S_OK) {
-            const auto* message = reinterpret_cast<const D3D12_MESSAGE*>(buffer.data());
-            if (message->Severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
+        D3D12_MESSAGE message{};
+        SIZE_T message_size = sizeof(message);
+        if (info_queue_->GetMessage(i, &message, &message_size) == S_OK) {
+            if (message.Severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
                 info_queue_->ClearStoredMessages();
-                throw std::runtime_error(
-                    std::format("d3d12 backend gpu error: {}", message->pDescription));
+                const char* description = message.pDescription ? message.pDescription : "";
+                throw std::runtime_error(std::format("d3d12 backend gpu error: {}", description));
             }
         }
     }
@@ -498,18 +494,6 @@ void D3D12CommandList::SetPipeline(PipelineHandle handle) {
 }
 
 void D3D12CommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_count) {
-    if (rendering_target_ != nullptr) {
-        const D3D12_RESOURCE_DESC target_desc = rendering_target_->GetDesc();
-        D3D12_VIEWPORT viewport{};
-        viewport.Width = static_cast<float>(target_desc.Width);
-        viewport.Height = static_cast<float>(target_desc.Height);
-        viewport.MaxDepth = 1.0f;
-        D3D12_RECT scissor{0, 0, static_cast<LONG>(target_desc.Width),
-                           static_cast<LONG>(target_desc.Height)};
-        command_list_->RSSetViewports(1, &viewport);
-        command_list_->RSSetScissorRects(1, &scissor);
-        command_list_->OMSetRenderTargets(1, &rendering_rtv_, FALSE, nullptr);
-    }
     command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list_->DrawInstanced(vertex_count, instance_count, 0, 0);
     owner_->CheckGpuErrors();

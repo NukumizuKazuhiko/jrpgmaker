@@ -256,6 +256,20 @@ VkPipelineLayout VulkanDevice::PipelineLayout() {
 }
 
 PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
+    struct ShaderModuleGuard {
+        VkDevice device;
+        VkShaderModule& vs;
+        VkShaderModule& ps;
+        ~ShaderModuleGuard() {
+            if (vs != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, vs, nullptr);
+            }
+            if (ps != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, ps, nullptr);
+            }
+        }
+    };
+
     VkShaderModuleCreateInfo vs_module_info{};
     vs_module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     vs_module_info.codeSize = desc.vertex_shader.size;
@@ -271,6 +285,8 @@ PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
     VkShaderModule ps_module = VK_NULL_HANDLE;
     ThrowIfFailed(vkCreateShaderModule(device_, &ps_module_info, nullptr, &ps_module),
                   "vkCreateShaderModule(pixel)");
+
+    const ShaderModuleGuard module_guard{device_, vs_module, ps_module};
 
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -343,9 +359,6 @@ PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
     ThrowIfFailed(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
                                             &entry.pipeline),
                   "vkCreateGraphicsPipelines");
-
-    vkDestroyShaderModule(device_, vs_module, nullptr);
-    vkDestroyShaderModule(device_, ps_module, nullptr);
 
     const std::uint64_t handle_value = next_handle_++;
     pipelines_.emplace(handle_value, std::move(entry));

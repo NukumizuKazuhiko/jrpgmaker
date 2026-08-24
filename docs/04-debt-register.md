@@ -18,7 +18,11 @@
 | DEBT-011 | 2026-08-23 | D3D12 `MapReadBack` 要求目标纹理带 `kRenderTarget`（检查 has_rtv），Vulkan 仅要求存在且 image 有 TRANSFER_SRC；纯 readback 纹理（无 RT）在 D3D12 下不可读回 | 可记录债务 | 当前用例恒为 RT|ReadBack，无纯 readback 消费者 | 引入纯 readback 纹理用例时移除 D3D12 has_rtv 限制并对齐两后端 | 开放 |
 | DEBT-012 | 2026-08-24 | shader 字节码提交入库（`shaders/generated/`）：字节码由 dxc 版本决定，跨 CI/开发机 dxc 版本漂移会改变字节码导致 shader-sync 门禁误报 | 设计风险 | vcpkg builtin-baseline 锁定 `directx-dxc` port 版本，CI 与开发机同 baseline 时字节码稳定；但手动安装其他 dxc 会漂移 | CI shader-sync job 已生成→diff 门禁；若出现漂移，记录并统一 dxc 获取方式 | 开放 |
 | DEBT-013 | 2026-08-24 | Vulkan 负高度 viewport 依赖 Vulkan 1.1+ 核心特性（翻转 NDC Y 以统一双后端方向） | 可记录债务 | 目标平台 Vulkan 1.3（MoltenVK/lavapipe 均满足 1.1）；Vulkan 1.3 必支持负高度 viewport | 若未来支持更老 Vulkan 平台，需改用 `VK_KHR_maintenance1` 检查或 shader 层面翻转 | 开放 |
-| DEBT-014 | 2026-08-24 | D3D12 PSO 的 `BlendState.RenderTarget[0].RenderTargetWriteMask` 默认 0（D3D12_BLEND_DESC 零初始化）导致三角形颜色不写入；本轮已显式设 `D3D12_COLOR_WRITE_ENABLE_ALL` 修复 | 已修复 | 已设 write mask；未来若引入混合需完整 BlendState 配置 | 混合功能轮次扩展 BlendState | 已关闭 |
+| DEBT-015 | 2026-08-24 | Vulkan 后端无 GPU 错误可见性：D3D12 已把 InfoQueue ERROR/CORRUPTION 提升为 `std::runtime_error`，Vulkan 无验证层或等价机制，GPU 侧错误静默吞掉 | 设计风险 | 当前 Vulkan 用例稳定（lavapipe/MoltenVK 下三角形/清屏测试通过），尚未暴露真实 GPU 错误；接入验证层属工具链增量 | P1 后续或 P2 接入 VK_LAYER_KHRONOS_validation（三平台 CI 可选启），错误回调/日志与 D3D12 对齐 | 开放 |
+| DEBT-016 | 2026-08-24 | NDC Y 翻转约定（Vulkan 负高度 viewport）零验证：triangle_test 的 9 个采样点关于中线对称，即使去掉 Vulkan 翻转测试仍通过，Y 方向约定无判别力 | 设计风险 | 当前双后端三角形位置已实测一致（PRECISE 网格逐格吻合），但测试不锁定该行为，未来误删翻转不会被发现 | golden 全帧比对轮次用不对称几何（如顶点非对称三角形）或 Y 方向判别采样点锁定约定 | 开放 |
+| DEBT-017 | 2026-08-24 | triangle golden 未达 P1 验收字面（docs/02 "golden image 比对通过（截图+测试日志）"）：无 golden 参考图、无全帧比对、无截图产物，仅 9 采样点断言蓝通道 | 可记录债务 | P1 剩余 swapchain/golden 流水线轮次将闭环全帧比对与截图；采样点断言是当前阶段可复现的最小 golden | P1 swapchain+golden 流水线轮次：生成基准图、全帧逐像素比对、截图产物入库 | 开放 |
+| DEBT-018 | 2026-08-24 | `compile_shaders.ps1` dxc 查找含 20+ 候选路径（含未验证的 `x64-windows\x64-windows` 双 triplet 猜测），维护负担与误判面大 | 可记录债务 | CI shader-sync 与本地开发实际命中已验证路径（VCPKG_INSTALLED_DIR/BUILD_DIR）；候选列表兜底但臃肿 | golden 流水线轮次收敛 dxc 查找为单一受控路径（CMake 导出 `DIRECTX_DXC_TOOL` 或统一脚本） | 开放 |
+| DEBT-019 | 2026-08-24 | shader entry 名（`vs_main`/`ps_main`）与 profile 表在 `triangle.hlsl`、`vulkan_device.cpp`、`compile_shaders.ps1` 三处重复，改名需改三处 | 可记录债务 | 当前单 shader 用例；entry 名是 ADR-003 约定的一部分 | 多 shader 引入时抽公共约定（如固定 `<name>_vs/_ps` 命名规则）至 docs/01 | 开放 |
 
 ## 已关闭
 
@@ -27,3 +31,4 @@
 | （P0 审计轮）审计脚本正则脆弱/GetFullPath 无保护 | 2026-08-23 commit `98cff8b` 重写加固并以双反例验收 |
 | （P0 审计轮）ci.yml format job 空列表挂起风险 | 同上，加 `xargs -r` |
 | （P0 审计轮）smoke_test 弱断言（仅比长度） | 同上，改为 semver 格式校验，ctest 2/2 通过 |
+| DEBT-014 | 2026-08-24 显式设 `D3D12_COLOR_WRITE_ENABLE_ALL`（D3D12_BLEND_DESC 零初始化使 RenderTargetWriteMask=0 导致三角形颜色不写） | 已设 write mask 修复；未来引入混合时扩展完整 BlendState |

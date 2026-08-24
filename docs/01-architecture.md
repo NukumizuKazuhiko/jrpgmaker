@@ -77,7 +77,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - 合同测试套件：同一组渲染行为用例参数化跑 D3D12 与 Vulkan 两后端，输出 golden image 比对（容差阈值）。
 - 改动合同必须同一提交内同步两个后端并通过合同测试，否则不得声称完成（AGENTS.md 纪律 1）。
 - macOS 经 MoltenVK 走 Vulkan 后端，不单独维护 Metal 后端。
-- Shader 编译（ADR-003）：HLSL 单一源，构建期经 DXC 编出 DXIL 与 SPIR-V 两种字节码；RHI pipeline 接口只消费预编译字节码，后端各自选择消费格式；运行时无 shader 编译器依赖。**字节码提交入库**（`shaders/generated/`，只读生成物，变更走 `tools/ci/compile_shaders.ps1` 重新生成）；CI 的 shader-sync job（Linux）重新生成后 `git diff` 为空作为门禁；macOS 无 dxc 分发（官方 release 无 mac 二进制、无 brew formula、vcpkg `directx-dxc` port 仅 win/linux-x64），故三平台构建不调用 dxc，直接消费已提交字节码。
+- Shader 编译（ADR-003）：HLSL 单一源，用 DXC 编出 DXIL 与 SPIR-V 两种字节码（开发/CI 经 `tools/ci/compile_shaders.ps1`）；RHI pipeline 接口只消费预编译字节码，后端各自选择消费格式；运行时无 shader 编译器依赖。**字节码提交入库**（`shaders/generated/`，只读生成物，变更走 `compile_shaders.ps1` 重新生成后提交）；CI 的 shader-sync job（Linux）重新生成后 `git diff` 为空作为门禁；macOS 无 dxc 分发（官方 release 无 mac 二进制、无 brew formula、vcpkg `directx-dxc` port 仅 win/linux-x64），故**三平台构建均不调用 dxc**，直接消费已提交字节码。
 
 ### RHI v0 合同语义（P1 落地版）
 
