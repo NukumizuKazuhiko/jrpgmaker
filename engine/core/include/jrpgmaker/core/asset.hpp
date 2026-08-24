@@ -16,9 +16,9 @@ enum class AssetHandle : std::uint32_t { kInvalid = 0 };
 // asset in; Unregister removes it (unload). live_count() is the leak-detection
 // probe: a well-behaved caller returns to zero after unloading everything.
 //
-// "Asynchronous" loading (background thread + completion callback) is a P2
-// follow-up subtask; v0 loading is synchronous (assetimport parses on the
-// caller's thread, then registers the result here).
+// The registry itself is not thread-safe; asynchronous loading keeps the
+// registry single-threaded by parsing on a worker thread (assetimport
+// AsyncLoader) and registering results from the caller's thread via Poll.
 class AssetRegistry {
 public:
     AssetRegistry() = default;

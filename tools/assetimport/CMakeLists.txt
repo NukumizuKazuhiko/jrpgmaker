@@ -1,10 +1,11 @@
-add_library(jrpgmaker_assetimport STATIC src/asset_import.cpp)
+add_library(jrpgmaker_assetimport STATIC src/asset_import.cpp src/async_loader.cpp)
 add_library(jrpgmaker::assetimport ALIAS jrpgmaker_assetimport)
 
 target_sources(
   jrpgmaker_assetimport
   PUBLIC FILE_SET HEADERS BASE_DIRS include
-                FILES include/jrpgmaker/assetimport/asset_import.hpp)
+                FILES include/jrpgmaker/assetimport/asset_import.hpp
+                     include/jrpgmaker/assetimport/async_loader.hpp)
 
 target_include_directories(jrpgmaker_assetimport PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

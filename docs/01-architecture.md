@@ -99,7 +99,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - 组件：`Transform`（GLM TRS，与 glTF node TRS 语义对齐，缺省单位阵）+ `Parent`（单亲层级）。世界矩阵 `Scene::WorldMatrix(entity)` 沿 parent 链组合（缺失 Transform 视为单位阵，缺失 Parent 终止链，循环引用有深度守卫）。
 - 资产引用：场景实体挂 `assetimport::MeshRef{handle}`，handle 是 `core::AssetHandle`（强类型，`kInvalid=0`），索引 `SceneLoad::assets`（`core::AssetRegistry`）——`RegisterMesh`/`FindMesh`/`Unregister`/`live_count`（泄漏检测探针，P2 验收"资产句柄泄漏计数为零"）；句柄单调递增不复用。v0 场景导入仅覆盖静态网格 + node 层级/TRS/matrix；动画、skin、Draco 压缩在 P2 范围外（cgltf 可解析但导入器拒绝并报错）。
 - glTF 坐标约定：glTF node matrix 为列主序（与 GLM 一致，`glm::make_mat4` 直读）；matrix 形式经 `glm::decompose`（GTX 实验扩展，`GLM_ENABLE_EXPERIMENTAL` 限定于 assetimport.cpp 单 TU）分解为 TRS；rotation 为 glTF (x,y,z,w) 顺序转 `glm::quat(w,x,y,z)`。
-- 场景导入不缓存（v0 每次调用独立 parse+load）；**异步线程加载是 P2 后续子任务**，届时 AssetRegistry 升级为线程安全 + 后台队列，`AssetHandle` 合同不变。
+- 场景导入不缓存（v0 每次调用独立 parse+load）；**异步加载（P2 子任务 7）**：assetimport `AsyncLoader` 后台线程只做解析（`LoadGltfMesh` 纯函数），`Poll()` 在调用方线程派发完成回调并按需注册进 `AssetRegistry`——注册表保持单线程访问、无需加锁。
 - **v0 渲染路径（P2 子任务 5/6 落地）**：goldenimage/测试把 `Scene::WorldMatrix(entity)` 在 CPU 上烘焙进顶点位置（`glm::vec4 local → world * local`），再上传 vertex/index buffer 用 `DrawIndexed` 绘制——静态场景无需每物体 GPU uniform，双后端 golden 比对锁定变换组合正确性（`scene_64x64.ppm`，lavapipe 权威生成）。**飞行动态观察相机（子任务 6）**：`core::Camera`（eye/target/up + 透视参数）的 view-projection 经 `SetPushConstants` 上传（`camera.hlsl`，子任务 6），世界变换仍 CPU 烘焙——相机视角由 GPU 完成，`camera_64x64.ppm` 双后端 delta=0。**P4 引入每物体 uniform（模型矩阵）时切 GPU 矩阵传递**，`WorldMatrix`/`Camera` 合同不变。
 
 ### Stage 运行框架合同（P1 落地版）
