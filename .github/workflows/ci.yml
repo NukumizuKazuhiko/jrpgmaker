@@ -67,7 +67,7 @@ jobs:
       - name: clang-format diff must be empty
         run: |
           clang-format --version
-          git ls-files '*.cpp' '*.hpp' | xargs -r clang-format --dry-run --Werror
+          git ls-files '*.cpp' '*.hpp' '*.h' | xargs -r clang-format --dry-run --Werror
 
   shader-sync:
     runs-on: ubuntu-latest
