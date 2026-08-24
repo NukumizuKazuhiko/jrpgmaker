@@ -27,7 +27,7 @@ jobs:
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
@@ -62,7 +62,7 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: clang-format diff must be empty
         run: |
@@ -74,7 +74,7 @@ jobs:
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
@@ -106,7 +106,7 @@ jobs:
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install CMake and Ninja
         uses: lukka/get-cmake@latest
@@ -132,7 +132,7 @@ jobs:
           git diff --exit-code -- tests/golden
 
       - name: Upload golden screenshots as artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: golden-triangle
           path: tests/golden/triangle_64x64.ppm
@@ -140,7 +140,7 @@ jobs:
   private-headers:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Engine private headers are not referenced outside their module
         run: pwsh ./tools/ci/check_private_headers.ps1
