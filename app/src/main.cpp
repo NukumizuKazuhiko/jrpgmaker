@@ -34,10 +34,7 @@ void* NativeWindowHandle(SDL_Window* window) {
 #endif
 }
 
-void RunMainLoop(jrpgmaker::rhi::IDevice& device, jrpgmaker::rhi::ISwapchain* swapchain,
-                 jrpgmaker::rhi::PipelineHandle pipeline, jrpgmaker::core::StageRunner& stages) {
-    jrpgmaker::rhi::ICommandList* command_list = device.CreateCommandList();
-
+void RunMainLoop(jrpgmaker::rhi::ISwapchain* swapchain, jrpgmaker::core::StageRunner& stages) {
     constexpr double kFixedDelta = 1.0 / 60.0;
     double accumulator = 0.0;
     std::uint64_t last_counter = SDL_GetPerformanceCounter();
@@ -71,23 +68,7 @@ void RunMainLoop(jrpgmaker::rhi::IDevice& device, jrpgmaker::rhi::ISwapchain* sw
             stages.Tick(kFixedDelta);
             accumulator -= kFixedDelta;
         }
-
-        const jrpgmaker::rhi::TextureHandle back_buffer = swapchain->AcquireTexture();
-        command_list->Begin();
-        command_list->BeginRendering(back_buffer, {0.10f, 0.11f, 0.12f, 1.0f});
-        command_list->SetPipeline(pipeline);
-        command_list->Draw(3, 1);
-        command_list->EndRendering();
-        command_list->End();
-        device.Submit(*command_list);
-        swapchain->Present();
     }
-
-    // DestroyXxx requires the GPU to be idle (docs/01 lifecycle contract):
-    // the last submitted command list and the shared allocator must not be
-    // touched while the GPU may still reference them.
-    device.WaitForGpuIdle();
-    device.DestroyCommandList(command_list);
 }
 
 } // namespace
@@ -130,17 +111,38 @@ auto main() -> int {
         pipeline_desc.color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm;
         const jrpgmaker::rhi::PipelineHandle pipeline = device->CreatePipeline(pipeline_desc);
 
+        jrpgmaker::rhi::ICommandList* command_list = device->CreateCommandList();
+
         jrpgmaker::core::StageRunner stages;
-        stages.RegisterSystem(jrpgmaker::core::Stage::kRenderSubmit,
-                              {jrpgmaker::core::Stage::kRenderSubmit, 0}, [](double) {});
+        // The render submit stage owns the presentation: it acquires the back
+        // buffer, records the draw, submits and presents (docs/01 Stage
+        // contract: RenderSubmit drives the render submit).
+        stages.RegisterSystem(
+            jrpgmaker::core::Stage::kRenderSubmit, {jrpgmaker::core::Stage::kRenderSubmit, 0},
+            [device = device.get(), swapchain = swapchain.get(), command_list, pipeline](double) {
+                const jrpgmaker::rhi::TextureHandle back_buffer = swapchain->AcquireTexture();
+                command_list->Begin();
+                command_list->BeginRendering(back_buffer, {0.10f, 0.11f, 0.12f, 1.0f});
+                command_list->SetPipeline(pipeline);
+                command_list->Draw(3, 1);
+                command_list->EndRendering();
+                command_list->End();
+                device->Submit(*command_list);
+                swapchain->Present();
+            });
 
         std::cout << "jrpgmaker " << jrpgmaker::core::version() << " running\n";
-        RunMainLoop(*device, swapchain.get(), pipeline, stages);
+        RunMainLoop(swapchain.get(), stages);
+
+        // DestroyXxx requires the GPU to be idle (docs/01 lifecycle contract):
+        // the last submitted command list and the shared allocator must not be
+        // touched while the GPU may still reference them.
+        device->WaitForGpuIdle();
+        device->DestroyCommandList(command_list);
 
         // Teardown order matters: destroy the swapchain before the window so
         // the Vulkan surface is destroyed while its window still exists, and
         // destroy the pipeline while the GPU is idle.
-        device->WaitForGpuIdle();
         device->DestroyPipeline(pipeline);
         swapchain.reset();
         SDL_DestroyWindow(window);
