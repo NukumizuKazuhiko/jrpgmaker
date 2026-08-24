@@ -30,12 +30,14 @@ public:
     ID3D12CommandList* Native() { return command_list_.Get(); }
 
     void CopyTextureToReadBack(ID3D12Resource* source, ID3D12Resource* staging);
+    void SetAllocator(ID3D12CommandAllocator* allocator) { allocator_ = allocator; }
 
 private:
     D3D12Device* owner_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator_;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> command_list_;
     ID3D12Resource* rendering_target_ = nullptr;
+    D3D12_CPU_DESCRIPTOR_HANDLE rendering_rtv_{};
 };
 
 class D3D12Device final : public IDevice {
@@ -79,6 +81,10 @@ private:
         std::uint64_t row_pitch_bytes = 0;
     };
 
+    struct PipelineEntry {
+        Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline;
+    };
+
     D3D12Device() = default;
 
     ID3D12Device* Native() { return device_.Get(); }
@@ -86,16 +92,22 @@ private:
     D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandle(TextureHandle handle);
     ID3D12Resource* TextureResource(TextureHandle handle);
     ID3D12Resource* EnsureReadBack(TextureHandle handle);
+    ID3D12PipelineState* PipelineState(PipelineHandle handle);
+    ID3D12RootSignature* RootSignature() { return root_signature_.Get(); }
+    void CheckGpuErrors();
 
     Microsoft::WRL::ComPtr<ID3D12Device> device_;
+    Microsoft::WRL::ComPtr<ID3D12InfoQueue> info_queue_;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue_;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtv_heap_;
     UINT rtv_descriptor_size_ = 0;
     UINT rtv_allocated_ = 0;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> root_signature_;
 
     std::unordered_map<std::uint64_t, TextureEntry> textures_;
     std::unordered_map<std::uint64_t, ReadBackEntry> read_backs_;
+    std::unordered_map<std::uint64_t, PipelineEntry> pipelines_;
     std::uint64_t next_handle_ = 1;
 
     Microsoft::WRL::ComPtr<ID3D12Fence> fence_;

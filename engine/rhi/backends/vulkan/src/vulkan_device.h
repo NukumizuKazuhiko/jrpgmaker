@@ -81,12 +81,18 @@ private:
         VkDeviceSize size = 0;
     };
 
+    struct PipelineEntry {
+        VkPipeline pipeline = VK_NULL_HANDLE;
+    };
+
     VulkanDevice() = default;
 
     VkDevice Native() { return device_; }
     VkCommandPool CommandPool() { return command_pool_; }
     const TextureEntry* LookupTexture(TextureHandle handle);
     VkBuffer EnsureReadBackBuffer(TextureHandle handle);
+    VkPipeline PipelineState(PipelineHandle handle);
+    VkPipelineLayout PipelineLayout();
     std::uint32_t FindMemoryType(std::uint32_t type_bits, VkMemoryPropertyFlags properties) const;
 
     VkInstance instance_ = VK_NULL_HANDLE;
@@ -96,9 +102,11 @@ private:
     VkQueue queue_ = VK_NULL_HANDLE;
     VkCommandPool command_pool_ = VK_NULL_HANDLE;
     VkFence fence_ = VK_NULL_HANDLE;
+    VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
 
     std::unordered_map<std::uint64_t, TextureEntry> textures_;
     std::unordered_map<std::uint64_t, ReadBackEntry> read_backs_;
+    std::unordered_map<std::uint64_t, PipelineEntry> pipelines_;
     std::uint64_t next_handle_ = 1;
 };
 

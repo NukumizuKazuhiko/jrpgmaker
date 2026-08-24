@@ -6,6 +6,7 @@
 #include <memory>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace jrpgmaker::rhi::d3d12 {
 namespace {
@@ -84,6 +85,7 @@ ComPtr<ID3D12Device> CreateNativeDevice() {
 std::unique_ptr<IDevice> D3D12Device::Create() {
     auto instance = std::unique_ptr<D3D12Device>(new D3D12Device());
     instance->device_ = CreateNativeDevice();
+    instance->device_.As(&instance->info_queue_);
 
     D3D12_COMMAND_QUEUE_DESC queue_desc{};
     queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -122,6 +124,74 @@ D3D12Device::~D3D12Device() {
     }
 }
 
+PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
+    if (root_signature_ == nullptr) {
+        D3D12_ROOT_SIGNATURE_DESC root_desc{};
+        root_desc.NumParameters = 0;
+        root_desc.NumStaticSamplers = 0;
+        root_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC versioned_desc{};
+        versioned_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_0;
+        versioned_desc.Desc_1_0 = root_desc;
+        Microsoft::WRL::ComPtr<ID3DBlob> signature_blob;
+        Microsoft::WRL::ComPtr<ID3DBlob> signature_error;
+        const HRESULT serialize_hr = D3D12SerializeVersionedRootSignature(
+            &versioned_desc, &signature_blob, &signature_error);
+        if (FAILED(serialize_hr)) {
+            const char* message =
+                signature_error ? static_cast<const char*>(signature_error->GetBufferPointer())
+                                : "";
+            throw std::runtime_error(
+                std::format("d3d12 backend failed to serialize root signature: {} (hr=0x{:08X})",
+                            message, static_cast<unsigned int>(serialize_hr)));
+        }
+        ThrowIfFailed(device_->CreateRootSignature(0, signature_blob->GetBufferPointer(),
+                                                   signature_blob->GetBufferSize(),
+                                                   IID_PPV_ARGS(root_signature_.GetAddressOf())),
+                      "CreateRootSignature");
+    }
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc{};
+    pso_desc.pRootSignature = root_signature_.Get();
+    pso_desc.VS = D3D12_SHADER_BYTECODE{desc.vertex_shader.data, desc.vertex_shader.size};
+    pso_desc.PS = D3D12_SHADER_BYTECODE{desc.pixel_shader.data, desc.pixel_shader.size};
+    pso_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    pso_desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+    pso_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.DepthStencilState.DepthEnable = FALSE;
+    pso_desc.DepthStencilState.StencilEnable = FALSE;
+    pso_desc.InputLayout.NumElements = 0;
+    pso_desc.InputLayout.pInputElementDescs = nullptr;
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pso_desc.NumRenderTargets = 1;
+    pso_desc.RTVFormats[0] = ToNativeFormat(desc.color_format);
+    pso_desc.SampleDesc.Count = 1;
+    pso_desc.SampleDesc.Quality = 0;
+
+    PipelineEntry entry{};
+    ThrowIfFailed(device_->CreateGraphicsPipelineState(&pso_desc,
+                                                       IID_PPV_ARGS(entry.pipeline.GetAddressOf())),
+                  "CreateGraphicsPipelineState");
+
+    const std::uint64_t handle_value = next_handle_++;
+    pipelines_.emplace(handle_value, std::move(entry));
+    return static_cast<PipelineHandle>(handle_value);
+}
+
+void D3D12Device::DestroyPipeline(PipelineHandle handle) {
+    pipelines_.erase(static_cast<std::uint64_t>(handle));
+}
+
+ID3D12PipelineState* D3D12Device::PipelineState(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it == pipelines_.end()) {
+        throw std::runtime_error("d3d12 backend: unknown pipeline handle");
+    }
+    return it->second.pipeline.Get();
+}
+
 BufferHandle D3D12Device::CreateBuffer(const BufferDesc&) {
     return BufferHandle::kInvalid;
 }
@@ -147,9 +217,20 @@ TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc) {
     entry.desc = resource_desc;
     D3D12_HEAP_PROPERTIES default_heap{};
     default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    D3D12_CLEAR_VALUE clear_value{};
+    clear_value.Format = native_format;
+    clear_value.Color[0] = 0.0f;
+    clear_value.Color[1] = 0.0f;
+    clear_value.Color[2] = 0.0f;
+    clear_value.Color[3] = 1.0f;
+    const D3D12_CLEAR_VALUE* clear_value_ptr = nullptr;
+    if ((desc.usage & TextureUsage::kRenderTarget) != TextureUsage::kNone) {
+        clear_value_ptr = &clear_value;
+    }
     ThrowIfFailed(device_->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE,
                                                    &resource_desc, D3D12_RESOURCE_STATE_COMMON,
-                                                   nullptr,
+                                                   clear_value_ptr,
                                                    IID_PPV_ARGS(entry.resource.GetAddressOf())),
                   "CreateCommittedResource(texture)");
 
@@ -176,12 +257,6 @@ void D3D12Device::DestroyTexture(TextureHandle handle) {
     read_backs_.erase(key);
     textures_.erase(key);
 }
-
-PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc&) {
-    return PipelineHandle::kInvalid;
-}
-
-void D3D12Device::DestroyPipeline(PipelineHandle) {}
 
 ICommandList* D3D12Device::CreateCommandList() {
     auto* command_list = new D3D12CommandList(this);
@@ -211,6 +286,33 @@ void D3D12Device::WaitForGpuIdle() {
     ThrowIfFailed(fence_->SetEventOnCompletion(fence_value_, fence_event_), "SetEventOnCompletion");
     WaitForSingleObject(fence_event_, INFINITE);
     ThrowIfFailed(allocator_->Reset(), "AllocatorReset");
+    CheckGpuErrors();
+    const HRESULT removed = device_->GetDeviceRemovedReason();
+    if (FAILED(removed)) {
+        throw std::runtime_error(std::format("d3d12 backend device removed: hr=0x{:08X}",
+                                             static_cast<unsigned>(removed)));
+    }
+}
+
+void D3D12Device::CheckGpuErrors() {
+    if (info_queue_ == nullptr) {
+        return;
+    }
+    for (UINT64 i = 0; i < info_queue_->GetNumStoredMessages(); ++i) {
+        SIZE_T size = 0;
+        info_queue_->GetMessage(i, nullptr, &size);
+        std::vector<std::byte> buffer(size);
+        if (info_queue_->GetMessage(i, reinterpret_cast<D3D12_MESSAGE*>(buffer.data()), &size) ==
+            S_OK) {
+            const auto* message = reinterpret_cast<const D3D12_MESSAGE*>(buffer.data());
+            if (message->Severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
+                info_queue_->ClearStoredMessages();
+                throw std::runtime_error(
+                    std::format("d3d12 backend gpu error: {}", message->pDescription));
+            }
+        }
+    }
+    info_queue_->ClearStoredMessages();
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Device::RtvCpuHandle(TextureHandle handle) {
@@ -288,7 +390,15 @@ MappedTexture D3D12Device::MapReadBack(TextureHandle handle) {
     ID3D12Resource* source_resource = it->second.resource.Get();
     ID3D12Resource* staging = EnsureReadBack(handle);
 
+    // The copy command list uses its own allocator so it can never collide with
+    // the render command list that shares the device-level allocator.
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> copy_allocator;
+    ThrowIfFailed(device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                  IID_PPV_ARGS(copy_allocator.GetAddressOf())),
+                  "CreateCommandAllocator(copy)");
+
     ICommandList* copy_list = CreateCommandList();
+    static_cast<D3D12CommandList*>(copy_list)->SetAllocator(copy_allocator.Get());
     copy_list->Begin();
     static_cast<D3D12CommandList*>(copy_list)->CopyTextureToReadBack(source_resource, staging);
     copy_list->End();
@@ -319,6 +429,17 @@ void D3D12CommandList::End() {
 void D3D12CommandList::BeginRendering(TextureHandle color_target, const ClearColor& clear_color) {
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = owner_->RtvCpuHandle(color_target);
     rendering_target_ = owner_->TextureResource(color_target);
+    rendering_rtv_ = rtv;
+    const D3D12_RESOURCE_DESC target_desc = rendering_target_->GetDesc();
+
+    D3D12_VIEWPORT viewport{};
+    viewport.Width = static_cast<float>(target_desc.Width);
+    viewport.Height = static_cast<float>(target_desc.Height);
+    viewport.MaxDepth = 1.0f;
+    D3D12_RECT scissor{0, 0, static_cast<LONG>(target_desc.Width),
+                       static_cast<LONG>(target_desc.Height)};
+    command_list_->RSSetViewports(1, &viewport);
+    command_list_->RSSetScissorRects(1, &scissor);
 
     D3D12_RESOURCE_BARRIER to_render_target{};
     to_render_target.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -371,12 +492,27 @@ void D3D12CommandList::CopyTextureToReadBack(ID3D12Resource* source, ID3D12Resou
     command_list_->CopyTextureRegion(&destination_location, 0, 0, 0, &source_location, nullptr);
 }
 
-void D3D12CommandList::SetPipeline(PipelineHandle) {
-    throw std::runtime_error("d3d12 backend: SetPipeline is not implemented yet");
+void D3D12CommandList::SetPipeline(PipelineHandle handle) {
+    command_list_->SetGraphicsRootSignature(owner_->RootSignature());
+    command_list_->SetPipelineState(owner_->PipelineState(handle));
 }
 
-void D3D12CommandList::Draw(std::uint32_t, std::uint32_t) {
-    throw std::runtime_error("d3d12 backend: Draw is not implemented yet");
+void D3D12CommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_count) {
+    if (rendering_target_ != nullptr) {
+        const D3D12_RESOURCE_DESC target_desc = rendering_target_->GetDesc();
+        D3D12_VIEWPORT viewport{};
+        viewport.Width = static_cast<float>(target_desc.Width);
+        viewport.Height = static_cast<float>(target_desc.Height);
+        viewport.MaxDepth = 1.0f;
+        D3D12_RECT scissor{0, 0, static_cast<LONG>(target_desc.Width),
+                           static_cast<LONG>(target_desc.Height)};
+        command_list_->RSSetViewports(1, &viewport);
+        command_list_->RSSetScissorRects(1, &scissor);
+        command_list_->OMSetRenderTargets(1, &rendering_rtv_, FALSE, nullptr);
+    }
+    command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    command_list_->DrawInstanced(vertex_count, instance_count, 0, 0);
+    owner_->CheckGpuErrors();
 }
 
 void D3D12CommandList::CopyTexture(TextureHandle, TextureHandle) {

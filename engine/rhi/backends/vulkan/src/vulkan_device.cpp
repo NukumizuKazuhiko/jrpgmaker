@@ -134,6 +134,21 @@ std::unique_ptr<IDevice> VulkanDevice::Create() {
 
 VulkanDevice::~VulkanDevice() {
     if (device_ != VK_NULL_HANDLE) {
+        for (const auto& [key, entry] : pipelines_) {
+            vkDestroyPipeline(device_, entry.pipeline, nullptr);
+        }
+        if (pipeline_layout_ != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
+        }
+        for (const auto& [key, entry] : read_backs_) {
+            vkFreeMemory(device_, entry.memory, nullptr);
+            vkDestroyBuffer(device_, entry.buffer, nullptr);
+        }
+        for (const auto& [key, entry] : textures_) {
+            vkDestroyImageView(device_, entry.view, nullptr);
+            vkFreeMemory(device_, entry.memory, nullptr);
+            vkDestroyImage(device_, entry.image, nullptr);
+        }
         vkDestroyCommandPool(device_, command_pool_, nullptr);
         vkDestroyFence(device_, fence_, nullptr);
         vkDestroyDevice(device_, nullptr);
@@ -230,11 +245,128 @@ void VulkanDevice::DestroyTexture(TextureHandle handle) {
     textures_.erase(it);
 }
 
-PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc&) {
-    return PipelineHandle::kInvalid;
+VkPipelineLayout VulkanDevice::PipelineLayout() {
+    if (pipeline_layout_ == VK_NULL_HANDLE) {
+        VkPipelineLayoutCreateInfo layout_info{};
+        layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        ThrowIfFailed(vkCreatePipelineLayout(device_, &layout_info, nullptr, &pipeline_layout_),
+                      "vkCreatePipelineLayout");
+    }
+    return pipeline_layout_;
 }
 
-void VulkanDevice::DestroyPipeline(PipelineHandle) {}
+PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
+    VkShaderModuleCreateInfo vs_module_info{};
+    vs_module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    vs_module_info.codeSize = desc.vertex_shader.size;
+    vs_module_info.pCode = reinterpret_cast<const std::uint32_t*>(desc.vertex_shader.data);
+    VkShaderModule vs_module = VK_NULL_HANDLE;
+    ThrowIfFailed(vkCreateShaderModule(device_, &vs_module_info, nullptr, &vs_module),
+                  "vkCreateShaderModule(vertex)");
+
+    VkShaderModuleCreateInfo ps_module_info{};
+    ps_module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    ps_module_info.codeSize = desc.pixel_shader.size;
+    ps_module_info.pCode = reinterpret_cast<const std::uint32_t*>(desc.pixel_shader.data);
+    VkShaderModule ps_module = VK_NULL_HANDLE;
+    ThrowIfFailed(vkCreateShaderModule(device_, &ps_module_info, nullptr, &ps_module),
+                  "vkCreateShaderModule(pixel)");
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vs_module;
+    stages[0].pName = "vs_main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = ps_module;
+    stages[1].pName = "ps_main";
+
+    VkPipelineVertexInputStateCreateInfo vertex_input_info{};
+    vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    VkPipelineInputAssemblyStateCreateInfo input_assembly_info{};
+    input_assembly_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    input_assembly_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    const VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic_state_info{};
+    dynamic_state_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic_state_info.dynamicStateCount = 2;
+    dynamic_state_info.pDynamicStates = dynamic_states;
+
+    VkPipelineViewportStateCreateInfo viewport_state_info{};
+    viewport_state_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewport_state_info.viewportCount = 1;
+    viewport_state_info.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterization_info{};
+    rasterization_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterization_info.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterization_info.cullMode = VK_CULL_MODE_NONE;
+    rasterization_info.lineWidth = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisample_info{};
+    multisample_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisample_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendAttachmentState blend_attachment{};
+    blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo color_blend_info{};
+    color_blend_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    color_blend_info.attachmentCount = 1;
+    color_blend_info.pAttachments = &blend_attachment;
+
+    const VkFormat color_format = ToNativeFormat(desc.color_format);
+    VkPipelineRenderingCreateInfo rendering_info{};
+    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+    rendering_info.colorAttachmentCount = 1;
+    rendering_info.pColorAttachmentFormats = &color_format;
+
+    VkGraphicsPipelineCreateInfo pipeline_info{};
+    pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeline_info.pNext = &rendering_info;
+    pipeline_info.stageCount = 2;
+    pipeline_info.pStages = stages;
+    pipeline_info.pVertexInputState = &vertex_input_info;
+    pipeline_info.pInputAssemblyState = &input_assembly_info;
+    pipeline_info.pViewportState = &viewport_state_info;
+    pipeline_info.pRasterizationState = &rasterization_info;
+    pipeline_info.pMultisampleState = &multisample_info;
+    pipeline_info.pColorBlendState = &color_blend_info;
+    pipeline_info.pDynamicState = &dynamic_state_info;
+    pipeline_info.layout = PipelineLayout();
+
+    PipelineEntry entry{};
+    ThrowIfFailed(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
+                                            &entry.pipeline),
+                  "vkCreateGraphicsPipelines");
+
+    vkDestroyShaderModule(device_, vs_module, nullptr);
+    vkDestroyShaderModule(device_, ps_module, nullptr);
+
+    const std::uint64_t handle_value = next_handle_++;
+    pipelines_.emplace(handle_value, std::move(entry));
+    return static_cast<PipelineHandle>(handle_value);
+}
+
+void VulkanDevice::DestroyPipeline(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it != pipelines_.end()) {
+        vkDestroyPipeline(device_, it->second.pipeline, nullptr);
+        pipelines_.erase(it);
+    }
+}
+
+VkPipeline VulkanDevice::PipelineState(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it == pipelines_.end()) {
+        throw std::runtime_error("vulkan backend: unknown pipeline handle");
+    }
+    return it->second.pipeline;
+}
 
 const VulkanDevice::TextureEntry* VulkanDevice::LookupTexture(TextureHandle handle) {
     const auto it = textures_.find(static_cast<std::uint64_t>(handle));
@@ -380,6 +512,18 @@ void VulkanCommandList::BeginRendering(TextureHandle color_target, const ClearCo
     const VulkanDevice::TextureEntry* entry = owner_->LookupTexture(color_target);
     rendering_image_ = entry->image;
 
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = static_cast<float>(entry->height);
+    viewport.width = static_cast<float>(entry->width);
+    viewport.height = -static_cast<float>(entry->height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(command_buffer_, 0, 1, &viewport);
+
+    VkRect2D scissor{{0, 0}, {entry->width, entry->height}};
+    vkCmdSetScissor(command_buffer_, 0, 1, &scissor);
+
     VkImageMemoryBarrier to_attachment{};
     to_attachment.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     to_attachment.srcAccessMask = 0;
@@ -443,12 +587,13 @@ void VulkanCommandList::CopyTextureToReadBack(VkImage source, VkBuffer staging, 
                            1, &region);
 }
 
-void VulkanCommandList::SetPipeline(PipelineHandle) {
-    throw std::runtime_error("vulkan backend: SetPipeline is not implemented yet");
+void VulkanCommandList::SetPipeline(PipelineHandle handle) {
+    vkCmdBindPipeline(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      owner_->PipelineState(handle));
 }
 
-void VulkanCommandList::Draw(std::uint32_t, std::uint32_t) {
-    throw std::runtime_error("vulkan backend: Draw is not implemented yet");
+void VulkanCommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_count) {
+    vkCmdDraw(command_buffer_, vertex_count, instance_count, 0, 0);
 }
 
 void VulkanCommandList::CopyTexture(TextureHandle, TextureHandle) {

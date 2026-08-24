@@ -77,14 +77,15 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - 合同测试套件：同一组渲染行为用例参数化跑 D3D12 与 Vulkan 两后端，输出 golden image 比对（容差阈值）。
 - 改动合同必须同一提交内同步两个后端并通过合同测试，否则不得声称完成（AGENTS.md 纪律 1）。
 - macOS 经 MoltenVK 走 Vulkan 后端，不单独维护 Metal 后端。
-- Shader 编译（ADR-003）：HLSL 单一源，构建期经 DXC 编出 DXIL 与 SPIR-V 两种字节码；RHI pipeline 接口只消费预编译字节码，后端各自选择消费格式；运行时无 shader 编译器依赖。CI 三平台经 Vulkan SDK 提供 dxc。
+- Shader 编译（ADR-003）：HLSL 单一源，构建期经 DXC 编出 DXIL 与 SPIR-V 两种字节码；RHI pipeline 接口只消费预编译字节码，后端各自选择消费格式；运行时无 shader 编译器依赖。**字节码提交入库**（`shaders/generated/`，只读生成物，变更走 `tools/ci/compile_shaders.ps1` 重新生成）；CI 的 shader-sync job（Linux）重新生成后 `git diff` 为空作为门禁；macOS 无 dxc 分发（官方 release 无 mac 二进制、无 brew formula、vcpkg `directx-dxc` port 仅 win/linux-x64），故三平台构建不调用 dxc，直接消费已提交字节码。
 
 ### RHI v0 合同语义（P1 落地版）
 
 - 对象模型：接口类（`IDevice`/`ICommandList`/`ISwapchain`）+ 强类型句柄（`BufferHandle` 等，`kInvalid` 表示失败）；描述符全部为 POD 聚合。
 - 渲染模型：dynamic rendering 风格（`BeginRendering`/`EndRendering` 直接绑定 target），无显式 render-pass 对象——这是 D3D12 与 Vulkan 1.3 的公共面；viewport/scissor 默认全 target，由后端内部维护。
+- **NDC 方向约定**：顶点着色器输出 clip space 坐标，NDC Y 轴方向在两后端由后端各自保证一致（D3D12 原生 NDC 映射；Vulkan 后端在 `BeginRendering` 设置**负高度 viewport**（`y = height, height = -height`，Vulkan 1.1+ 核心特性）翻转 Y，使同一 shader 在两后端产生相同的 framebuffer 位置）。golden 采样点以该统一约定设计。
 - 后端选择：合同层仅暴露 `CreateDevice(Backend)` 工厂声明；各后端静态库提供该符号定义，app 按平台链接对应后端目标。合同头禁止出现任何后端类型或 SDL 类型（窗口以 `void* native_window_handle` 传入，由 platform/app 层负责提取）。
-- golden image 路径：CI 无窗口环境走离屏渲染——`CreateTexture(RenderTarget|ReadBack)` → `BeginRendering`+clear（当前无几何阶段仅清屏）→ `Submit` + `WaitForGpuIdle` → `MapReadBack`（返回 `MappedTexture{data, row_pitch_bytes}`，行距由后端各自报告：D3D12 为 footprint.RowPitch，Vulkan 为紧密 `width*4`）→ 按行距逐像素比对；readback copy 由后端在 `MapReadBack` 内部完成（每次调用重建 command list 执行 copy 并等待），合同层不暴露 copy 命令。swapchain 仅 app 主循环使用，不进 CI。
+- golden image 路径：CI 无窗口环境走离屏渲染——`CreateTexture(RenderTarget|ReadBack)` → `BeginRendering`+clear → `SetPipeline` + `Draw`（v0 三角形用例）或仅 clear（清屏基线）→ `Submit` + `WaitForGpuIdle` → `MapReadBack`（返回 `MappedTexture{data, row_pitch_bytes}`，行距由后端各自报告：D3D12 为 footprint.RowPitch，Vulkan 为紧密 `width*4`）→ 按行距逐像素比对；readback copy 由后端在 `MapReadBack` 内部完成（每次调用重建 command list 执行 copy 并等待，独立 command allocator），合同层不暴露 copy 命令。swapchain 仅 app 主循环使用，不进 CI。
 - 生命周期约束：`DestroyXxx` 要求调用方保证 GPU 已空闲（即 `Submit` + `WaitForGpuIdle` 之后）；延迟删除是后端后续增强，不属于 v0 合同语义。
 - v0 裁剪：三角形用例经 `SV_VertexID`/`gl_VertexIndex` 在顶点着色器内生成几何，故 v0 无顶点缓冲与输入布局概念；顶点输入随 P2 glTF 导入进入合同。
 

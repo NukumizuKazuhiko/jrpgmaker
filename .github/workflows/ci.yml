@@ -69,6 +69,27 @@ jobs:
           clang-format --version
           git ls-files '*.cpp' '*.hpp' | xargs -r clang-format --dry-run --Werror
 
+  shader-sync:
+    runs-on: ubuntu-latest
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake and Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Setup vcpkg (pinned commit, manifest mode)
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+          vcpkgGitCommitId: '127402f1c75bb3d5ff6bce04b285faa4930a5aca'
+
+      - name: Recompile committed shader bytecode and assert no drift
+        run: |
+          pwsh ./tools/ci/compile_shaders.ps1
+          git diff --exit-code -- shaders/generated
+
   private-headers:
     runs-on: ubuntu-latest
     steps:

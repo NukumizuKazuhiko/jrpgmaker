@@ -2,7 +2,7 @@ find_package(Catch2 REQUIRED CONFIG)
 
 add_executable(jrpgmaker_unit_tests)
 target_sources(jrpgmaker_unit_tests PRIVATE smoke_test.cpp rhi_contract_test.cpp)
-target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::core jrpgmaker::rhi Catch2::Catch2WithMain)
+target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::core jrpgmaker::rhi jrpgmaker::shaders Catch2::Catch2WithMain)
 
 if(WIN32)
   target_sources(jrpgmaker_unit_tests PRIVATE d3d12_backend_test.cpp)
@@ -12,7 +12,7 @@ else()
   target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::rhi_vulkan)
 endif()
 
-target_sources(jrpgmaker_unit_tests PRIVATE clear_baseline_test.cpp)
+target_sources(jrpgmaker_unit_tests PRIVATE clear_baseline_test.cpp triangle_test.cpp)
 
 list(APPEND CMAKE_MODULE_PATH "${Catch2_DIR}")
 include(Catch)
