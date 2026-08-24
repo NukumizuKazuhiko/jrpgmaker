@@ -40,6 +40,22 @@ constexpr std::uint32_t kWidth = 64;
 constexpr std::uint32_t kHeight = 64;
 constexpr ClearColor kClearColor{0.0f, 0.0f, 0.0f, 1.0f};
 
+// Same triangle as the committed golden reference, now fed through the RHI
+// vertex-input path (P2). Positions must match shaders/triangle.hlsl.
+constexpr float kTriangleVertices[] = {
+    -0.5f, -0.5f, 0.0f, //
+    0.5f,  -0.5f, 0.0f, //
+    0.0f,  0.5f,  0.0f, //
+};
+constexpr std::uint32_t kTriangleStride = 3u * sizeof(float);
+constexpr VertexAttribute kTriangleAttributes[] = {
+    VertexAttribute{
+        .location = 0,
+        .format = VertexAttributeFormat::kFloat3,
+        .offset_bytes = 0,
+    },
+};
+
 // Renders the triangle into tightly-packed RGBA8 (row pitch == width*4).
 bool RenderTriangle(std::vector<std::uint8_t>& rgba) {
     const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
@@ -64,14 +80,24 @@ bool RenderTriangle(std::vector<std::uint8_t>& rgba) {
                                         jrpgmaker::shaders::kTriangleVsDxil_size},
         .pixel_shader = ShaderBytecode{jrpgmaker::shaders::kTrianglePsDxil,
                                        jrpgmaker::shaders::kTrianglePsDxil_size},
-        .color_format = Format::kR8G8B8A8Unorm};
+        .color_format = Format::kR8G8B8A8Unorm,
+        .vertex_input = VertexInputLayout{
+            .attributes = kTriangleAttributes,
+            .attribute_count = 1,
+            .stride_bytes = kTriangleStride,
+        }};
 #else
     const GraphicsPipelineDesc pipeline_desc{
         .vertex_shader = ShaderBytecode{jrpgmaker::shaders::kTriangleVsSpv,
                                         jrpgmaker::shaders::kTriangleVsSpv_size},
         .pixel_shader = ShaderBytecode{jrpgmaker::shaders::kTrianglePsSpv,
                                        jrpgmaker::shaders::kTrianglePsSpv_size},
-        .color_format = Format::kR8G8B8A8Unorm};
+        .color_format = Format::kR8G8B8A8Unorm,
+        .vertex_input = VertexInputLayout{
+            .attributes = kTriangleAttributes,
+            .attribute_count = 1,
+            .stride_bytes = kTriangleStride,
+        }};
 #endif
 
     const PipelineHandle pipeline = device->CreatePipeline(pipeline_desc);
@@ -81,9 +107,20 @@ bool RenderTriangle(std::vector<std::uint8_t>& rgba) {
         return false;
     }
 
+    const BufferHandle vertex_buffer = device->CreateBuffer(
+        BufferDesc{.size_bytes = sizeof(kTriangleVertices), .usage = BufferUsage::kVertex});
+    if (vertex_buffer == BufferHandle::kInvalid) {
+        std::cerr << "failed to create vertex buffer\n";
+        device->DestroyPipeline(pipeline);
+        device->DestroyTexture(target);
+        return false;
+    }
+    device->MapWrite(vertex_buffer, kTriangleVertices, sizeof(kTriangleVertices));
+
     ICommandList* command_list = device->CreateCommandList();
     if (command_list == nullptr) {
         std::cerr << "failed to create command list\n";
+        device->DestroyBuffer(vertex_buffer);
         device->DestroyPipeline(pipeline);
         device->DestroyTexture(target);
         return false;
@@ -91,12 +128,14 @@ bool RenderTriangle(std::vector<std::uint8_t>& rgba) {
     command_list->Begin();
     command_list->BeginRendering(target, kClearColor);
     command_list->SetPipeline(pipeline);
+    command_list->SetVertexBuffer(vertex_buffer, kTriangleStride);
     command_list->Draw(3, 1);
     command_list->EndRendering();
     command_list->End();
     device->Submit(*command_list);
     device->WaitForGpuIdle();
     device->DestroyCommandList(command_list);
+    device->DestroyBuffer(vertex_buffer);
     device->DestroyPipeline(pipeline);
 
     const MappedTexture mapped = device->MapReadBack(target);

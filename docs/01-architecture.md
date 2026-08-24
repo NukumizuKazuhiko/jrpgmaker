@@ -82,7 +82,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 
 ### RHI v0 合同语义（P1 落地版）
 
-- 对象模型：接口类（`IDevice`/`ICommandList`/`ISwapchain`）+ 强类型句柄（`TextureHandle`/`PipelineHandle`，`kInvalid` 表示失败）；描述符全部为 POD 聚合。v0 无 buffer/顶点输入概念（`CreateBuffer`/`CopyTexture` 未进合同，随 P2 glTF 导入按真实需求引入）。
+- 对象模型：接口类（`IDevice`/`ICommandList`/`ISwapchain`）+ 强类型句柄（`TextureHandle`/`PipelineHandle`/`BufferHandle`，`kInvalid` 表示失败）；描述符全部为 POD 聚合。v0 无 buffer/顶点输入概念（`CreateBuffer`/`CopyTexture` 未进合同，随 P2 glTF 导入按真实需求引入）。**P2 顶点输入已进合同**：`BufferHandle` + `BufferDesc`（usage: kVertex/kIndex）+ `CreateBuffer`/`DestroyBuffer`/`MapWrite`（v0 host-visible 上传，无 staging）+ `VertexInputLayout`（attribute location/format/offset + 单 binding stride）+ `ICommandList::SetVertexBuffer/SetIndexBuffer/DrawIndexed`；`GraphicsPipelineDesc.vertex_input` 默认空指针保留 P1 纯 shader 几何路径。triangle golden 改由顶点缓冲驱动同一三角形（几何不变 → 基准图不变），双后端一致。
 - 渲染模型：dynamic rendering 风格（`BeginRendering`/`EndRendering` 直接绑定 target），无显式 render-pass 对象——这是 D3D12 与 Vulkan 1.3 的公共面；viewport/scissor 默认全 target，由后端内部维护。
 - **NDC 方向约定**：顶点着色器输出 clip space 坐标，NDC Y 轴方向在两后端由后端各自保证一致（D3D12 原生 NDC 映射；Vulkan 后端在 `BeginRendering` 设置**负高度 viewport**（`y = height, height = -height`，Vulkan 1.1+ 核心特性）翻转 Y，使同一 shader 在两后端产生相同的 framebuffer 位置）。golden 采样点以该统一约定设计。
 - 后端选择：合同层仅暴露 `CreateDevice(Backend)` 工厂声明；各后端静态库提供该符号定义，app 按平台链接对应后端目标。合同头禁止出现任何后端类型或 SDL 类型（窗口以 `void* native_window_handle` 传入，由 platform/app 层负责提取）。
@@ -90,7 +90,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - **golden 流水线（P1 落地版）**：基准图（`tests/golden/*.ppm`，二进制 PPM P6，RGB 每像素 3 字节）由 **lavapipe（Linux CI 权威环境）生成并提交入库，生成物只读**——变更必须经 `tools/goldenimage` CLI 重新生成后提交，禁止手改。`jrpgmaker_goldenimage` CLI 支持 `generate <out.ppm>`（渲染三角形→写基准图）与 `compare <ref.ppm> [tolerance]`（渲染→全帧逐像素比对，输出 diff 统计与退出码）；纯算法（PPM 读写、RGBA8 全帧比对）在 `jrpgmaker_golden` 静态库（`tools/goldenimage/golden_image.{hpp,cpp}`，无 RHI 依赖）。CI 的 golden-sync job（Linux lavapipe）重新生成基准图→`git diff --exit-code` 作为门禁（与 shader-sync 同模式），并把基准图上传为 artifact（截图产物）。**跨驱动容差**：v0 三角形在 WARP 与 lavapipe 下实测 max channel delta=0（纯色、无抗锯齿、64×64 光栅化规则一致），triangle_test 用 tolerance=2 保留余量；未来引入插值/抗锯齿场景时须重新标定（见 docs/02 §P1 预检"头号技术风险"）。三角形顶点非对称（上方顶点、下方底边），全帧比对天然锁定 Vulkan 负高度 viewport 的 NDC-Y 约定（DEBT-016 闭环）。
 - **swapchain（P1 落地版）**：`CreateSwapchain(void* native_window_handle, width, height, format)` 创建呈现链。**native_window_handle 语义**：D3D12 后端接收 HWND（app 经 SDL 属性提取）；Vulkan 后端接收 `SDL_Window*`（backend 私有用 `SDL_Vulkan_CreateSurface` 建 surface，SDL3 是 Vulkan backend 的链接依赖）。`AcquireTexture()` 返回当前 back buffer 的 `TextureHandle`，该 handle **注册进 device 的 texture 表**（D3D12 分配 RTV、Vulkan 建 image view），可直接用于 `BeginRendering`；back buffer 生命周期由 swapchain 持有，`DestroyTexture` 对 swapchain 纹理抛错（`is_swapchain` 标记）。`Present()` 提交呈现；`Resize(w,h)` 内部 `WaitForGpuIdle` 后重建。Vulkan 用 FIFO present mode + sRGB 色彩空间，D3D12 用 FLIP_DISCARD。
 - 生命周期约束：`DestroyXxx` 要求调用方保证 GPU 已空闲（即 `Submit` + `WaitForGpuIdle` 之后）；延迟删除是后端后续增强，不属于 v0 合同语义。swapchain back buffer 由 `DestroySwapchain` 统一释放（先 `UnregisterSwapchain*` 反注册再销毁呈现资源）。
-- v0 裁剪：三角形用例经 `SV_VertexID`/`gl_VertexIndex` 在顶点着色器内生成几何，故 v0 无顶点缓冲与输入布局概念；顶点输入随 P2 glTF 导入进入合同。
+- v0 裁剪：三角形用例经顶点缓冲 + 单 float3 位置属性（location 0）绘制（P2 起）；几何与 P1 的 `SV_VertexID` 生成三角形完全一致，golden 基准图无需重新标定。顶点输入支持单 interleaved buffer + 可选索引缓冲（uint16/uint32），覆盖 glTF 网格导入需要。
 
 ### Stage 运行框架合同（P1 落地版）
 

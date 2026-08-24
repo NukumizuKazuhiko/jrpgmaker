@@ -109,7 +109,29 @@ auto main() -> int {
         pipeline_desc.vertex_shader = vs;
         pipeline_desc.pixel_shader = ps;
         pipeline_desc.color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm;
+        const jrpgmaker::rhi::VertexAttribute position_attribute{
+            .location = 0,
+            .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat3,
+            .offset_bytes = 0,
+        };
+        pipeline_desc.vertex_input = jrpgmaker::rhi::VertexInputLayout{
+            .attributes = &position_attribute,
+            .attribute_count = 1,
+            .stride_bytes = 3u * sizeof(float),
+        };
         const jrpgmaker::rhi::PipelineHandle pipeline = device->CreatePipeline(pipeline_desc);
+
+        // The demo triangle, now supplied through the RHI vertex-input path
+        // (matches shaders/triangle.hlsl).
+        const float triangle_vertices[] = {
+            -0.5f, -0.5f, 0.0f, //
+            0.5f,  -0.5f, 0.0f, //
+            0.0f,  0.5f,  0.0f, //
+        };
+        const jrpgmaker::rhi::BufferHandle vertex_buffer = device->CreateBuffer(
+            jrpgmaker::rhi::BufferDesc{.size_bytes = sizeof(triangle_vertices),
+                                       .usage = jrpgmaker::rhi::BufferUsage::kVertex});
+        device->MapWrite(vertex_buffer, triangle_vertices, sizeof(triangle_vertices));
 
         jrpgmaker::rhi::ICommandList* command_list = device->CreateCommandList();
 
@@ -119,11 +141,13 @@ auto main() -> int {
         // contract: RenderSubmit drives the render submit).
         stages.RegisterSystem(
             jrpgmaker::core::Stage::kRenderSubmit, {jrpgmaker::core::Stage::kRenderSubmit, 0},
-            [device = device.get(), swapchain = swapchain.get(), command_list, pipeline](double) {
+            [device = device.get(), swapchain = swapchain.get(), command_list, pipeline,
+             vertex_buffer](double) {
                 const jrpgmaker::rhi::TextureHandle back_buffer = swapchain->AcquireTexture();
                 command_list->Begin();
                 command_list->BeginRendering(back_buffer, {0.10f, 0.11f, 0.12f, 1.0f});
                 command_list->SetPipeline(pipeline);
+                command_list->SetVertexBuffer(vertex_buffer, 3u * sizeof(float));
                 command_list->Draw(3, 1);
                 command_list->EndRendering();
                 command_list->End();
@@ -139,6 +163,7 @@ auto main() -> int {
         // touched while the GPU may still reference them.
         device->WaitForGpuIdle();
         device->DestroyCommandList(command_list);
+        device->DestroyBuffer(vertex_buffer);
 
         // Teardown order matters: destroy the swapchain before the window so
         // the Vulkan surface is destroyed while its window still exists, and

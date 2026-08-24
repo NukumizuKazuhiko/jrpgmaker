@@ -29,6 +29,9 @@ public:
     void EndRendering() override;
     void SetPipeline(PipelineHandle handle) override;
     void Draw(std::uint32_t vertex_count, std::uint32_t instance_count) override;
+    void SetVertexBuffer(BufferHandle handle, std::uint32_t stride_bytes) override;
+    void SetIndexBuffer(BufferHandle handle, bool indices_are_32_bit) override;
+    void DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) override;
 
     ID3D12CommandList* Native() { return command_list_.Get(); }
 
@@ -51,6 +54,9 @@ public:
 
     TextureHandle CreateTexture(const TextureDesc& desc) override;
     void DestroyTexture(TextureHandle handle) override;
+    BufferHandle CreateBuffer(const BufferDesc& desc) override;
+    void DestroyBuffer(BufferHandle handle) override;
+    void MapWrite(BufferHandle handle, const void* data, std::uint64_t size_bytes) override;
     PipelineHandle CreatePipeline(const GraphicsPipelineDesc& desc) override;
     void DestroyPipeline(PipelineHandle handle) override;
 
@@ -85,6 +91,12 @@ private:
         std::uint64_t row_pitch_bytes = 0;
     };
 
+    struct BufferEntry {
+        Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+        std::byte* mapped = nullptr;
+        std::uint64_t size_bytes = 0;
+    };
+
     struct PipelineEntry {
         Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline;
     };
@@ -95,6 +107,7 @@ private:
     ID3D12CommandAllocator* Allocator() { return allocator_.Get(); }
     D3D12_CPU_DESCRIPTOR_HANDLE RtvCpuHandle(TextureHandle handle);
     ID3D12Resource* TextureResource(TextureHandle handle);
+    const BufferEntry& BufferResource(BufferHandle handle);
     TextureHandle RegisterSwapchainBuffer(ID3D12Resource* resource, std::uint32_t width,
                                           std::uint32_t height, Format format);
     void UnregisterSwapchainBuffer(TextureHandle handle);
@@ -119,6 +132,7 @@ private:
 
     std::unordered_map<std::uint64_t, TextureEntry> textures_;
     std::unordered_map<std::uint64_t, ReadBackEntry> read_backs_;
+    std::unordered_map<std::uint64_t, BufferEntry> buffers_;
     std::unordered_map<std::uint64_t, PipelineEntry> pipelines_;
     std::uint64_t next_handle_ = 1;
 

@@ -42,7 +42,7 @@
 - **目的**：从"渲染代码"走向"渲染数据文件"。
 - **范围内**：glTF 2.0 导入管线（静态网格+PBR 材质兼容输入）、句柄式异步资产系统(含卸载)、EnTT 场景+变换层级、飞行动态观察相机、资源泄漏检测。
 - **范围外**：骨骼动画、角色控制。
-- **开工前预检结论**（2026-08-24）：glTF 解析库选型 **cgltf 1.15**（vcpkg port，零依赖单文件 C99，ADR-004，用户已确认）；纹理解码配 vcpkg `stb`（stb_image）。对比淘汰项：tinygltf（nlohmann-json+stb 双依赖、API 重）、fastgltf（simdjson 传递依赖，性能极致非 P2 需求）、assimp（8 个传递依赖，通用格式违背"glTF 仅兼容输入"边界）。P2 首个子任务建议：`engine/asset`（或 `engine/core` 资产子系统）句柄式异步加载合同 + cgltf 适配器，先跑通"CLI 加载 glTF → 顶点缓冲/材质 → 三角形替换为网格 → 双后端 golden"最小闭环，再补卸载与泄漏检测。
+- **开工前预检结论**（2026-08-24）：glTF 解析库选型 **cgltf 1.15**（vcpkg port，零依赖单文件 C99，ADR-004，用户已确认）；纹理解码配 vcpkg `stb`（stb_image）。对比淘汰项：tinygltf（nlohmann-json+stb 双依赖、API 重）、fastgltf（simdjson 传递依赖，性能极致非 P2 需求）、assimp（8 个传递依赖，通用格式违背"glTF 仅兼容输入"边界）。P2 首个子任务建议：**RHI 顶点输入扩展**（docs/01 RHI v0 合同明文"顶点输入随 P2 glTF 导入进入合同"，是 glTF 网格数据落入 GPU 的地基，独立可验收）——新增 `BufferHandle`/`BufferDesc`/`CreateBuffer`/`MapWrite` + 顶点输入布局 + `DrawIndexed`，triangle_test 改为顶点缓冲驱动同一三角形（几何不变 → golden 基准图不变），双后端同步；随后再演进 core 资产子系统句柄合同与 cgltf 适配器。
 - **验收命令与证据**：CLI 加载指定 glTF 场景 → 两后端 golden image 一致；资产句柄泄漏计数为零的测试通过。
 - **停止条件**：全局门禁全过。
 

@@ -28,6 +28,9 @@ public:
     void EndRendering() override;
     void SetPipeline(PipelineHandle handle) override;
     void Draw(std::uint32_t vertex_count, std::uint32_t instance_count) override;
+    void SetVertexBuffer(BufferHandle handle, std::uint32_t stride_bytes) override;
+    void SetIndexBuffer(BufferHandle handle, bool indices_are_32_bit) override;
+    void DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) override;
 
     VkCommandBuffer Native() { return command_buffer_; }
 
@@ -48,6 +51,9 @@ public:
 
     TextureHandle CreateTexture(const TextureDesc& desc) override;
     void DestroyTexture(TextureHandle handle) override;
+    BufferHandle CreateBuffer(const BufferDesc& desc) override;
+    void DestroyBuffer(BufferHandle handle) override;
+    void MapWrite(BufferHandle handle, const void* data, std::uint64_t size_bytes) override;
     PipelineHandle CreatePipeline(const GraphicsPipelineDesc& desc) override;
     void DestroyPipeline(PipelineHandle handle) override;
 
@@ -84,6 +90,13 @@ private:
         VkDeviceSize size = 0;
     };
 
+    struct BufferEntry {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        std::byte* mapped = nullptr;
+        VkDeviceSize size = 0;
+    };
+
     struct PipelineEntry {
         VkPipeline pipeline = VK_NULL_HANDLE;
     };
@@ -93,6 +106,7 @@ private:
     VkDevice Native() { return device_; }
     VkCommandPool CommandPool() { return command_pool_; }
     const TextureEntry* LookupTexture(TextureHandle handle);
+    const BufferEntry& BufferResource(BufferHandle handle);
     TextureHandle RegisterSwapchainTexture(VkImage image, VkFormat format, std::uint32_t width,
                                            std::uint32_t height, VkImageView view);
     void UnregisterSwapchainTexture(TextureHandle handle);
@@ -113,6 +127,7 @@ private:
 
     std::unordered_map<std::uint64_t, TextureEntry> textures_;
     std::unordered_map<std::uint64_t, ReadBackEntry> read_backs_;
+    std::unordered_map<std::uint64_t, BufferEntry> buffers_;
     std::unordered_map<std::uint64_t, PipelineEntry> pipelines_;
     std::uint64_t next_handle_ = 1;
 };

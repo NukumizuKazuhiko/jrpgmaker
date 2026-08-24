@@ -63,7 +63,7 @@ foreach ($hlsl in Get-ChildItem -Path $ShaderRoot -Filter *.hlsl) {
         @{ Profile = 'ps_6_0'; Entry = 'ps_main'; Suffix = 'ps'; Ext = 'spv'; Spirv = $true }
     )
     foreach ($target in $targets) {
-        $out = Join-Path $GeneratedDir ("$base.$($target.Suffix).$($target.Ext)")
+        $out = Join-Path $GeneratedDir ("$base" + "_" + "$($target.Suffix)" + "." + "$($target.Ext)")
         $args = @()
         if ($target.Spirv) { $args += '-spirv' }
         $args += @('-T', $target.Profile, '-E', $target.Entry, '-Fo', $out, $hlsl.FullName)

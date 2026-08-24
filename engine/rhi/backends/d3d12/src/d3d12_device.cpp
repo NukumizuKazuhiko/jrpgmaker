@@ -2,10 +2,12 @@
 
 #include <dxgi1_4.h>
 
+#include <cstring>
 #include <format>
 #include <memory>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 #include "d3d12_swapchain.h"
 
@@ -127,12 +129,83 @@ D3D12Device::~D3D12Device() {
     }
 }
 
+BufferHandle D3D12Device::CreateBuffer(const BufferDesc& desc) {
+    if (desc.usage == BufferUsage::kNone) {
+        throw std::runtime_error("d3d12 backend: buffer creation requires at least one usage bit");
+    }
+    if (desc.size_bytes == 0) {
+        throw std::runtime_error("d3d12 backend: buffer size must be non-zero");
+    }
+
+    D3D12_RESOURCE_DESC resource_desc{};
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = desc.size_bytes;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    // v0 buffers are host-visible (UPLOAD heap) so MapWrite needs no staging
+    // copy; this matches the Vulkan backend's host-visible allocation.
+    D3D12_HEAP_PROPERTIES upload_heap{};
+    upload_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    BufferEntry entry{};
+    entry.size_bytes = desc.size_bytes;
+    ThrowIfFailed(device_->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE,
+                                                   &resource_desc,
+                                                   D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                   IID_PPV_ARGS(entry.resource.GetAddressOf())),
+                  "CreateCommittedResource(buffer)");
+
+    D3D12_RANGE read_range{0, 0};
+    ThrowIfFailed(entry.resource->Map(0, &read_range, reinterpret_cast<void**>(&entry.mapped)),
+                  "Map(buffer)");
+    if (entry.mapped == nullptr) {
+        throw std::runtime_error("d3d12 backend: failed to map buffer");
+    }
+
+    const std::uint64_t handle_value = next_handle_++;
+    buffers_.emplace(handle_value, std::move(entry));
+    return static_cast<BufferHandle>(handle_value);
+}
+
+void D3D12Device::DestroyBuffer(BufferHandle handle) {
+    const auto it = buffers_.find(static_cast<std::uint64_t>(handle));
+    if (it == buffers_.end()) {
+        return;
+    }
+    WaitForGpuIdle();
+    it->second.resource->Unmap(0, nullptr);
+    buffers_.erase(it);
+}
+
+void D3D12Device::MapWrite(BufferHandle handle, const void* data, std::uint64_t size_bytes) {
+    const BufferEntry& entry = BufferResource(handle);
+    if (data == nullptr || size_bytes > entry.size_bytes) {
+        throw std::runtime_error("d3d12 backend: MapWrite data exceeds buffer capacity");
+    }
+    std::memcpy(entry.mapped, data, static_cast<std::size_t>(size_bytes));
+}
+
+const D3D12Device::BufferEntry& D3D12Device::BufferResource(BufferHandle handle) {
+    const auto it = buffers_.find(static_cast<std::uint64_t>(handle));
+    if (it == buffers_.end()) {
+        throw std::runtime_error("d3d12 backend: unknown buffer handle");
+    }
+    return it->second;
+}
+
 PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
     if (root_signature_ == nullptr) {
         D3D12_ROOT_SIGNATURE_DESC root_desc{};
         root_desc.NumParameters = 0;
         root_desc.NumStaticSamplers = 0;
-        root_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+        // Without ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT the pipeline state cannot
+        // bind vertex input via the input assembler (P2 vertex buffers); the P1
+        // triangle generated geometry in-shader and never needed it.
+        root_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
         D3D12_VERSIONED_ROOT_SIGNATURE_DESC versioned_desc{};
         versioned_desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_0;
@@ -165,13 +238,41 @@ PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
     pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
     pso_desc.DepthStencilState.DepthEnable = FALSE;
     pso_desc.DepthStencilState.StencilEnable = FALSE;
-    pso_desc.InputLayout.NumElements = 0;
-    pso_desc.InputLayout.pInputElementDescs = nullptr;
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pso_desc.NumRenderTargets = 1;
     pso_desc.RTVFormats[0] = ToNativeFormat(desc.color_format);
     pso_desc.SampleDesc.Count = 1;
     pso_desc.SampleDesc.Quality = 0;
+
+    // Vertex input layout (P2): maps the contract's VertexInputLayout to D3D12
+    // input elements, all bound to input slot 0 (single interleaved buffer).
+    std::vector<D3D12_INPUT_ELEMENT_DESC> input_elements;
+    if (desc.vertex_input.attributes != nullptr) {
+        if (desc.vertex_input.attribute_count == 0 || desc.vertex_input.stride_bytes == 0) {
+            throw std::runtime_error(
+                "d3d12 backend: vertex input layout requires attributes and a stride");
+        }
+        input_elements.reserve(desc.vertex_input.attribute_count);
+        for (std::uint32_t i = 0; i < desc.vertex_input.attribute_count; ++i) {
+            const VertexAttribute& attribute = desc.vertex_input.attributes[i];
+            D3D12_INPUT_ELEMENT_DESC element{};
+            element.SemanticName = "POSITION";
+            element.SemanticIndex = attribute.location;
+            element.Format = (attribute.format == VertexAttributeFormat::kFloat3)
+                                 ? DXGI_FORMAT_R32G32B32_FLOAT
+                                 : DXGI_FORMAT_UNKNOWN;
+            if (element.Format == DXGI_FORMAT_UNKNOWN) {
+                throw std::runtime_error("d3d12 backend: unsupported vertex attribute format");
+            }
+            element.InputSlot = 0;
+            element.AlignedByteOffset = attribute.offset_bytes;
+            element.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+            element.InstanceDataStepRate = 0;
+            input_elements.push_back(element);
+        }
+        pso_desc.InputLayout.NumElements = static_cast<UINT>(input_elements.size());
+        pso_desc.InputLayout.pInputElementDescs = input_elements.data();
+    }
 
     PipelineEntry entry{};
     ThrowIfFailed(device_->CreateGraphicsPipelineState(&pso_desc,
@@ -556,6 +657,33 @@ void D3D12CommandList::SetPipeline(PipelineHandle handle) {
 void D3D12CommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_count) {
     command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list_->DrawInstanced(vertex_count, instance_count, 0, 0);
+    owner_->CheckGpuErrors();
+}
+
+void D3D12CommandList::SetVertexBuffer(BufferHandle handle, std::uint32_t stride_bytes) {
+    const D3D12Device::BufferEntry& entry = owner_->BufferResource(handle);
+    if (stride_bytes == 0 || entry.size_bytes < stride_bytes) {
+        throw std::runtime_error("d3d12 backend: invalid vertex buffer stride");
+    }
+    D3D12_VERTEX_BUFFER_VIEW view{};
+    view.BufferLocation = entry.resource->GetGPUVirtualAddress();
+    view.SizeInBytes = static_cast<UINT>(entry.size_bytes);
+    view.StrideInBytes = stride_bytes;
+    command_list_->IASetVertexBuffers(0, 1, &view);
+}
+
+void D3D12CommandList::SetIndexBuffer(BufferHandle handle, bool indices_are_32_bit) {
+    const D3D12Device::BufferEntry& entry = owner_->BufferResource(handle);
+    D3D12_INDEX_BUFFER_VIEW view{};
+    view.BufferLocation = entry.resource->GetGPUVirtualAddress();
+    view.SizeInBytes = static_cast<UINT>(entry.size_bytes);
+    view.Format = indices_are_32_bit ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT;
+    command_list_->IASetIndexBuffer(&view);
+}
+
+void D3D12CommandList::DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) {
+    command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    command_list_->DrawIndexedInstanced(index_count, instance_count, 0, 0, 0);
     owner_->CheckGpuErrors();
 }
 

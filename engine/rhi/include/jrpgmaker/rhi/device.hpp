@@ -26,6 +26,14 @@ public:
     virtual TextureHandle CreateTexture(const TextureDesc& desc) = 0;
     virtual void DestroyTexture(TextureHandle handle) = 0;
 
+    virtual BufferHandle CreateBuffer(const BufferDesc& desc) = 0;
+    virtual void DestroyBuffer(BufferHandle handle) = 0;
+    // Copies the given data into a buffer that is writable from the host (v0:
+    // host-visible memory, no staging). `size_bytes` must be <= the buffer's
+    // desc.size_bytes. Buffer contents are stable once the buffer is bound for
+    // drawing; write before first use, then destroy after WaitForGpuIdle.
+    virtual void MapWrite(BufferHandle handle, const void* data, std::uint64_t size_bytes) = 0;
+
     virtual PipelineHandle CreatePipeline(const GraphicsPipelineDesc& desc) = 0;
     virtual void DestroyPipeline(PipelineHandle handle) = 0;
 

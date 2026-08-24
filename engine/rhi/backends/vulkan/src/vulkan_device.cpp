@@ -245,6 +245,11 @@ VulkanDevice::~VulkanDevice() {
             vkFreeMemory(device_, entry.memory, nullptr);
             vkDestroyBuffer(device_, entry.buffer, nullptr);
         }
+        for (const auto& [key, entry] : buffers_) {
+            vkUnmapMemory(device_, entry.memory);
+            vkFreeMemory(device_, entry.memory, nullptr);
+            vkDestroyBuffer(device_, entry.buffer, nullptr);
+        }
         for (const auto& [key, entry] : textures_) {
             if (entry.is_swapchain) {
                 continue;
@@ -404,6 +409,39 @@ PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
     VkPipelineVertexInputStateCreateInfo vertex_input_info{};
     vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
+    // Vertex input layout (P2): maps the contract's VertexInputLayout to Vulkan
+    // vertex input bindings/attributes, all bound to binding 0 (single
+    // interleaved buffer).
+    std::vector<VkVertexInputBindingDescription> binding_descriptions;
+    std::vector<VkVertexInputAttributeDescription> attribute_descriptions;
+    if (desc.vertex_input.attributes != nullptr) {
+        if (desc.vertex_input.attribute_count == 0 || desc.vertex_input.stride_bytes == 0) {
+            throw std::runtime_error(
+                "vulkan backend: vertex input layout requires attributes and a stride");
+        }
+        binding_descriptions.push_back(VkVertexInputBindingDescription{
+            0, desc.vertex_input.stride_bytes, VK_VERTEX_INPUT_RATE_VERTEX});
+        attribute_descriptions.reserve(desc.vertex_input.attribute_count);
+        for (std::uint32_t i = 0; i < desc.vertex_input.attribute_count; ++i) {
+            const VertexAttribute& attribute = desc.vertex_input.attributes[i];
+            VkFormat format = VK_FORMAT_UNDEFINED;
+            if (attribute.format == VertexAttributeFormat::kFloat3) {
+                format = VK_FORMAT_R32G32B32_SFLOAT;
+            }
+            if (format == VK_FORMAT_UNDEFINED) {
+                throw std::runtime_error("vulkan backend: unsupported vertex attribute format");
+            }
+            attribute_descriptions.push_back(VkVertexInputAttributeDescription{
+                attribute.location, 0, format, attribute.offset_bytes});
+        }
+        vertex_input_info.vertexBindingDescriptionCount =
+            static_cast<std::uint32_t>(binding_descriptions.size());
+        vertex_input_info.pVertexBindingDescriptions = binding_descriptions.data();
+        vertex_input_info.vertexAttributeDescriptionCount =
+            static_cast<std::uint32_t>(attribute_descriptions.size());
+        vertex_input_info.pVertexAttributeDescriptions = attribute_descriptions.data();
+    }
+
     VkPipelineInputAssemblyStateCreateInfo input_assembly_info{};
     input_assembly_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     input_assembly_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -474,6 +512,84 @@ void VulkanDevice::DestroyPipeline(PipelineHandle handle) {
         vkDestroyPipeline(device_, it->second.pipeline, nullptr);
         pipelines_.erase(it);
     }
+}
+
+BufferHandle VulkanDevice::CreateBuffer(const BufferDesc& desc) {
+    if (desc.usage == BufferUsage::kNone) {
+        throw std::runtime_error("vulkan backend: buffer creation requires at least one usage bit");
+    }
+    if (desc.size_bytes == 0) {
+        throw std::runtime_error("vulkan backend: buffer size must be non-zero");
+    }
+
+    VkBufferUsageFlags usage_flags = 0;
+    if ((desc.usage & BufferUsage::kVertex) != BufferUsage::kNone) {
+        usage_flags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    }
+    if ((desc.usage & BufferUsage::kIndex) != BufferUsage::kNone) {
+        usage_flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    }
+
+    BufferEntry entry{};
+    entry.size = desc.size_bytes;
+    VkBufferCreateInfo buffer_info{};
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.size = desc.size_bytes;
+    buffer_info.usage = usage_flags;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ThrowIfFailed(vkCreateBuffer(device_, &buffer_info, nullptr, &entry.buffer), "vkCreateBuffer");
+
+    VkMemoryRequirements requirements{};
+    vkGetBufferMemoryRequirements(device_, entry.buffer, &requirements);
+    const std::uint32_t memory_type =
+        FindMemoryType(requirements.memoryTypeBits,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    VkMemoryAllocateInfo allocate_info{};
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocate_info.allocationSize = requirements.size;
+    allocate_info.memoryTypeIndex = memory_type;
+    ThrowIfFailed(vkAllocateMemory(device_, &allocate_info, nullptr, &entry.memory),
+                  "vkAllocateMemory(buffer)");
+    ThrowIfFailed(vkBindBufferMemory(device_, entry.buffer, entry.memory, 0), "vkBindBufferMemory");
+    ThrowIfFailed(vkMapMemory(device_, entry.memory, 0, desc.size_bytes, 0,
+                              reinterpret_cast<void**>(&entry.mapped)),
+                  "vkMapMemory(buffer)");
+    if (entry.mapped == nullptr) {
+        throw std::runtime_error("vulkan backend: failed to map buffer");
+    }
+
+    const std::uint64_t handle_value = next_handle_++;
+    buffers_.emplace(handle_value, std::move(entry));
+    return static_cast<BufferHandle>(handle_value);
+}
+
+void VulkanDevice::DestroyBuffer(BufferHandle handle) {
+    const auto it = buffers_.find(static_cast<std::uint64_t>(handle));
+    if (it == buffers_.end()) {
+        return;
+    }
+    WaitForGpuIdle();
+    vkUnmapMemory(device_, it->second.memory);
+    vkDestroyBuffer(device_, it->second.buffer, nullptr);
+    vkFreeMemory(device_, it->second.memory, nullptr);
+    buffers_.erase(it);
+}
+
+void VulkanDevice::MapWrite(BufferHandle handle, const void* data, std::uint64_t size_bytes) {
+    const BufferEntry& entry = BufferResource(handle);
+    if (data == nullptr || size_bytes > entry.size) {
+        throw std::runtime_error("vulkan backend: MapWrite data exceeds buffer capacity");
+    }
+    std::memcpy(entry.mapped, data, static_cast<std::size_t>(size_bytes));
+}
+
+const VulkanDevice::BufferEntry& VulkanDevice::BufferResource(BufferHandle handle) {
+    const auto it = buffers_.find(static_cast<std::uint64_t>(handle));
+    if (it == buffers_.end()) {
+        throw std::runtime_error("vulkan backend: unknown buffer handle");
+    }
+    return it->second;
 }
 
 VkPipeline VulkanDevice::PipelineState(PipelineHandle handle) {
@@ -745,6 +861,26 @@ void VulkanCommandList::SetPipeline(PipelineHandle handle) {
 
 void VulkanCommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_count) {
     vkCmdDraw(command_buffer_, vertex_count, instance_count, 0, 0);
+}
+
+void VulkanCommandList::SetVertexBuffer(BufferHandle handle, std::uint32_t stride_bytes) {
+    const VulkanDevice::BufferEntry& entry = owner_->BufferResource(handle);
+    if (stride_bytes == 0 || entry.size < stride_bytes) {
+        throw std::runtime_error("vulkan backend: invalid vertex buffer stride");
+    }
+    const VkBuffer buffers[] = {entry.buffer};
+    const VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(command_buffer_, 0, 1, buffers, offsets);
+}
+
+void VulkanCommandList::SetIndexBuffer(BufferHandle handle, bool indices_are_32_bit) {
+    const VulkanDevice::BufferEntry& entry = owner_->BufferResource(handle);
+    vkCmdBindIndexBuffer(command_buffer_, entry.buffer, 0,
+                         indices_are_32_bit ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
+}
+
+void VulkanCommandList::DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) {
+    vkCmdDrawIndexed(command_buffer_, index_count, instance_count, 0, 0, 0);
 }
 
 } // namespace jrpgmaker::rhi::vulkan
