@@ -199,8 +199,20 @@ const D3D12Device::BufferEntry& D3D12Device::BufferResource(BufferHandle handle)
 
 PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
     if (root_signature_ == nullptr) {
+        // One 32-bit root-constant parameter covering the v0 push-constant
+        // block (a single 64-byte view-proj matrix = 16 DWORDs, bound to the
+        // vertex shader). The signature is shared by all pipelines; pipelines
+        // that never call SetPushConstants simply leave the constants unused.
+        D3D12_ROOT_PARAMETER root_parameters[1]{};
+        root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        root_parameters[0].Constants.ShaderRegister = 0;
+        root_parameters[0].Constants.RegisterSpace = 0;
+        root_parameters[0].Constants.Num32BitValues = 16;
+        root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
         D3D12_ROOT_SIGNATURE_DESC root_desc{};
-        root_desc.NumParameters = 0;
+        root_desc.NumParameters = 1;
+        root_desc.pParameters = root_parameters;
         root_desc.NumStaticSamplers = 0;
         // Without ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT the pipeline state cannot
         // bind vertex input via the input assembler (P2 vertex buffers); the P1
@@ -685,6 +697,16 @@ void D3D12CommandList::DrawIndexed(std::uint32_t index_count, std::uint32_t inst
     command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list_->DrawIndexedInstanced(index_count, instance_count, 0, 0, 0);
     owner_->CheckGpuErrors();
+}
+
+void D3D12CommandList::SetPushConstants(const void* data, std::uint32_t size_bytes) {
+    if (data == nullptr || size_bytes == 0 || size_bytes > 64u) {
+        throw std::runtime_error("d3d12 backend: invalid push constants (v0: 64 bytes max)");
+    }
+    if (size_bytes % 4u != 0) {
+        throw std::runtime_error("d3d12 backend: push constants must be a multiple of 4 bytes");
+    }
+    command_list_->SetGraphicsRoot32BitConstants(0, size_bytes / 4u, data, 0);
 }
 
 } // namespace jrpgmaker::rhi::d3d12

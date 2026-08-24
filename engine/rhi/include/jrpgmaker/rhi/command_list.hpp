@@ -33,6 +33,14 @@ public:
     // with vertex input enabled.
     virtual void DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) = 0;
 
+    // Uploads `size_bytes` of caller data into the push-constant block the
+    // active pipeline declared (v0: bound to the vertex shader only). Must be
+    // called after SetPipeline and before the next Draw. `size_bytes` must not
+    // exceed the pipeline's declared constants size. D3D12 maps this to root
+    // constants; Vulkan maps it to push constants. The layout must match the
+    // shader's cbuffer/push-constant declaration byte-for-byte.
+    virtual void SetPushConstants(const void* data, std::uint32_t size_bytes) = 0;
+
 protected:
     ICommandList() = default;
 };

@@ -130,6 +130,7 @@ jobs:
         run: |
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate ./tests/golden/triangle_64x64.ppm
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-scene ./tests/golden/scene_64x64.ppm ./assets/art/meshes/scene_hierarchy.gltf
+          ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-camera ./tests/golden/camera_64x64.ppm ./assets/art/meshes/scene_hierarchy.gltf
           git diff --exit-code -- tests/golden
 
       - name: Upload golden screenshots as artifacts
@@ -139,6 +140,7 @@ jobs:
           path: |
             tests/golden/triangle_64x64.ppm
             tests/golden/scene_64x64.ppm
+            tests/golden/camera_64x64.ppm
 
   private-headers:
     runs-on: ubuntu-latest

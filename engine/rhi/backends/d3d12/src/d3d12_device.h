@@ -32,6 +32,7 @@ public:
     void SetVertexBuffer(BufferHandle handle, std::uint32_t stride_bytes) override;
     void SetIndexBuffer(BufferHandle handle, bool indices_are_32_bit) override;
     void DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) override;
+    void SetPushConstants(const void* data, std::uint32_t size_bytes) override;
 
     ID3D12CommandList* Native() { return command_list_.Get(); }
 

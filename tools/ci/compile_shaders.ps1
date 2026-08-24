@@ -65,7 +65,11 @@ foreach ($hlsl in Get-ChildItem -Path $ShaderRoot -Filter *.hlsl) {
     foreach ($target in $targets) {
         $out = Join-Path $GeneratedDir ("$base" + "_" + "$($target.Suffix)" + "." + "$($target.Ext)")
         $args = @()
-        if ($target.Spirv) { $args += '-spirv' }
+        if ($target.Spirv) {
+            $args += '-spirv'
+            # SPIR-V targets select the [[vk::push_constant]] form in shaders.
+            $args += '-D', 'VULKAN_PUSH_CONSTANT'
+        }
         $args += @('-T', $target.Profile, '-E', $target.Entry, '-Fo', $out, $hlsl.FullName)
         Write-Host "compiling $($hlsl.Name) -> $(Split-Path $out -Leaf)"
         & $dxc @args

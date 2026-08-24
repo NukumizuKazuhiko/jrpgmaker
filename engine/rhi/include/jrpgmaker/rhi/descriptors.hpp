@@ -65,6 +65,9 @@ struct GraphicsPipelineDesc {
     // the P1 geometry-from-shader behavior; passing a layout enables vertex
     // buffers (P2, glTF mesh rendering).
     VertexInputLayout vertex_input{};
+    // Size of the push-constant block bound to the vertex shader (v0: a single
+    // 64-byte view-proj matrix). Zero means the pipeline declares no constants.
+    std::uint32_t push_constants_size = 0;
 };
 
 } // namespace jrpgmaker::rhi

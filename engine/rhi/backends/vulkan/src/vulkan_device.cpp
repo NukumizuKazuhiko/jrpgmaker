@@ -355,8 +355,18 @@ void VulkanDevice::DestroyTexture(TextureHandle handle) {
 
 VkPipelineLayout VulkanDevice::PipelineLayout() {
     if (pipeline_layout_ == VK_NULL_HANDLE) {
+        // One push-constant range covering the v0 constant block (a single
+        // 64-byte view-proj matrix, bound to the vertex shader). Shared by all
+        // pipelines; those that never call SetPushConstants leave it unused.
+        const VkPushConstantRange push_constant_range{
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = 64,
+        };
         VkPipelineLayoutCreateInfo layout_info{};
         layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout_info.pushConstantRangeCount = 1;
+        layout_info.pPushConstantRanges = &push_constant_range;
         ThrowIfFailed(vkCreatePipelineLayout(device_, &layout_info, nullptr, &pipeline_layout_),
                       "vkCreatePipelineLayout");
     }
@@ -881,6 +891,14 @@ void VulkanCommandList::SetIndexBuffer(BufferHandle handle, bool indices_are_32_
 
 void VulkanCommandList::DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) {
     vkCmdDrawIndexed(command_buffer_, index_count, instance_count, 0, 0, 0);
+}
+
+void VulkanCommandList::SetPushConstants(const void* data, std::uint32_t size_bytes) {
+    if (data == nullptr || size_bytes == 0 || size_bytes > 64u) {
+        throw std::runtime_error("vulkan backend: invalid push constants (v0: 64 bytes max)");
+    }
+    vkCmdPushConstants(command_buffer_, owner_->PipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0,
+                       size_bytes, data);
 }
 
 } // namespace jrpgmaker::rhi::vulkan
