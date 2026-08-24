@@ -46,7 +46,10 @@ void RunMainLoop(jrpgmaker::rhi::IDevice& device, jrpgmaker::rhi::ISwapchain* sw
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
+            // SDL3 delivers the window close button as
+            // SDL_EVENT_WINDOW_CLOSE_REQUESTED; SDL_EVENT_QUIT covers explicit
+            // quit requests. Both must stop the loop so teardown runs.
+            if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
                 running = false;
             } else if (event.type == SDL_EVENT_WINDOW_RESIZED) {
                 swapchain->Resize(event.window.data1, event.window.data2);
@@ -80,6 +83,10 @@ void RunMainLoop(jrpgmaker::rhi::IDevice& device, jrpgmaker::rhi::ISwapchain* sw
         swapchain->Present();
     }
 
+    // DestroyXxx requires the GPU to be idle (docs/01 lifecycle contract):
+    // the last submitted command list and the shared allocator must not be
+    // touched while the GPU may still reference them.
+    device.WaitForGpuIdle();
     device.DestroyCommandList(command_list);
 }
 
@@ -130,7 +137,12 @@ auto main() -> int {
         std::cout << "jrpgmaker " << jrpgmaker::core::version() << " running\n";
         RunMainLoop(*device, swapchain.get(), pipeline, stages);
 
+        // Teardown order matters: destroy the swapchain before the window so
+        // the Vulkan surface is destroyed while its window still exists, and
+        // destroy the pipeline while the GPU is idle.
+        device->WaitForGpuIdle();
         device->DestroyPipeline(pipeline);
+        swapchain.reset();
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 0;
