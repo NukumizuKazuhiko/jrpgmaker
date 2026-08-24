@@ -1,7 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
+#include <string>
 
 #include "jrpgmaker/rhi/command_list.hpp"
 #include "jrpgmaker/rhi/device.hpp"
@@ -9,9 +11,12 @@
 #include "jrpgmaker/rhi/handles.hpp"
 #include "shaders_generated.hpp"
 
+#include "golden_image.hpp"
+
 namespace {
 
 using namespace jrpgmaker::rhi;
+namespace golden = jrpgmaker::golden;
 
 #if defined(_WIN32)
 constexpr Backend kBackend = Backend::kD3D12;
@@ -22,45 +27,23 @@ constexpr Backend kBackend = Backend::kVulkan;
 constexpr std::uint32_t kWidth = 64;
 constexpr std::uint32_t kHeight = 64;
 constexpr ClearColor kClearColor{0.0f, 0.0f, 0.0f, 1.0f};
-constexpr std::uint8_t kClearByte = 0;
-constexpr std::uint8_t kTriangleBlue = 255;
 
-// The triangle covers the NDC area with vertices (-0.5,-0.5), (0.5,-0.5),
-// (0,0.5). On a 64x64 target the interior spans roughly x in [16,48] and
-// y in [17,47]; the sample points below stay clear of the rasterization
-// edge. The corners remain the clear color.
-struct SamplePoint {
-    std::uint32_t x;
-    std::uint32_t y;
-    std::uint8_t expected_blue;
-};
+constexpr int kTolerance = 2;
 
-constexpr SamplePoint kSamples[] = {
-    {32, 32, kTriangleBlue}, // triangle interior (centroid)
-    {32, 24, kTriangleBlue}, // interior, lower half
-    {32, 40, kTriangleBlue}, // interior, upper half
-    {36, 32, kTriangleBlue}, // interior, right of center
-    {28, 32, kTriangleBlue}, // interior, left of center
-    {2, 2, kClearByte},      // top-left corner outside
-    {62, 2, kClearByte},     // top-right corner outside
-    {62, 62, kClearByte},    // bottom-right corner outside
-    {2, 62, kClearByte},     // bottom-left corner outside
-};
+#ifndef JRPGMAKER_GOLDEN_DIR
+#error "JRPGMAKER_GOLDEN_DIR must be defined by the build"
+#endif
 
-void CheckPixelBlue(const MappedTexture& mapped, std::uint32_t x, std::uint32_t y,
-                    std::uint8_t expected_blue) {
-    const auto* row = reinterpret_cast<const std::uint8_t*>(mapped.data) +
-                      static_cast<std::uint64_t>(y) * mapped.row_pitch_bytes;
-    const int r = row[x * 4 + 0];
-    const int g = row[x * 4 + 1];
-    const int b = row[x * 4 + 2];
-    INFO("pixel (" << x << ", " << y << "): rgba(" << r << ", " << g << ", " << b << ")");
-    CHECK((b > expected_blue ? b - expected_blue : expected_blue - b) <= 1);
+std::filesystem::path GoldenPath(const char* name) {
+    return std::filesystem::path(JRPGMAKER_GOLDEN_DIR) / name;
 }
 
 } // namespace
 
-TEST_CASE("triangle renders with vertex-shader-generated geometry", "[rhi][golden][triangle]") {
+// Full-frame comparison against the committed lavapipe-generated reference
+// (tests/golden/triangle_64x64.ppm). The reference is asymmetric about the
+// horizontal midline, so this locks the NDC-Y convention of both backends.
+TEST_CASE("triangle renders match the committed golden reference", "[rhi][golden][triangle]") {
     const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
     REQUIRE(device != nullptr);
 
@@ -105,9 +88,20 @@ TEST_CASE("triangle renders with vertex-shader-generated geometry", "[rhi][golde
     const MappedTexture mapped = device->MapReadBack(target);
     REQUIRE(mapped.data != nullptr);
 
-    for (const SamplePoint& sample : kSamples) {
-        CheckPixelBlue(mapped, sample.x, sample.y, sample.expected_blue);
-    }
+    golden::Image reference;
+    std::string error;
+    const std::filesystem::path reference_path = GoldenPath("triangle_64x64.ppm");
+    REQUIRE(golden::ReadPpm(reference_path, reference, error));
+    REQUIRE(reference.width == kWidth);
+    REQUIRE(reference.height == kHeight);
+
+    const golden::CompareResult result =
+        golden::CompareRgba8(reinterpret_cast<const std::uint8_t*>(mapped.data),
+                             mapped.row_pitch_bytes, reference, kTolerance);
+    INFO("reference: " << reference_path.string());
+    INFO("max channel delta: " << result.max_channel_delta << ", differing pixels: "
+                               << result.pixels_differing << " / " << result.pixels_compared);
+    CHECK(result.passed);
 
     device->WaitForGpuIdle();
     device->DestroyPipeline(pipeline);

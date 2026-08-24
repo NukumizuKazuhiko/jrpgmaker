@@ -16,6 +16,10 @@ endif()
 
 target_sources(jrpgmaker_unit_tests PRIVATE clear_baseline_test.cpp triangle_test.cpp)
 
+target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::golden)
+target_compile_definitions(jrpgmaker_unit_tests PRIVATE
+                           JRPGMAKER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../golden")
+
 list(APPEND CMAKE_MODULE_PATH "${Catch2_DIR}")
 include(Catch)
 catch_discover_tests(jrpgmaker_unit_tests)

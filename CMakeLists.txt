@@ -23,6 +23,7 @@ else()
   add_subdirectory(engine/rhi/backends/vulkan)
 endif()
 add_subdirectory(app)
+add_subdirectory(tools/goldenimage)
 
 if(JRPGMAKER_BUILD_TESTS)
   enable_testing()
