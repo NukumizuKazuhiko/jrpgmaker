@@ -34,6 +34,7 @@ public:
     void DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) override;
     void SetPushConstants(const void* data, std::uint32_t size_bytes) override;
     void SetSampledTexture(TextureHandle texture, SamplerHandle sampler) override;
+    void SetVertexUniformBuffer(BufferHandle handle, std::uint32_t size_bytes) override;
 
     ID3D12CommandList* Native() { return command_list_.Get(); }
 
@@ -112,11 +113,13 @@ private:
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
         std::byte* mapped = nullptr;
         std::uint64_t size_bytes = 0;
+        D3D12_GPU_VIRTUAL_ADDRESS gpu_va = 0;
     };
 
     struct PipelineEntry {
         Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline;
         std::uint32_t sample_slot = 0;
+        std::uint32_t vertex_uniform_size = 0;
     };
 
     D3D12Device() = default;
@@ -134,6 +137,7 @@ private:
     ID3D12Resource* EnsureReadBack(TextureHandle handle);
     ID3D12PipelineState* PipelineState(PipelineHandle handle);
     std::uint32_t PipelineSampleSlot(PipelineHandle handle);
+    std::uint32_t PipelineVertexUniformSize(PipelineHandle handle);
     ID3D12RootSignature* RootSignature() { return root_signature_.Get(); }
     void CheckGpuErrors();
 

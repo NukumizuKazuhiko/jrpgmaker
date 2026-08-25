@@ -33,6 +33,7 @@ public:
     void DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) override;
     void SetPushConstants(const void* data, std::uint32_t size_bytes) override;
     void SetSampledTexture(TextureHandle texture, SamplerHandle sampler) override;
+    void SetVertexUniformBuffer(BufferHandle handle, std::uint32_t size_bytes) override;
 
     VkCommandBuffer Native() { return command_buffer_; }
 
@@ -113,6 +114,7 @@ private:
     struct PipelineEntry {
         VkPipeline pipeline = VK_NULL_HANDLE;
         std::uint32_t sample_slot = 0;
+        std::uint32_t vertex_uniform_size = 0;
     };
 
     VulkanDevice() = default;
@@ -127,6 +129,7 @@ private:
     VkBuffer EnsureReadBackBuffer(TextureHandle handle);
     VkPipeline PipelineState(PipelineHandle handle);
     std::uint32_t PipelineSampleSlot(PipelineHandle handle);
+    std::uint32_t PipelineVertexUniformSize(PipelineHandle handle);
     VkPipelineLayout PipelineLayout();
     VkDescriptorSet SampleDescriptorSet();
     std::uint32_t FindMemoryType(std::uint32_t type_bits, VkMemoryPropertyFlags properties) const;

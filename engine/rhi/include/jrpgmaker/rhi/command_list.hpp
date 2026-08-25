@@ -47,6 +47,13 @@ public:
     // with TextureUsage::kSampled and uploaded via IDevice::UploadTexture.
     virtual void SetSampledTexture(TextureHandle texture, SamplerHandle sampler) = 0;
 
+    // Binds the first `size_bytes` of a kUniform buffer to the active
+    // pipeline's per-object vertex-uniform slot (v0: the skinned-mesh bone-matrix
+    // array). Requires a pipeline created with vertex_uniform_size > 0 and
+    // size_bytes <= that declared size. Must be called after SetPipeline and
+    // before the next Draw. Write the buffer via IDevice::MapWrite beforehand.
+    virtual void SetVertexUniformBuffer(BufferHandle handle, std::uint32_t size_bytes) = 0;
+
 protected:
     ICommandList() = default;
 };

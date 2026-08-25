@@ -180,6 +180,7 @@ BufferHandle D3D12Device::CreateBuffer(const BufferDesc& desc) {
                                                    D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                                    IID_PPV_ARGS(entry.resource.GetAddressOf())),
                   "CreateCommittedResource(buffer)");
+    entry.gpu_va = entry.resource->GetGPUVirtualAddress();
 
     D3D12_RANGE read_range{0, 0};
     ThrowIfFailed(entry.resource->Map(0, &read_range, reinterpret_cast<void**>(&entry.mapped)),
@@ -228,8 +229,11 @@ PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
         //    shader) for the v0 sampled-texture slot.
         //  - parameter 2: descriptor table with one sampler (register s0,
         //    pixel shader) for the same slot.
+        //  - parameter 3: root CBV (register b1, vertex shader) for the
+        //    per-object vertex-uniform buffer (v0: skinned-mesh bone matrices).
         // Pipelines that never sample simply never bind parameters 1/2; the
         // shaders they use do not reference the resources, which D3D12 allows.
+        // Same for parameter 3 with pipelines that declare no vertex uniform.
         D3D12_DESCRIPTOR_RANGE ranges[2]{};
         ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         ranges[0].NumDescriptors = 1;
@@ -238,7 +242,7 @@ PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
         ranges[1].NumDescriptors = 1;
         ranges[1].BaseShaderRegister = 0;
 
-        D3D12_ROOT_PARAMETER root_parameters[3]{};
+        D3D12_ROOT_PARAMETER root_parameters[4]{};
         root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         root_parameters[0].Constants.ShaderRegister = 0;
         root_parameters[0].Constants.RegisterSpace = 0;
@@ -254,6 +258,11 @@ PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
         root_parameters[2].DescriptorTable.NumDescriptorRanges = 1;
         root_parameters[2].DescriptorTable.pDescriptorRanges = &ranges[1];
         root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        root_parameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        root_parameters[3].Descriptor.ShaderRegister = 1;
+        root_parameters[3].Descriptor.RegisterSpace = 0;
+        root_parameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 
         D3D12_ROOT_SIGNATURE_DESC root_desc{};
         root_desc.NumParameters = static_cast<UINT>(std::size(root_parameters));
@@ -319,6 +328,10 @@ PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
                 element.Format = DXGI_FORMAT_R32G32B32_FLOAT;
             } else if (attribute.format == VertexAttributeFormat::kFloat2) {
                 element.Format = DXGI_FORMAT_R32G32_FLOAT;
+            } else if (attribute.format == VertexAttributeFormat::kUint16x4) {
+                element.Format = DXGI_FORMAT_R16G16B16A16_UINT;
+            } else if (attribute.format == VertexAttributeFormat::kFloat4) {
+                element.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
             } else {
                 throw std::runtime_error("d3d12 backend: unsupported vertex attribute format");
             }
@@ -334,6 +347,7 @@ PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
 
     PipelineEntry entry{};
     entry.sample_slot = desc.sample_slot;
+    entry.vertex_uniform_size = desc.vertex_uniform_size;
     ThrowIfFailed(device_->CreateGraphicsPipelineState(&pso_desc,
                                                        IID_PPV_ARGS(entry.pipeline.GetAddressOf())),
                   "CreateGraphicsPipelineState");
@@ -361,6 +375,14 @@ std::uint32_t D3D12Device::PipelineSampleSlot(PipelineHandle handle) {
         throw std::runtime_error("d3d12 backend: unknown pipeline handle");
     }
     return it->second.sample_slot;
+}
+
+std::uint32_t D3D12Device::PipelineVertexUniformSize(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it == pipelines_.end()) {
+        throw std::runtime_error("d3d12 backend: unknown pipeline handle");
+    }
+    return it->second.vertex_uniform_size;
 }
 
 TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc) {
@@ -1018,6 +1040,23 @@ void D3D12CommandList::SetSampledTexture(TextureHandle texture, SamplerHandle sa
     command_list_->SetDescriptorHeaps(static_cast<UINT>(std::size(heaps)), heaps);
     command_list_->SetGraphicsRootDescriptorTable(1, owner_->SrvGpuHandle(texture));
     command_list_->SetGraphicsRootDescriptorTable(2, owner_->SamplerGpuHandle(sampler));
+}
+
+void D3D12CommandList::SetVertexUniformBuffer(BufferHandle handle, std::uint32_t size_bytes) {
+    if (bound_pipeline_ == PipelineHandle::kInvalid ||
+        owner_->PipelineVertexUniformSize(bound_pipeline_) == 0) {
+        throw std::runtime_error("d3d12 backend: SetVertexUniformBuffer requires a pipeline with "
+                                 "vertex_uniform_size > 0");
+    }
+    if (size_bytes > owner_->PipelineVertexUniformSize(bound_pipeline_)) {
+        throw std::runtime_error("d3d12 backend: SetVertexUniformBuffer size exceeds the "
+                                 "pipeline's declared uniform size");
+    }
+    const D3D12Device::BufferEntry& entry = owner_->BufferResource(handle);
+    if (entry.size_bytes < size_bytes) {
+        throw std::runtime_error("d3d12 backend: SetVertexUniformBuffer exceeds the buffer size");
+    }
+    command_list_->SetGraphicsRootConstantBufferView(3, entry.gpu_va);
 }
 
 } // namespace jrpgmaker::rhi::d3d12

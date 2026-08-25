@@ -25,6 +25,7 @@ enum class BufferUsage : std::uint32_t {
     kNone = 0u,
     kVertex = 1u << 0,
     kIndex = 1u << 1,
+    kUniform = 1u << 2,
 };
 
 enum class SamplerFilter : std::uint8_t {

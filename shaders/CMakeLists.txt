@@ -13,8 +13,8 @@ add_custom_command(
     OUTPUT "${SHADERS_HEADER}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHADERS_HEADER_DIR}"
     COMMAND "${CMAKE_COMMAND}"
-            "-DINPUTS=${SHADERS_GENERATED_DIR}/triangle_vs.dxil;${SHADERS_GENERATED_DIR}/triangle_ps.dxil;${SHADERS_GENERATED_DIR}/triangle_vs.spv;${SHADERS_GENERATED_DIR}/triangle_ps.spv;${SHADERS_GENERATED_DIR}/camera_vs.dxil;${SHADERS_GENERATED_DIR}/camera_ps.dxil;${SHADERS_GENERATED_DIR}/camera_vs.spv;${SHADERS_GENERATED_DIR}/camera_ps.spv;${SHADERS_GENERATED_DIR}/textured_vs.dxil;${SHADERS_GENERATED_DIR}/textured_ps.dxil;${SHADERS_GENERATED_DIR}/textured_vs.spv;${SHADERS_GENERATED_DIR}/textured_ps.spv"
-            "-DSYMBOLS=kTriangleVsDxil;kTrianglePsDxil;kTriangleVsSpv;kTrianglePsSpv;kCameraVsDxil;kCameraPsDxil;kCameraVsSpv;kCameraPsSpv;kTexturedVsDxil;kTexturedPsDxil;kTexturedVsSpv;kTexturedPsSpv"
+            "-DINPUTS=${SHADERS_GENERATED_DIR}/triangle_vs.dxil;${SHADERS_GENERATED_DIR}/triangle_ps.dxil;${SHADERS_GENERATED_DIR}/triangle_vs.spv;${SHADERS_GENERATED_DIR}/triangle_ps.spv;${SHADERS_GENERATED_DIR}/camera_vs.dxil;${SHADERS_GENERATED_DIR}/camera_ps.dxil;${SHADERS_GENERATED_DIR}/camera_vs.spv;${SHADERS_GENERATED_DIR}/camera_ps.spv;${SHADERS_GENERATED_DIR}/textured_vs.dxil;${SHADERS_GENERATED_DIR}/textured_ps.dxil;${SHADERS_GENERATED_DIR}/textured_vs.spv;${SHADERS_GENERATED_DIR}/textured_ps.spv;${SHADERS_GENERATED_DIR}/skinned_vs.dxil;${SHADERS_GENERATED_DIR}/skinned_ps.dxil;${SHADERS_GENERATED_DIR}/skinned_vs.spv;${SHADERS_GENERATED_DIR}/skinned_ps.spv"
+            "-DSYMBOLS=kTriangleVsDxil;kTrianglePsDxil;kTriangleVsSpv;kTrianglePsSpv;kCameraVsDxil;kCameraPsDxil;kCameraVsSpv;kCameraPsSpv;kTexturedVsDxil;kTexturedPsDxil;kTexturedVsSpv;kTexturedPsSpv;kSkinnedVsDxil;kSkinnedPsDxil;kSkinnedVsSpv;kSkinnedPsSpv"
             "-DOUTPUT=${SHADERS_HEADER}"
             "-DNAMESPACE=jrpgmaker::shaders"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/../tools/cmake/bin_to_cpp.cmake"
@@ -31,6 +31,10 @@ add_custom_command(
         "${SHADERS_GENERATED_DIR}/textured_ps.dxil"
         "${SHADERS_GENERATED_DIR}/textured_vs.spv"
         "${SHADERS_GENERATED_DIR}/textured_ps.spv"
+        "${SHADERS_GENERATED_DIR}/skinned_vs.dxil"
+        "${SHADERS_GENERATED_DIR}/skinned_ps.dxil"
+        "${SHADERS_GENERATED_DIR}/skinned_vs.spv"
+        "${SHADERS_GENERATED_DIR}/skinned_ps.spv"
     VERBATIM)
 
 add_custom_target(jrpgmaker_shaders_generate DEPENDS "${SHADERS_HEADER}")

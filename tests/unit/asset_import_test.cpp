@@ -36,6 +36,61 @@ glm::vec3 TranslationOf(const glm::mat4& matrix) {
 
 } // namespace
 
+TEST_CASE("gltf skin and animation import produces a skinned mesh", "[assetimport][p4]") {
+    const std::filesystem::path path = AssetPath("art/meshes/arm_skinned.gltf");
+    REQUIRE(std::filesystem::exists(path));
+
+    GltfLoadError error;
+    const std::optional<jrpgmaker::assetimport::SceneLoad> load = LoadGltfScene(path, &error);
+    INFO(error.message);
+    REQUIRE(load.has_value());
+
+    // One skinned mesh: 8 vertices with JOINTS_0/WEIGHTS_0, 12 indices.
+    REQUIRE(load->assets.live_count() == 1);
+    bool found_skinned = false;
+    const auto view = load->scene.Registry().view<MeshRef>();
+    for (const Entity entity : view) {
+        const MeshRef& ref = view.get<MeshRef>(entity);
+        const MeshData* mesh = load->assets.FindMesh(ref.handle);
+        REQUIRE(mesh != nullptr);
+        if (mesh->skinned()) {
+            found_skinned = true;
+            // The mesh node referencing the skin must carry a SkinRef (glTF
+            // node.skin), otherwise the render layer would skip the draw.
+            REQUIRE(load->scene.Registry().all_of<jrpgmaker::assetimport::SkinRef>(entity));
+            REQUIRE(mesh->vertex_count() == 8u);
+            REQUIRE(mesh->index_count() == 12u);
+            REQUIRE(mesh->joints.size() == mesh->vertex_count() * 4u);
+            REQUIRE(mesh->weights.size() == mesh->vertex_count() * 4u);
+            // First four vertices belong to joint 0 (weight 1), last four to joint 1.
+            for (std::size_t v = 0; v < 4u; ++v) {
+                REQUIRE(mesh->joints[v * 4u] == 0u);
+                REQUIRE(mesh->weights[v * 4u] == 1.0f);
+            }
+            for (std::size_t v = 4u; v < 8u; ++v) {
+                REQUIRE(mesh->joints[v * 4u] == 1u);
+                REQUIRE(mesh->weights[v * 4u] == 1.0f);
+            }
+        }
+    }
+    REQUIRE(found_skinned);
+
+    // Skeleton: two joints, elbow parented under root.
+    REQUIRE(load->skeletons.size() == 1u);
+    const jrpgmaker::core::Skeleton& skeleton = load->skeletons.front().skeleton;
+    REQUIRE(skeleton.joint_count() == 2u);
+    REQUIRE(skeleton.joints()[0].parent == jrpgmaker::core::kNullJoint);
+    REQUIRE(skeleton.joints()[1].parent == 0);
+
+    // Animations: idle + wave clips bound to the elbow joint.
+    REQUIRE(load->animations.size() == 2u);
+    const auto& idle = load->animations[0].clip;
+    const auto& wave = load->animations[1].clip;
+    REQUIRE(idle.channels.size() == 1u);
+    REQUIRE(wave.channels.size() == 1u);
+    REQUIRE(wave.duration_seconds > 0.0f);
+}
+
 TEST_CASE("gltf scene import builds a parent-child hierarchy", "[core][assetimport]") {
     const std::filesystem::path path = AssetPath("art/meshes/scene_hierarchy.gltf");
     REQUIRE(std::filesystem::exists(path));

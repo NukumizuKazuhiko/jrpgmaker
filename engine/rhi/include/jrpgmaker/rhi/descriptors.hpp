@@ -26,6 +26,11 @@ struct BufferDesc {
 enum class VertexAttributeFormat : std::uint8_t {
     kFloat3,
     kFloat2,
+    // Four uint16 components per vertex (P4: glTF JOINTS_0). D3D12 maps to
+    // R16G16B16A16_UINT, Vulkan to R16G16B16A16_UINT; HLSL declares uint4.
+    kUint16x4,
+    // Four float components per vertex (P4: glTF WEIGHTS_0).
+    kFloat4,
 };
 
 struct VertexAttribute {
@@ -85,6 +90,11 @@ struct GraphicsPipelineDesc {
     // SetSampledTexture (slot 0). Zero (default) keeps the pipeline sampling-free
     // (existing behavior; no descriptor binding is required before drawing).
     std::uint32_t sample_slot = 0;
+    // Bytes of per-object vertex-shader uniform data consumed by the pipeline
+    // (v0: the bone-matrix array of a skinned mesh). Zero (default) means the
+    // pipeline has no vertex uniform buffer; a non-zero value makes
+    // SetVertexUniformBuffer mandatory before the first draw.
+    std::uint32_t vertex_uniform_size = 0;
 };
 
 } // namespace jrpgmaker::rhi

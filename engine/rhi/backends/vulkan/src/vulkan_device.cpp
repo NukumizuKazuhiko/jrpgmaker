@@ -369,7 +369,11 @@ VkDescriptorSet VulkanDevice::SampleDescriptorSet() {
     if (sample_set_layout_ == VK_NULL_HANDLE) {
         // The v0 sampled-texture slot binds two descriptors to the fragment
         // shader: binding 0 = the sampled image (matches register(t0) in the
-        // HLSL source), binding 1 = the sampler (register(s0)).
+        // HLSL source), binding 1 = the sampler (register(s0)). Binding 2 is the
+        // per-object vertex-uniform buffer (v0: skinned-mesh bone matrices,
+        // register b1), consumed by the vertex shader. The bindings share one
+        // set so a single pipeline layout covers both the sampled-texture and
+        // per-object-uniform paths; pipelines that use neither never bind the set.
         const VkDescriptorSetLayoutBinding bindings[] = {
             VkDescriptorSetLayoutBinding{
                 .binding = 0,
@@ -385,6 +389,13 @@ VkDescriptorSet VulkanDevice::SampleDescriptorSet() {
                 .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
                 .pImmutableSamplers = nullptr,
             },
+            VkDescriptorSetLayoutBinding{
+                .binding = 2,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+                .pImmutableSamplers = nullptr,
+            },
         };
         VkDescriptorSetLayoutCreateInfo layout_info{};
         layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -397,6 +408,7 @@ VkDescriptorSet VulkanDevice::SampleDescriptorSet() {
         const VkDescriptorPoolSize pool_sizes[] = {
             VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 1},
             VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1},
+            VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1},
         };
         VkDescriptorPoolCreateInfo pool_info{};
         pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -606,6 +618,10 @@ PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
                 format = VK_FORMAT_R32G32B32_SFLOAT;
             } else if (attribute.format == VertexAttributeFormat::kFloat2) {
                 format = VK_FORMAT_R32G32_SFLOAT;
+            } else if (attribute.format == VertexAttributeFormat::kUint16x4) {
+                format = VK_FORMAT_R16G16B16A16_UINT;
+            } else if (attribute.format == VertexAttributeFormat::kFloat4) {
+                format = VK_FORMAT_R32G32B32A32_SFLOAT;
             }
             if (format == VK_FORMAT_UNDEFINED) {
                 throw std::runtime_error("vulkan backend: unsupported vertex attribute format");
@@ -677,6 +693,7 @@ PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
 
     PipelineEntry entry{};
     entry.sample_slot = desc.sample_slot;
+    entry.vertex_uniform_size = desc.vertex_uniform_size;
     ThrowIfFailed(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
                                             &entry.pipeline),
                   "vkCreateGraphicsPipelines");
@@ -708,6 +725,9 @@ BufferHandle VulkanDevice::CreateBuffer(const BufferDesc& desc) {
     }
     if ((desc.usage & BufferUsage::kIndex) != BufferUsage::kNone) {
         usage_flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    }
+    if ((desc.usage & BufferUsage::kUniform) != BufferUsage::kNone) {
+        usage_flags |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     }
 
     BufferEntry entry{};
@@ -786,6 +806,14 @@ std::uint32_t VulkanDevice::PipelineSampleSlot(PipelineHandle handle) {
         throw std::runtime_error("vulkan backend: unknown pipeline handle");
     }
     return it->second.sample_slot;
+}
+
+std::uint32_t VulkanDevice::PipelineVertexUniformSize(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it == pipelines_.end()) {
+        throw std::runtime_error("vulkan backend: unknown pipeline handle");
+    }
+    return it->second.vertex_uniform_size;
 }
 
 const VulkanDevice::TextureEntry* VulkanDevice::LookupTexture(TextureHandle handle) {
@@ -1161,6 +1189,41 @@ void VulkanCommandList::SetSampledTexture(TextureHandle texture, SamplerHandle s
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
     writes[1].pImageInfo = &sampler_info;
     vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
+
+    vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            owner_->PipelineLayout(), 0, 1, &set, 0, nullptr);
+}
+
+void VulkanCommandList::SetVertexUniformBuffer(BufferHandle handle, std::uint32_t size_bytes) {
+    if (bound_pipeline_ == PipelineHandle::kInvalid ||
+        owner_->PipelineVertexUniformSize(bound_pipeline_) == 0) {
+        throw std::runtime_error("vulkan backend: SetVertexUniformBuffer requires a pipeline with "
+                                 "vertex_uniform_size > 0");
+    }
+    if (size_bytes > owner_->PipelineVertexUniformSize(bound_pipeline_)) {
+        throw std::runtime_error("vulkan backend: SetVertexUniformBuffer size exceeds the "
+                                 "pipeline's declared uniform size");
+    }
+    const VulkanDevice::BufferEntry& entry = owner_->BufferResource(handle);
+    if (entry.size < size_bytes) {
+        throw std::runtime_error("vulkan backend: SetVertexUniformBuffer exceeds the buffer size");
+    }
+
+    VkDescriptorSet set = owner_->SampleDescriptorSet();
+
+    VkDescriptorBufferInfo buffer_info{};
+    buffer_info.buffer = entry.buffer;
+    buffer_info.offset = 0;
+    buffer_info.range = size_bytes;
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = set;
+    write.dstBinding = 2;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    write.pBufferInfo = &buffer_info;
+    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
 
     vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             owner_->PipelineLayout(), 0, 1, &set, 0, nullptr);

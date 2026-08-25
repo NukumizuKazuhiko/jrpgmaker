@@ -343,6 +343,271 @@ constexpr VertexAttribute kQuadAttributes[] = {
     },
 };
 
+// ---------------------------------------------------------------------------
+// Skinned-mesh rendering (P4): loads a glTF scene, samples an animation clip
+// (or blends two clips) into per-joint bone matrices, uploads them into a
+// per-object uniform buffer, and renders every skinned mesh. The shader maps
+// each vertex by up to four influencing bones. Only skinned entities are
+// drawn; static meshes in the same file are skipped in v0.
+// ---------------------------------------------------------------------------
+
+constexpr std::uint32_t kSkinnedStride =
+    3u * sizeof(float) + 4u * sizeof(std::uint16_t) + 4u * sizeof(float);
+constexpr VertexAttribute kSkinnedAttributes[] = {
+    VertexAttribute{
+        .location = 0,
+        .format = VertexAttributeFormat::kFloat3,
+        .offset_bytes = 0,
+    },
+    VertexAttribute{
+        .location = 1,
+        .format = VertexAttributeFormat::kUint16x4,
+        .offset_bytes = 3u * sizeof(float),
+        .semantic_name = "JOINTS",
+    },
+    VertexAttribute{
+        .location = 2,
+        .format = VertexAttributeFormat::kFloat4,
+        .offset_bytes = 3u * sizeof(float) + 4u * sizeof(std::uint16_t),
+        .semantic_name = "WEIGHTS",
+    },
+};
+
+// Packed skinned vertex matching the RHI layout: position (float3), joint
+// indices (u16x4), weights (float4). sizeof == kSkinnedStride == 36.
+struct SkinnedVertex {
+    float position[3];
+    std::uint16_t joints[4];
+    float weights[4];
+};
+
+// Interleaves positions + joints + weights into the skinned vertex layout.
+std::vector<SkinnedVertex> BuildSkinnedVertices(const jrpgmaker::core::MeshData& mesh) {
+    if (!mesh.skinned()) {
+        return {};
+    }
+    std::vector<SkinnedVertex> vertices(mesh.vertex_count());
+    for (std::size_t v = 0; v < mesh.vertex_count(); ++v) {
+        SkinnedVertex& out = vertices[v];
+        out.position[0] = mesh.positions[v * 3u];
+        out.position[1] = mesh.positions[v * 3u + 1u];
+        out.position[2] = mesh.positions[v * 3u + 2u];
+        for (std::uint32_t c = 0; c < 4u; ++c) {
+            const std::uint16_t raw = mesh.joints[v * 4u + c];
+            // 0xFFFF marks "no influence"; remap to joint 0 so the u16 stays a
+            // valid index (the matching weight is zero and never contributes).
+            out.joints[c] = raw == 0xFFFFu ? 0u : raw;
+        }
+        for (std::uint32_t c = 0; c < 4u; ++c) {
+            out.weights[c] = mesh.weights[v * 4u + c];
+        }
+    }
+    return vertices;
+}
+
+GraphicsPipelineDesc MakeSkinnedPipelineDesc() {
+    GraphicsPipelineDesc pipeline_desc;
+    pipeline_desc.color_format = Format::kR8G8B8A8Unorm;
+    pipeline_desc.vertex_input = VertexInputLayout{
+        .attributes = kSkinnedAttributes,
+        .attribute_count = static_cast<std::uint32_t>(std::size(kSkinnedAttributes)),
+        .stride_bytes = kSkinnedStride,
+    };
+    // Bone matrices: kMaxBonesPerObject mat4s (matching the shader's fixed
+    // uniform array): 32 * 16 floats * 4 bytes = 2048 bytes.
+    pipeline_desc.vertex_uniform_size = 32u * 16u * sizeof(float);
+#if defined(_WIN32)
+    pipeline_desc.vertex_shader =
+        ShaderBytecode{jrpgmaker::shaders::kSkinnedVsDxil, jrpgmaker::shaders::kSkinnedVsDxil_size};
+    pipeline_desc.pixel_shader =
+        ShaderBytecode{jrpgmaker::shaders::kSkinnedPsDxil, jrpgmaker::shaders::kSkinnedPsDxil_size};
+#else
+    pipeline_desc.vertex_shader =
+        ShaderBytecode{jrpgmaker::shaders::kSkinnedVsSpv, jrpgmaker::shaders::kSkinnedVsSpv_size};
+    pipeline_desc.pixel_shader =
+        ShaderBytecode{jrpgmaker::shaders::kSkinnedPsSpv, jrpgmaker::shaders::kSkinnedPsSpv_size};
+#endif
+    return pipeline_desc;
+}
+
+// Renders skinned entities of the scene with the given per-joint bone matrices.
+// `bone_matrices` is a packed array of mat4 (column-major), padded with
+// identity matrices up to the shader's fixed uniform array size.
+bool RenderSkinned(std::vector<std::uint8_t>& rgba, const std::filesystem::path& gltf_path,
+                   const std::vector<glm::mat4>& bone_matrices) {
+    const std::optional<jrpgmaker::assetimport::SceneLoad> load =
+        jrpgmaker::assetimport::LoadGltfScene(gltf_path);
+    if (!load.has_value()) {
+        std::cerr << "failed to load glTF scene: " << gltf_path.string() << '\n';
+        return false;
+    }
+
+    const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
+    if (device == nullptr) {
+        std::cerr << "failed to create device\n";
+        return false;
+    }
+
+    const TextureHandle target = device->CreateTexture(
+        TextureDesc{.width = kWidth,
+                    .height = kHeight,
+                    .format = Format::kR8G8B8A8Unorm,
+                    .usage = TextureUsage::kRenderTarget | TextureUsage::kReadBack});
+    if (target == TextureHandle::kInvalid) {
+        std::cerr << "failed to create render target\n";
+        return false;
+    }
+
+    const PipelineHandle pipeline = device->CreatePipeline(MakeSkinnedPipelineDesc());
+    if (pipeline == PipelineHandle::kInvalid) {
+        std::cerr << "failed to create pipeline\n";
+        device->DestroyTexture(target);
+        return false;
+    }
+
+    // Per-object uniform buffer holding the bone-matrix array.
+    std::vector<std::byte> uniform_data(bone_matrices.size() * sizeof(glm::mat4));
+    std::memcpy(uniform_data.data(), bone_matrices.data(),
+                bone_matrices.size() * sizeof(glm::mat4));
+    const BufferHandle uniform_buffer = device->CreateBuffer(
+        BufferDesc{.size_bytes = uniform_data.size(), .usage = BufferUsage::kUniform});
+    if (uniform_buffer == BufferHandle::kInvalid) {
+        std::cerr << "failed to create uniform buffer\n";
+        return false;
+    }
+    device->MapWrite(uniform_buffer, uniform_data.data(), uniform_data.size());
+
+    bool ok = true;
+    ICommandList* command_list = device->CreateCommandList();
+    std::vector<BufferHandle> mesh_buffers;
+    if (command_list == nullptr) {
+        std::cerr << "failed to create command list\n";
+        ok = false;
+    } else {
+        command_list->Begin();
+        command_list->BeginRendering(target, kClearColor);
+        command_list->SetPipeline(pipeline);
+        command_list->SetVertexUniformBuffer(uniform_buffer,
+                                             static_cast<std::uint32_t>(uniform_data.size()));
+
+        const auto view =
+            load->scene.Registry()
+                .view<jrpgmaker::assetimport::MeshRef, jrpgmaker::assetimport::SkinRef>();
+        for (const jrpgmaker::core::Entity entity : view) {
+            const auto& mesh_ref = view.get<jrpgmaker::assetimport::MeshRef>(entity);
+            const jrpgmaker::core::MeshData* mesh = load->assets.FindMesh(mesh_ref.handle);
+            if (mesh == nullptr || !mesh->skinned()) {
+                continue;
+            }
+            const std::vector<SkinnedVertex> vertices = BuildSkinnedVertices(*mesh);
+            const BufferHandle vertex_buffer = device->CreateBuffer(BufferDesc{
+                .size_bytes = static_cast<std::uint64_t>(vertices.size()) * sizeof(SkinnedVertex),
+                .usage = BufferUsage::kVertex});
+            if (vertex_buffer == BufferHandle::kInvalid) {
+                std::cerr << "failed to create vertex buffer\n";
+                ok = false;
+                break;
+            }
+            device->MapWrite(vertex_buffer, vertices.data(),
+                             static_cast<std::uint64_t>(vertices.size()) * sizeof(SkinnedVertex));
+            const BufferHandle index_buffer = device->CreateBuffer(
+                BufferDesc{.size_bytes = static_cast<std::uint64_t>(mesh->indices.size()) *
+                                         sizeof(std::uint32_t),
+                           .usage = BufferUsage::kIndex});
+            if (index_buffer == BufferHandle::kInvalid) {
+                std::cerr << "failed to create index buffer\n";
+                device->DestroyBuffer(vertex_buffer);
+                ok = false;
+                break;
+            }
+            device->MapWrite(index_buffer, mesh->indices.data(),
+                             static_cast<std::uint64_t>(mesh->indices.size()) *
+                                 sizeof(std::uint32_t));
+            command_list->SetVertexBuffer(vertex_buffer, kSkinnedStride);
+            command_list->SetIndexBuffer(index_buffer, true);
+            command_list->DrawIndexed(static_cast<std::uint32_t>(mesh->indices.size()), 1);
+            // Buffers must outlive the recording; destroy after Submit below
+            // (DestroyBuffer waits on the GPU, which would deadlock mid-recording).
+            mesh_buffers.push_back(vertex_buffer);
+            mesh_buffers.push_back(index_buffer);
+        }
+
+        command_list->EndRendering();
+        command_list->End();
+        device->Submit(*command_list);
+        device->WaitForGpuIdle();
+        device->DestroyCommandList(command_list);
+    }
+
+    for (const BufferHandle buffer : mesh_buffers) {
+        device->DestroyBuffer(buffer);
+    }
+    device->DestroyBuffer(uniform_buffer);
+    device->DestroyPipeline(pipeline);
+
+    if (!ok) {
+        device->DestroyTexture(target);
+        return false;
+    }
+
+    const MappedTexture mapped = device->MapReadBack(target);
+    if (mapped.data == nullptr) {
+        std::cerr << "readback returned null\n";
+        device->DestroyTexture(target);
+        return false;
+    }
+
+    rgba.resize(static_cast<std::size_t>(kWidth) * kHeight * 4u);
+    for (std::uint32_t y = 0; y < kHeight; ++y) {
+        const auto* row = reinterpret_cast<const std::uint8_t*>(mapped.data) +
+                          static_cast<std::uint64_t>(y) * mapped.row_pitch_bytes;
+        std::uint8_t* out_row = rgba.data() + static_cast<std::size_t>(y) * kWidth * 4u;
+        std::memcpy(out_row, row, static_cast<std::size_t>(kWidth) * 4u);
+    }
+
+    device->DestroyTexture(target);
+    return true;
+}
+
+// Computes the bone-matrix array for a scene's first skeleton at a given
+// animation time, padded with identity matrices up to the shader's fixed
+// uniform array size (32 mat4s). `blend_weight` in [0,1] blends clip[0] and
+// clip[1] (0 = clip0 only, 1 = clip1 only); requires at least one animation.
+bool ComputeSkinBoneMatrices(const std::filesystem::path& gltf_path, float time_seconds,
+                             float blend_weight, std::vector<glm::mat4>& out_bones) {
+    const std::optional<jrpgmaker::assetimport::SceneLoad> load =
+        jrpgmaker::assetimport::LoadGltfScene(gltf_path);
+    if (!load.has_value()) {
+        std::cerr << "failed to load glTF scene: " << gltf_path.string() << '\n';
+        return false;
+    }
+    if (load->skeletons.empty() || load->animations.empty()) {
+        std::cerr << "glTF has no skeleton or animation to sample\n";
+        return false;
+    }
+
+    const jrpgmaker::core::Skeleton& skeleton = load->skeletons.front().skeleton;
+    const jrpgmaker::core::AnimationClip& clip_a = load->animations[0].clip;
+    const jrpgmaker::core::AnimationClip* clip_b =
+        (blend_weight > 0.0f && load->animations.size() > 1u) ? &load->animations[1].clip : nullptr;
+
+    const jrpgmaker::core::SkeletonPose pose_a =
+        jrpgmaker::core::SamplePose(skeleton, clip_a, time_seconds);
+    if (clip_b != nullptr) {
+        const jrpgmaker::core::SkeletonPose pose_b =
+            jrpgmaker::core::SamplePose(skeleton, *clip_b, time_seconds);
+        out_bones = jrpgmaker::core::BoneMatrices(
+            skeleton, jrpgmaker::core::BlendPose(pose_a, pose_b, blend_weight));
+    } else {
+        out_bones = jrpgmaker::core::BoneMatrices(skeleton, pose_a);
+    }
+    // Pad the uniform array to the shader's fixed size (identity matrices are
+    // never referenced because their joint weights are zero).
+    const glm::mat4 identity(1.0f);
+    out_bones.resize(32u, identity);
+    return true;
+}
+
 const std::vector<float>& QuadVertices() {
     // Two triangles covering the full viewport. UV v is 0 at the top of the
     // texture, matching the pixel row order of the uploaded data.
@@ -509,7 +774,26 @@ int CompareRgba(const std::string& reference_path, int tolerance,
 
 } // namespace
 
+namespace {
+
+int RunCli(int argc, char** argv);
+
+} // namespace
+
 int main(int argc, char** argv) {
+    // Top-level guard: an uncaught exception would abort() and pop a blocking
+    // CRT error dialog in headless sessions; report and fail cleanly instead.
+    try {
+        return RunCli(argc, argv);
+    } catch (const std::exception& error) {
+        std::cerr << "goldenimage: fatal: " << error.what() << '\n';
+        return 1;
+    }
+}
+
+namespace {
+
+int RunCli(int argc, char** argv) {
     // Usage:
     //   goldenimage generate <out.ppm> [gltf_path]
     //   goldenimage compare <ref.ppm> [tolerance] [gltf_path]
@@ -534,7 +818,9 @@ int main(int argc, char** argv) {
                   << "  goldenimage generate-camera <out.ppm> <gltf_path>\n"
                   << "  goldenimage compare-camera <ref.ppm> <gltf_path> [tolerance]\n"
                   << "  goldenimage generate-texture <out.ppm>\n"
-                  << "  goldenimage compare-texture <ref.ppm> [tolerance]\n";
+                  << "  goldenimage compare-texture <ref.ppm> [tolerance]\n"
+                  << "  goldenimage generate-skin <out.ppm> <gltf> [time] [blend]\n"
+                  << "  goldenimage compare-skin <ref.ppm> <gltf> [time] [blend] [tolerance]\n";
         return 2;
     }
 
@@ -636,7 +922,38 @@ int main(int argc, char** argv) {
         }
         return CompareRgba(argv[2], tolerance, rgba);
     }
+    // Skinned-mesh golden (P4): renders the scene's skinned entities with bone
+    // matrices sampled from the first animation at `time` seconds, optionally
+    // blended toward the second animation by `blend` in [0,1].
+    //   goldenimage generate-skin <out.ppm> <gltf> [time] [blend]
+    //   goldenimage compare-skin <ref.ppm> <gltf> [time] [blend] [tolerance]
+    if (command == "generate-skin" || command == "compare-skin") {
+        if (argc < 4) {
+            std::cerr << command << " requires a glTF path\n";
+            return 2;
+        }
+        const float time_seconds = argc >= 5 ? static_cast<float>(std::atof(argv[4])) : 0.0f;
+        const float blend_weight = argc >= 6 ? static_cast<float>(std::atof(argv[5])) : 0.0f;
+        std::vector<glm::mat4> bones;
+        if (!ComputeSkinBoneMatrices(argv[3], time_seconds, blend_weight, bones)) {
+            return 1;
+        }
+        std::vector<std::uint8_t> rgba;
+        if (!RenderSkinned(rgba, argv[3], bones)) {
+            return 1;
+        }
+        if (command == "generate-skin") {
+            return WritePpmFromRgba(argv[2], rgba);
+        }
+        int tolerance = 1;
+        if (argc >= 7) {
+            tolerance = std::atoi(argv[6]);
+        }
+        return CompareRgba(argv[2], tolerance, rgba);
+    }
 
     std::cerr << "unknown command '" << command << "'\n";
     return 2;
 }
+
+} // namespace
