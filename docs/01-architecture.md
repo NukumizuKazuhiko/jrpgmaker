@@ -135,6 +135,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - **flag 存储**：`jrpgmaker::domain::FlagStore`（`Set`/`Get`，命名 bool，空名抛错；`live_count()` 为诊断探针）。单线程、domain 独占；ui/render 不直读（走事件总线 projection）。flag 在事件间持久（会话语义）。
 - **事件总线**：`jrpgmaker::core::EventBus`（类型擦除订阅/发布，docs/01 owner map 规定 domain 只发布、presentation 只消费）。订阅无退订（v0 消费者存活于进程期）。
 - **变更检测投影同步（A3）/ UI 消费**：P3 后续子任务（docs/02 P3）。
+- **lint CLI v1（P3 子任务 3）**：`tools/eventlint`（可执行 `jrpgmaker_eventlint`）+ domain `jrpgmaker::domain::LintEventScript`（`event_lint.hpp`）。职责为**单文件解析器无法表达的跨事件一致性检查**：重复事件 id（error）、空 event id/flag 名/speaker/text_key（error）、branch/choice 子序列内静态检出阻塞指令 dialog/choice/wait（error，与解释器运行时 `std::logic_error` 同源合同，作者期提前暴露）、branch 读取的 flag 在脚本内从未被写入（warning——flag 可由宿主注入，但未写入常是拼写/死分支症状）。退出码 0=干净/1=有 error/2=用法错误；CI `data-lint` job 对 `assets/data/events_demo.json` 要求干净。**text_key→i18n 文本表的跨文件引用检查属 v1 范围外**，随 i18n 子任务（文本表 schema 落地）扩展。
 
 ### 存档合同
 

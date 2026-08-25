@@ -1,6 +1,7 @@
 find_package(nlohmann_json CONFIG REQUIRED)
 
-add_library(jrpgmaker_domain src/event_script.cpp src/flag_store.cpp src/event_runner.cpp)
+add_library(jrpgmaker_domain src/event_script.cpp src/flag_store.cpp src/event_runner.cpp
+                            src/event_lint.cpp)
 add_library(jrpgmaker::domain ALIAS jrpgmaker_domain)
 
 target_sources(
@@ -8,7 +9,8 @@ target_sources(
   PUBLIC FILE_SET HEADERS BASE_DIRS include
                 FILES include/jrpgmaker/domain/event_script.hpp
                      include/jrpgmaker/domain/flag_store.hpp
-                     include/jrpgmaker/domain/event_runner.hpp)
+                     include/jrpgmaker/domain/event_runner.hpp
+                     include/jrpgmaker/domain/event_lint.hpp)
 
 target_include_directories(jrpgmaker_domain PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

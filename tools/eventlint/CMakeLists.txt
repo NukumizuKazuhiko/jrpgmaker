@@ -1,0 +1,2 @@
+add_executable(jrpgmaker_eventlint main.cpp)
+target_link_libraries(jrpgmaker_eventlint PRIVATE jrpgmaker::domain)

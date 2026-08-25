@@ -26,6 +26,7 @@ endif()
 add_subdirectory(app)
 add_subdirectory(tools/assetimport)
 add_subdirectory(tools/goldenimage)
+add_subdirectory(tools/eventlint)
 
 if(JRPGMAKER_BUILD_TESTS)
   enable_testing()
