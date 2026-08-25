@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -133,7 +134,7 @@ TEST_CASE("flag trigger starts the target event on the runner (end-to-end wiring
         jrpgmaker::domain::ParseEventScript(nlohmann::json::parse(R"({
             "schema": 1,
             "events": [
-                {"id": "quest", "instructions": [{"op": "set_flag", "flag": "quest.done"}]},
+                {"id": "quest", "instructions": [{"op": "set_flag", "flag": "quest.done", "value": true}]},
                 {"id": "reward", "instructions": [{"op": "dialog", "speaker": "king",
                                                    "text_key": "reward.line"}]
                 }
@@ -173,14 +174,31 @@ TEST_CASE("flag trigger parses the committed demo trigger table", "[domain][flag
 #ifndef JRPGMAKER_ASSET_DIR
 #error "JRPGMAKER_ASSET_DIR must be defined by the build"
 #endif
-    const std::filesystem::path path =
+    const std::filesystem::path triggers_path =
         std::filesystem::path(JRPGMAKER_ASSET_DIR) / "data" / "triggers_demo.json";
-    std::ifstream file(path);
-    REQUIRE(file.is_open());
-    const FlagTriggerTable table = ParseFlagTriggers(nlohmann::json::parse(file));
+    std::ifstream triggers_file(triggers_path);
+    REQUIRE(triggers_file.is_open());
+    const FlagTriggerTable table = ParseFlagTriggers(nlohmann::json::parse(triggers_file));
     REQUIRE(table.triggers.size() == 2);
     REQUIRE(table.triggers[0].flag == "alice.quest.accepted");
     REQUIRE(table.triggers[0].target_event_id == "alice_reward");
     REQUIRE(table.triggers[1].flag == "chest.west.opened");
     REQUIRE(table.triggers[1].target_event_id == "chest_west_echo");
+
+    // Every trigger target must name an event that actually exists in the demo
+    // event script, otherwise firing the trigger silently no-ops (Start returns
+    // false). This keeps the committed data files self-consistent.
+    const std::filesystem::path events_path =
+        std::filesystem::path(JRPGMAKER_ASSET_DIR) / "data" / "events_demo.json";
+    std::ifstream events_file(events_path);
+    REQUIRE(events_file.is_open());
+    const jrpgmaker::domain::EventScript script =
+        jrpgmaker::domain::ParseEventScript(nlohmann::json::parse(events_file));
+    for (const FlagTrigger& trigger : table.triggers) {
+        const auto exists = std::find_if(script.events.begin(), script.events.end(),
+                                         [&](const jrpgmaker::domain::Event& event) {
+                                             return event.id == trigger.target_event_id;
+                                         });
+        REQUIRE(exists != script.events.end());
+    }
 }

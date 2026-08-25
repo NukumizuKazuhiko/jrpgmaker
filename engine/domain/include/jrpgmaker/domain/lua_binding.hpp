@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 
+#include "jrpgmaker/core/event_bus.hpp"
 #include "jrpgmaker/domain/flag_store.hpp"
 
 namespace jrpgmaker::domain {
@@ -15,8 +16,9 @@ namespace jrpgmaker::domain {
 // The engine exposes a deliberately restricted API surface to Lua - it is NOT
 // a general scripting host:
 //   - flags.get(name)      -> bool   (read FlagStore)
-//   - flags.set(name,val)  -> void   (write FlagStore; the host owns projecting
-//                                     host-injected flag changes per docs/01)
+//   - flags.set(name,val)  -> void   (write FlagStore; publishes FlagChanged on
+//                                     the bus, same source as EventRunner, so
+//                                     flag triggers / presentation stay in sync)
 //   - events.run(id)       -> bool   (asks the host to start an event on the
 //                                     EventRunner; returns false when the host
 //                                     declines, e.g. an event is already active)
@@ -30,7 +32,7 @@ public:
     // (EventRunner throws if an event is already active).
     using EventTrigger = std::function<bool(const std::string&)>;
 
-    LuaScriptEngine(FlagStore& flags, EventTrigger event_trigger);
+    LuaScriptEngine(FlagStore& flags, core::EventBus& bus, EventTrigger event_trigger);
     ~LuaScriptEngine();
 
     LuaScriptEngine(const LuaScriptEngine&) = delete;

@@ -45,6 +45,18 @@
         { "op": "dialog", "speaker": "system", "text_key": "chest.opened" },
         { "op": "set_flag", "flag": "chest.west.opened", "value": true }
       ]
+    },
+    {
+      "id": "alice_reward",
+      "instructions": [
+        { "op": "dialog", "speaker": "alice", "text_key": "alice.reward.line" }
+      ]
+    },
+    {
+      "id": "chest_west_echo",
+      "instructions": [
+        { "op": "dialog", "speaker": "system", "text_key": "chest.west.echo" }
+      ]
     }
   ]
 }

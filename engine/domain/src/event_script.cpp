@@ -21,6 +21,26 @@ std::string RequireString(const nlohmann::json& object, const char* key, const c
     return object[key].get<std::string>();
 }
 
+bool RequireBool(const nlohmann::json& object, const char* key, const char* context) {
+    if (!object.contains(key)) {
+        RaiseParseError(std::string("missing '") + key + "' in " + context);
+    }
+    if (!object[key].is_boolean()) {
+        RaiseParseError(std::string("'") + key + "' must be a boolean in " + context);
+    }
+    return object[key].get<bool>();
+}
+
+double RequireNumber(const nlohmann::json& object, const char* key, const char* context) {
+    if (!object.contains(key)) {
+        RaiseParseError(std::string("missing '") + key + "' in " + context);
+    }
+    if (!object[key].is_number()) {
+        RaiseParseError(std::string("'") + key + "' must be a number in " + context);
+    }
+    return object[key].get<double>();
+}
+
 std::vector<Instruction> ParseSequence(const nlohmann::json& node, const char* key,
                                        const char* context);
 Instruction ParseInstruction(const nlohmann::json& node);
@@ -59,7 +79,7 @@ Instruction ParseInstruction(const nlohmann::json& node) {
 
     if (op == "set_flag") {
         return Instruction{SetFlagInstruction{.flag = RequireString(node, "flag", op.c_str()),
-                                              .value = node.value("value", true)}};
+                                              .value = RequireBool(node, "value", op.c_str())}};
     }
     if (op == "clear_flag") {
         return Instruction{
@@ -83,7 +103,7 @@ Instruction ParseInstruction(const nlohmann::json& node) {
                               .options = ParseOptions(node, "options", op.c_str())}};
     }
     if (op == "wait") {
-        const double seconds = node.value("seconds", 0.0);
+        const double seconds = RequireNumber(node, "seconds", op.c_str());
         if (seconds < 0.0) {
             RaiseParseError("'wait' seconds must be non-negative");
         }

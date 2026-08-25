@@ -1,26 +1,33 @@
 #include "jrpgmaker/domain/lua_binding.hpp"
 
 #include <string>
+#include <utility>
 
 #include <sol/sol.hpp>
+
+#include "jrpgmaker/domain/event_runner.hpp"
 
 namespace jrpgmaker::domain {
 
 struct LuaScriptEngine::Impl {
     FlagStore& flags;
+    core::EventBus& bus;
     EventTrigger event_trigger;
     sol::state lua;
     std::string error;
 
-    Impl(FlagStore& flags_in, EventTrigger trigger)
-        : flags(flags_in), event_trigger(std::move(trigger)) {
+    Impl(FlagStore& flags_in, core::EventBus& bus_in, EventTrigger trigger)
+        : flags(flags_in), bus(bus_in), event_trigger(std::move(trigger)) {
         lua.open_libraries(sol::lib::base);
 
         // Restricted API surface (docs/01: escape hatch only, no bypassing the
         // event instruction set).
         sol::table flags_api = lua.create_table();
         flags_api["get"] = [this](const std::string& name) { return flags.Get(name); };
-        flags_api["set"] = [this](const std::string& name, bool value) { flags.Set(name, value); };
+        flags_api["set"] = [this](const std::string& name, bool value) {
+            flags.Set(name, value);
+            bus.Publish(FlagChanged{.flag = name, .value = value});
+        };
         lua["flags"] = flags_api;
 
         sol::table events_api = lua.create_table();
@@ -31,8 +38,8 @@ struct LuaScriptEngine::Impl {
     }
 };
 
-LuaScriptEngine::LuaScriptEngine(FlagStore& flags, EventTrigger event_trigger)
-    : impl_(std::make_unique<Impl>(flags, std::move(event_trigger))) {}
+LuaScriptEngine::LuaScriptEngine(FlagStore& flags, core::EventBus& bus, EventTrigger event_trigger)
+    : impl_(std::make_unique<Impl>(flags, bus, std::move(event_trigger))) {}
 
 LuaScriptEngine::~LuaScriptEngine() = default;
 LuaScriptEngine::LuaScriptEngine(LuaScriptEngine&&) noexcept = default;

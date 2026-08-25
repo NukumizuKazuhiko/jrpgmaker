@@ -34,7 +34,7 @@ TEST_CASE("event runner executes set_flag and finishes", "[domain][event_runner]
     EventBus bus;
     EventScript script = MakeScript(R"({
         "schema": 1,
-        "events": [{"id": "e", "instructions": [{"op": "set_flag", "flag": "quest.done"}]}]
+        "events": [{"id": "e", "instructions": [{"op": "set_flag", "flag": "quest.done", "value": true}]}]
     })");
     EventRunner runner(script, flags, bus);
 
@@ -57,7 +57,7 @@ TEST_CASE("event runner blocks on dialog until advanced", "[domain][event_runner
         "schema": 1,
         "events": [{"id": "talk", "instructions": [
             {"op": "dialog", "speaker": "alice", "text_key": "hi"},
-            {"op": "set_flag", "flag": "after.talk"}
+            {"op": "set_flag", "flag": "after.talk", "value": true}
         ]}]
     })");
     EventRunner runner(script, flags, bus);
@@ -85,7 +85,7 @@ TEST_CASE("event runner blocks on wait until time elapses", "[domain][event_runn
         "schema": 1,
         "events": [{"id": "w", "instructions": [
             {"op": "wait", "seconds": 1.0},
-            {"op": "set_flag", "flag": "after.wait"}
+            {"op": "set_flag", "flag": "after.wait", "value": true}
         ]}]
     })");
     EventRunner runner(script, flags, bus);
@@ -118,7 +118,7 @@ TEST_CASE("event runner consecutive waits elapse in exact cumulative time",
         "events": [{"id": "w", "instructions": [
             {"op": "wait", "seconds": 0.5},
             {"op": "wait", "seconds": 0.5},
-            {"op": "set_flag", "flag": "after.waits"}
+            {"op": "set_flag", "flag": "after.waits", "value": true}
         ]}]
     })");
     EventRunner runner(script, flags, bus);
@@ -152,7 +152,7 @@ TEST_CASE("event runner wait elapsing inside one tick passes only its leftover",
         "events": [{"id": "w", "instructions": [
             {"op": "wait", "seconds": 0.2},
             {"op": "wait", "seconds": 0.5},
-            {"op": "set_flag", "flag": "after.waits"}
+            {"op": "set_flag", "flag": "after.waits", "value": true}
         ]}]
     })");
     EventRunner runner(script, flags, bus);
@@ -176,8 +176,8 @@ TEST_CASE("event runner branches on flag state", "[domain][event_runner]") {
         "schema": 1,
         "events": [{"id": "b", "instructions": [
             {"op": "branch", "flag": "npc.met",
-             "if_set": [{"op": "set_flag", "flag": "chose.met"}],
-             "if_not_set": [{"op": "set_flag", "flag": "chose.first"}]}
+             "if_set": [{"op": "set_flag", "flag": "chose.met", "value": true}],
+             "if_not_set": [{"op": "set_flag", "flag": "chose.first", "value": true}]}
         ]}]
     })");
     EventRunner runner(script, flags, bus);
@@ -212,11 +212,11 @@ TEST_CASE("event runner resolves choice and runs the picked option", "[domain][e
             {
                 "op": "choice", "prompt_text_key": "ask.help",
                 "options": [
-                    {"text_key": "opt.yes", "instructions": [{"op": "set_flag", "flag": "help.yes"}]},
-                    {"text_key": "opt.no", "instructions": [{"op": "set_flag", "flag": "help.no"}]}
+                    {"text_key": "opt.yes", "instructions": [{"op": "set_flag", "flag": "help.yes", "value": true}]},
+                    {"text_key": "opt.no", "instructions": [{"op": "set_flag", "flag": "help.no", "value": true}]}
                 ]
             },
-            {"op": "set_flag", "flag": "after.choice"}
+            {"op": "set_flag", "flag": "after.choice", "value": true}
         ]}]
     })");
     EventRunner runner(script, flags, bus);
@@ -243,7 +243,7 @@ TEST_CASE("event runner rejects advance without a pending dialog", "[domain][eve
     EventBus bus;
     EventScript script = MakeScript(R"({
         "schema": 1,
-        "events": [{"id": "e", "instructions": [{"op": "set_flag", "flag": "x"}]}]
+        "events": [{"id": "e", "instructions": [{"op": "set_flag", "flag": "x", "value": true}]}]
     })");
     EventRunner runner(script, flags, bus);
 
@@ -424,7 +424,7 @@ TEST_CASE("event runner broadcasts FlagChanged from choice option sequences",
         "events": [{"id": "e", "instructions": [{
             "op": "choice", "prompt_text_key": "ask",
             "options": [
-                {"text_key": "yes", "instructions": [{"op": "set_flag", "flag": "quest.accepted"}]}
+                {"text_key": "yes", "instructions": [{"op": "set_flag", "flag": "quest.accepted", "value": true}]}
             ]
         }]}]
     })");
@@ -452,7 +452,7 @@ TEST_CASE("event runner broadcasts event lifecycle projections",
         [&](const jrpgmaker::domain::EventFinished& event) { finished.push_back(event.event_id); });
     EventScript script = MakeScript(R"({
         "schema": 1,
-        "events": [{"id": "e", "instructions": [{"op": "set_flag", "flag": "a"}]}]
+        "events": [{"id": "e", "instructions": [{"op": "set_flag", "flag": "a", "value": true}]}]
     })");
     EventRunner runner(script, flags, bus);
 

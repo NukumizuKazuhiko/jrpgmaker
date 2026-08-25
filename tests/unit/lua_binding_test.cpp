@@ -3,9 +3,12 @@
 #include <string>
 #include <vector>
 
+#include "jrpgmaker/core/event_bus.hpp"
+#include "jrpgmaker/domain/event_runner.hpp"
 #include "jrpgmaker/domain/flag_store.hpp"
 #include "jrpgmaker/domain/lua_binding.hpp"
 
+using jrpgmaker::core::EventBus;
 using jrpgmaker::domain::FlagStore;
 using jrpgmaker::domain::LuaScriptEngine;
 
@@ -13,7 +16,8 @@ TEST_CASE("lua binding reads and writes flags", "[domain][lua]") {
     FlagStore flags;
     flags.Set("starting", true);
     std::vector<std::string> triggered;
-    LuaScriptEngine engine(flags, [&](const std::string& id) {
+    EventBus bus;
+    LuaScriptEngine engine(flags, bus, [&](const std::string& id) {
         triggered.push_back(id);
         return true;
     });
@@ -27,8 +31,9 @@ TEST_CASE("lua binding reads and writes flags", "[domain][lua]") {
 
 TEST_CASE("lua binding triggers events via the host callback", "[domain][lua]") {
     FlagStore flags;
+    EventBus bus;
     std::vector<std::string> triggered;
-    LuaScriptEngine engine(flags, [&](const std::string& id) {
+    LuaScriptEngine engine(flags, bus, [&](const std::string& id) {
         triggered.push_back(id);
         return true;
     });
@@ -37,16 +42,34 @@ TEST_CASE("lua binding triggers events via the host callback", "[domain][lua]") 
     REQUIRE(triggered == std::vector<std::string>{"boss_battle"});
 }
 
+TEST_CASE("lua binding flags.set broadcasts FlagChanged (same source as EventRunner)",
+          "[domain][lua][projection]") {
+    FlagStore flags;
+    EventBus bus;
+    std::vector<jrpgmaker::domain::FlagChanged> changes;
+    bus.Subscribe<jrpgmaker::domain::FlagChanged>(
+        [&](const jrpgmaker::domain::FlagChanged& change) { changes.push_back(change); });
+    LuaScriptEngine engine(flags, bus, [&](const std::string&) { return true; });
+
+    REQUIRE(engine.Run("flags.set('from_lua', true)\nflags.set('from_lua', false)\n"));
+    REQUIRE(changes.size() == 2);
+    REQUIRE(changes[0].flag == "from_lua");
+    REQUIRE(changes[0].value);
+    REQUIRE_FALSE(changes[1].value);
+}
+
 TEST_CASE("lua binding propagates a declined event trigger as false", "[domain][lua]") {
     FlagStore flags;
-    LuaScriptEngine engine(flags, [&](const std::string&) { return false; });
+    EventBus bus;
+    LuaScriptEngine engine(flags, bus, [&](const std::string&) { return false; });
 
     REQUIRE(engine.Run("assert(events.run('busy') == false)\n"));
 }
 
 TEST_CASE("lua binding reports script errors", "[domain][lua]") {
     FlagStore flags;
-    LuaScriptEngine engine(flags, [&](const std::string&) { return true; });
+    EventBus bus;
+    LuaScriptEngine engine(flags, bus, [&](const std::string&) { return true; });
 
     REQUIRE_FALSE(engine.Run("this is not valid lua"));
     REQUIRE_FALSE(engine.last_error().empty());
@@ -54,7 +77,8 @@ TEST_CASE("lua binding reports script errors", "[domain][lua]") {
 
 TEST_CASE("lua binding calls a defined global function", "[domain][lua]") {
     FlagStore flags;
-    LuaScriptEngine engine(flags, [&](const std::string&) { return true; });
+    EventBus bus;
+    LuaScriptEngine engine(flags, bus, [&](const std::string&) { return true; });
 
     REQUIRE(engine.Run("function act()\n  flags.set('acted', true)\nend\n"));
     REQUIRE(engine.Call("act"));
@@ -63,7 +87,8 @@ TEST_CASE("lua binding calls a defined global function", "[domain][lua]") {
 
 TEST_CASE("lua binding reports a missing function", "[domain][lua]") {
     FlagStore flags;
-    LuaScriptEngine engine(flags, [&](const std::string&) { return true; });
+    EventBus bus;
+    LuaScriptEngine engine(flags, bus, [&](const std::string&) { return true; });
 
     REQUIRE_FALSE(engine.Call("does_not_exist"));
     REQUIRE_FALSE(engine.last_error().empty());
@@ -72,7 +97,8 @@ TEST_CASE("lua binding reports a missing function", "[domain][lua]") {
 TEST_CASE("lua binding does not expose the event instruction set (escape hatch only)",
           "[domain][lua]") {
     FlagStore flags;
-    LuaScriptEngine engine(flags, [&](const std::string&) { return true; });
+    EventBus bus;
+    LuaScriptEngine engine(flags, bus, [&](const std::string&) { return true; });
 
     // The restricted surface is `flags` + `events` + `log`; there must be no
     // way to reach instruction parsing/execution from Lua.

@@ -94,7 +94,7 @@ TEST_CASE("lint does not warn when a branch flag is written elsewhere", "[domain
     const auto issues = Lint(R"({
         "schema": 1,
         "events": [
-            {"id": "a", "instructions": [{"op": "set_flag", "flag": "shared"}]},
+            {"id": "a", "instructions": [{"op": "set_flag", "flag": "shared", "value": true}]},
             {"id": "b", "instructions": [{"op": "branch", "flag": "shared",
                                           "if_set": [], "if_not_set": []}]}
         ]
@@ -139,7 +139,7 @@ TEST_CASE("lint flags empty flag name and empty dialog fields", "[domain][event_
         "events": [{
             "id": "a",
             "instructions": [
-                {"op": "set_flag", "flag": ""},
+                {"op": "set_flag", "flag": "", "value": true},
                 {"op": "dialog", "speaker": "", "text_key": ""}
             ]
         }]

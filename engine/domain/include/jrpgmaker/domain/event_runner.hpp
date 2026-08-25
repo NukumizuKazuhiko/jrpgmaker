@@ -13,7 +13,12 @@ namespace jrpgmaker::domain {
 
 // A dialog line or prompt awaiting host acknowledgement (P3 dialog model).
 // Published on the event bus when the runner reaches a dialog/choice
-// instruction; the runner then blocks until AdvanceDialog is called.
+// instruction; the runner then blocks until AdvanceDialog is called. This IS
+// the structured dialog projection presentation consumes (docs/01 owner map:
+// domain projects, ui renders) - it carries the full dialog/choice state
+// (event id, speaker, text key, options). Typewriter progress / portrait slots
+// / i18n text tables are presentation concerns deferred to the UI / HarfBuzz
+// subtasks (docs/02 P3).
 //
 // For a plain dialog (no choice) options is empty and the host calls
 // AdvanceDialog() with no index. For a choice, options lists the selectable
@@ -45,17 +50,6 @@ struct EventStarted {
 
 struct EventFinished {
     std::string event_id;
-};
-
-// Structured dialog state projection emitted after each handshake advance.
-// Presentation consumes this (docs/01 owner map: domain projects, ui renders).
-// Typewriter progress / portrait slots / i18n text tables are presentation
-// concerns deferred to the UI / HarfBuzz subtasks (docs/02 P3).
-struct DialogState {
-    std::string event_id;
-    std::string speaker;
-    std::string text_key;
-    std::vector<DialogOption> options;
 };
 
 // Executes events from a parsed EventScript against a FlagStore (P3 contract).

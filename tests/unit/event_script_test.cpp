@@ -69,7 +69,7 @@ TEST_CASE("event script parses branch with sub-sequences", "[domain][event_scrip
                         "op": "branch",
                         "flag": "npc.met",
                         "if_set": [{"op": "dialog", "speaker": "alice", "text_key": "npc.again"}],
-                        "if_not_set": [{"op": "set_flag", "flag": "npc.met"}]
+                        "if_not_set": [{"op": "set_flag", "flag": "npc.met", "value": true}]
                     }
                 ]
             }
@@ -129,6 +129,31 @@ TEST_CASE("event script rejects negative wait", "[domain][event_script]") {
     REQUIRE_THROWS_AS(ParseEventScript(document), std::invalid_argument);
 }
 
+TEST_CASE("event script rejects set_flag without an explicit value", "[domain][event_script]") {
+    // set_flag requires an explicit boolean value; silently defaulting to true
+    // would hide a misspelled/omitted field (docs/01 schema v1: missing
+    // required fields raise at parse time).
+    const json document = R"({
+        "schema": 1,
+        "events": [
+            {"id": "bad", "instructions": [{"op": "set_flag", "flag": "quest.done"}]}
+        ]
+    })"_json;
+
+    REQUIRE_THROWS_AS(ParseEventScript(document), std::invalid_argument);
+}
+
+TEST_CASE("event script rejects wait without a seconds field", "[domain][event_script]") {
+    const json document = R"({
+        "schema": 1,
+        "events": [
+            {"id": "bad", "instructions": [{"op": "wait"}]}
+        ]
+    })"_json;
+
+    REQUIRE_THROWS_AS(ParseEventScript(document), std::invalid_argument);
+}
+
 TEST_CASE("event script clear_flag shorthand parses to false", "[domain][event_script]") {
     const json document = R"({
         "schema": 1,
@@ -152,10 +177,12 @@ TEST_CASE("event script parses the committed demo data file", "[domain][event_sc
     std::ifstream file(path);
     REQUIRE(file.is_open());
     const EventScript script = ParseEventScript(nlohmann::json::parse(file));
-    REQUIRE(script.events.size() == 3);
+    REQUIRE(script.events.size() == 5);
     REQUIRE(script.events[0].id == "meet_alice");
     REQUIRE(script.events[1].id == "alice_ask_help");
     REQUIRE(script.events[2].id == "chest_west");
+    REQUIRE(script.events[3].id == "alice_reward");
+    REQUIRE(script.events[4].id == "chest_west_echo");
 }
 
 TEST_CASE("event script parses choice with inline option sequences", "[domain][event_script]") {
@@ -168,7 +195,7 @@ TEST_CASE("event script parses choice with inline option sequences", "[domain][e
                     {
                         "op": "choice", "prompt_text_key": "ask.help",
                         "options": [
-                            {"text_key": "opt.yes", "instructions": [{"op": "set_flag", "flag": "help.yes"}]},
+                            {"text_key": "opt.yes", "instructions": [{"op": "set_flag", "flag": "help.yes", "value": true}]},
                             {"text_key": "opt.no", "instructions": [{"op": "dialog", "speaker": "alice", "text_key": "declined"}]}
                         ]
                     }
