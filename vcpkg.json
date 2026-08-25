@@ -11,7 +11,12 @@
       "platform": "!osx"
     },
     "entt",
+    {
+      "name": "freetype",
+      "default-features": false
+    },
     "glm",
+    "harfbuzz",
     "nlohmann-json",
     "sdl3",
     "stb",

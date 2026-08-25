@@ -137,6 +137,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - **事件总线**：`jrpgmaker::core::EventBus`（类型擦除订阅/发布，docs/01 owner map 规定 domain 只发布、presentation 只消费）。订阅无退订（v0 消费者存活于进程期）。
 - **事件触发器（P3 子任务 5 落地）**：`jrpgmaker::domain::FlagTriggerSystem` + `ParseFlagTriggers`（`flag_trigger.hpp`）。触发器表为纯数据（`assets/data/triggers_demo.json`，schema v1：`{schema, triggers:[{flag, target_event_id}]}`，重复 flag 绑定/空字段解析期抛错）。`FlagTriggerSystem` 订阅 `FlagChanged`，**边沿触发**（false→true 只触发一次；重复 set true 不重触发，flag 回 false 后重新 true 再触发；false 不触发；未绑定 flag 忽略）。**接线约束**：回调在 `EventRunner::Tick` 内同步触发（`FlagChanged` 广播时源事件仍在完成中），宿主**禁止在回调内直接 `Start`**（会抛 "Start while an event is already active"），应排队到下一事件边界启动（标准游戏循环模式，见 flag_trigger_test 端到端用例）。区域/交互触发器依赖 P4 世界交互（玩家位置/碰撞），不在 P3 范围。
 - **lint CLI v1（P3 子任务 3）**：`tools/eventlint`（可执行 `jrpgmaker_eventlint`）+ domain `jrpgmaker::domain::LintEventScript`（`event_lint.hpp`）。职责为**单文件解析器无法表达的跨事件一致性检查**：重复事件 id（error）、空 event id/flag 名/speaker/text_key（error）、branch/choice 子序列内静态检出阻塞指令 dialog/choice/wait（error，与解释器运行时 `std::logic_error` 同源合同，作者期提前暴露）、branch 读取的 flag 在脚本内从未被写入（warning——flag 可由宿主注入，但未写入常是拼写/死分支症状）。退出码 0=干净/1=有 error/2=用法错误；CI `data-lint` job 对 `assets/data/events_demo.json` 要求干净。**text_key→i18n 文本表的跨文件引用检查属 v1 范围外**，随 i18n 子任务（文本表 schema 落地）扩展。
+- **文本排版库层（P3 子任务 6，`engine/ui` 首次落地）**：`jrpgmaker::ui`（`text.hpp`）三件套：`Font`（FreeType 加载 ttf/ttc，face_index 选 TTC 内面，`units_per_em`/`ascender`/`descender`/`line_gap` 为字体单位，`LoadGlyph`+位图度量供后续栅格化）；`TextShaper`（HarfBuzz shape UTF-8 → `TextRun{ShapedGlyph{glyph_id, cluster, advance_x, offset_x/y}}`，advance/offset 为像素）；`LineBreaker`（**CJK 禁则换行**：行首禁则——行不以闭括号/悬挂标点（`。」』〉）］｝‰％`、小写假名等）开头，行尾禁则——行不以开括号（`（「『《〈【` 等）结尾；超宽单字强制成行防死循环）。**纯 CPU，无渲染**；栅格化/纹理化属 UI 渲染子任务（依赖 DEBT-029 纹理管线）。单位约定：glyph advance 为像素，font 度量（ascender 等）为字体单位（相对 units_per_em，调用方缩放）。测试字体策略：Windows 用 `msgothic.ttc`、macOS 用 STHeiti、Linux 用 fonts-noto-cjk（CI 已装），找不到时 font/shaper 测试 SKIP（明确原因），禁则换行测试**自包含**（手造 glyph，零字体依赖，双端必跑）。
 
 ### 存档合同
 
@@ -159,7 +160,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 | 序列化 | nlohmann/json | 数据先行工作流基础设施（vcpkg 3.12.0，P3 引入；`nlohmann_json::nlohmann_json` target，事件脚本 schema v1 解析用） |
 | glTF 解析 | cgltf（vcpkg port 1.15） | 零依赖单文件 C99 库；glTF 2.0 全特性覆盖；仅作资产导入的兼容输入（ADR-004）。vcpkg port 无 CMake config，tools/assetimport 用 `find_path(CGLTF_INCLUDE_DIRS NAMES cgltf.h)` 解析 include；`CGLTF_IMPLEMENTATION` 仅在 asset_import.cpp 单 TU 实例化；MSVC 下该 TU 局部抑制 `_CRT_SECURE_NO_WARNINGS`（C 头合法使用 fopen/strcpy 会被仓库级 `/WX` 提升为错误，抑制范围限定在该 target） |
 | 纹理解码 | stb（stb_image，vcpkg port） | 与 cgltf 同属零依赖工具族；PBR 纹理/立绘导入兼容输入（ADR-004） |
-| 字体 | FreeType + HarfBuzz | CJK 整形与禁则处理必需 |
+| 字体 | FreeType + HarfBuzz | CJK 整形与禁则处理必需（vcpkg freetype 2.14.3（`default-features:false` 裁剪 brotli/bzip2/png，仅 core）+ harfbuzz 14.3.1，P3 引入；`engine/ui` 排版库层落地） |
 | 音频 | miniaudio | 单文件起步够用；总线混音自研 |
 | 测试 | Catch2 + golden image | 单测 + 渲染双后端一致性门禁 |
 
