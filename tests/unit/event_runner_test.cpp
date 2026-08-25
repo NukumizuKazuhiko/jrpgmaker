@@ -1,5 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <filesystem>
+#include <fstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -42,7 +45,7 @@ TEST_CASE("event runner executes set_flag and finishes", "[domain][event_runner]
     REQUIRE(flags.Get("quest.done"));
 }
 
-TEST_CASE("event runner publishes dialog requests", "[domain][event_runner]") {
+TEST_CASE("event runner blocks on dialog until advanced", "[domain][event_runner]") {
     FlagStore flags;
     EventBus bus;
     std::vector<DialogRequested> dialogs;
@@ -53,18 +56,25 @@ TEST_CASE("event runner publishes dialog requests", "[domain][event_runner]") {
         "schema": 1,
         "events": [{"id": "talk", "instructions": [
             {"op": "dialog", "speaker": "alice", "text_key": "hi"},
-            {"op": "dialog", "speaker": "bob", "text_key": "bye"}
+            {"op": "set_flag", "flag": "after.talk"}
         ]}]
     })");
     EventRunner runner(script, flags, bus);
 
     runner.Start("talk");
     runner.Tick(0.0);
-    REQUIRE(runner.IsFinished());
-    REQUIRE(dialogs.size() == 2);
+    REQUIRE(runner.IsDialogPending());
+    REQUIRE_FALSE(runner.IsFinished());
+    REQUIRE_FALSE(flags.Get("after.talk"));
+    REQUIRE(dialogs.size() == 1);
     REQUIRE(dialogs[0].speaker == "alice");
     REQUIRE(dialogs[0].text_key == "hi");
-    REQUIRE(dialogs[1].speaker == "bob");
+    REQUIRE(dialogs[0].options.empty());
+
+    runner.AdvanceDialog();
+    REQUIRE_FALSE(runner.IsDialogPending());
+    REQUIRE(runner.IsFinished());
+    REQUIRE(flags.Get("after.talk"));
 }
 
 TEST_CASE("event runner blocks on wait until time elapses", "[domain][event_runner]") {
@@ -96,32 +106,105 @@ TEST_CASE("event runner blocks on wait until time elapses", "[domain][event_runn
 TEST_CASE("event runner branches on flag state", "[domain][event_runner]") {
     FlagStore flags;
     EventBus bus;
-    std::vector<std::string> dialogs;
-    bus.Subscribe<DialogRequested>(
-        [&](const DialogRequested& request) { dialogs.push_back(request.text_key); });
-
     EventScript script = MakeScript(R"({
         "schema": 1,
-        "events": [{"id": "b", "instructions": [{
-            "op": "branch", "flag": "npc.met",
-            "if_set": [{"op": "dialog", "speaker": "alice", "text_key": "again"}],
-            "if_not_set": [{"op": "dialog", "speaker": "alice", "text_key": "first"}]
-        }]}]
+        "events": [{"id": "b", "instructions": [
+            {"op": "branch", "flag": "npc.met",
+             "if_set": [{"op": "set_flag", "flag": "chose.met"}],
+             "if_not_set": [{"op": "set_flag", "flag": "chose.first"}]}
+        ]}]
     })");
     EventRunner runner(script, flags, bus);
 
     runner.Start("b");
     runner.Tick(0.0);
     REQUIRE(runner.IsFinished());
-    REQUIRE(dialogs.size() == 1);
-    REQUIRE(dialogs[0] == "first");
+    REQUIRE(flags.Get("chose.first"));
+    REQUIRE_FALSE(flags.Get("chose.met"));
 
-    dialogs.clear();
-    flags.Set("npc.met", true);
-    runner.Start("b");
+    // A fresh store: the runner leaves no cross-run state beyond FlagStore,
+    // which is deliberately persistent across events in the same session.
+    FlagStore fresh_flags;
+    fresh_flags.Set("npc.met", true);
+    EventRunner second_run(script, fresh_flags, bus);
+    second_run.Start("b");
+    second_run.Tick(0.0);
+    REQUIRE(fresh_flags.Get("chose.met"));
+    REQUIRE_FALSE(fresh_flags.Get("chose.first"));
+}
+
+TEST_CASE("event runner resolves choice and runs the picked option", "[domain][event_runner]") {
+    FlagStore flags;
+    EventBus bus;
+    std::vector<DialogRequested> dialogs;
+    bus.Subscribe<DialogRequested>(
+        [&](const DialogRequested& request) { dialogs.push_back(request); });
+
+    EventScript script = MakeScript(R"({
+        "schema": 1,
+        "events": [{"id": "c", "instructions": [
+            {
+                "op": "choice", "prompt_text_key": "ask.help",
+                "options": [
+                    {"text_key": "opt.yes", "instructions": [{"op": "set_flag", "flag": "help.yes"}]},
+                    {"text_key": "opt.no", "instructions": [{"op": "set_flag", "flag": "help.no"}]}
+                ]
+            },
+            {"op": "set_flag", "flag": "after.choice"}
+        ]}]
+    })");
+    EventRunner runner(script, flags, bus);
+
+    runner.Start("c");
     runner.Tick(0.0);
+    REQUIRE(runner.IsDialogPending());
+    REQUIRE_FALSE(runner.IsFinished());
     REQUIRE(dialogs.size() == 1);
-    REQUIRE(dialogs[0] == "again");
+    REQUIRE(dialogs[0].text_key == "ask.help");
+    REQUIRE(dialogs[0].options.size() == 2);
+    REQUIRE(dialogs[0].options[0].text_key == "opt.yes");
+    REQUIRE(dialogs[0].options[1].text_key == "opt.no");
+
+    runner.AdvanceDialog(1);
+    REQUIRE(runner.IsFinished());
+    REQUIRE(flags.Get("help.no"));
+    REQUIRE_FALSE(flags.Get("help.yes"));
+    REQUIRE(flags.Get("after.choice"));
+}
+
+TEST_CASE("event runner rejects advance without a pending dialog", "[domain][event_runner]") {
+    FlagStore flags;
+    EventBus bus;
+    EventScript script = MakeScript(R"({
+        "schema": 1,
+        "events": [{"id": "e", "instructions": [{"op": "set_flag", "flag": "x"}]}]
+    })");
+    EventRunner runner(script, flags, bus);
+
+    runner.Start("e");
+    runner.Tick(0.0);
+    REQUIRE(runner.IsFinished());
+    REQUIRE_THROWS_AS(runner.AdvanceDialog(), std::logic_error);
+}
+
+TEST_CASE("event runner rejects out-of-range choice index", "[domain][event_runner]") {
+    FlagStore flags;
+    EventBus bus;
+    EventScript script = MakeScript(R"({
+        "schema": 1,
+        "events": [{"id": "c", "instructions": [
+            {
+                "op": "choice", "prompt_text_key": "ask",
+                "options": [{"text_key": "opt.a", "instructions": []}]
+            }
+        ]}]
+    })");
+    EventRunner runner(script, flags, bus);
+
+    runner.Start("c");
+    runner.Tick(0.0);
+    REQUIRE(runner.IsDialogPending());
+    REQUIRE_THROWS_AS(runner.AdvanceDialog(5), std::out_of_range);
 }
 
 TEST_CASE("event runner rejects nested wait inside a branch", "[domain][event_runner]") {
@@ -140,6 +223,76 @@ TEST_CASE("event runner rejects nested wait inside a branch", "[domain][event_ru
     flags.Set("any", true);
     runner.Start("nested");
     REQUIRE_THROWS_AS(runner.Tick(0.0), std::logic_error);
+}
+
+TEST_CASE("event runner rejects dialog inside a branch", "[domain][event_runner]") {
+    FlagStore flags;
+    EventBus bus;
+    EventScript script = MakeScript(R"({
+        "schema": 1,
+        "events": [{"id": "nested", "instructions": [{
+            "op": "branch", "flag": "any",
+            "if_set": [{"op": "dialog", "speaker": "alice", "text_key": "hi"}],
+            "if_not_set": []
+        }]}]
+    })");
+    EventRunner runner(script, flags, bus);
+
+    flags.Set("any", true);
+    runner.Start("nested");
+    REQUIRE_THROWS_AS(runner.Tick(0.0), std::logic_error);
+}
+
+TEST_CASE("event runner executes the committed demo data file", "[domain][event_runner][data]") {
+#ifndef JRPGMAKER_ASSET_DIR
+#error "JRPGMAKER_ASSET_DIR must be defined by the build"
+#endif
+    const std::filesystem::path path =
+        std::filesystem::path(JRPGMAKER_ASSET_DIR) / "data" / "events_demo.json";
+    std::ifstream file(path);
+    REQUIRE(file.is_open());
+    const EventScript script = ParseEventScript(nlohmann::json::parse(file));
+
+    FlagStore flags;
+    EventBus bus;
+    std::vector<DialogRequested> dialogs;
+    bus.Subscribe<DialogRequested>(
+        [&](const DialogRequested& request) { dialogs.push_back(request); });
+    EventRunner runner(script, flags, bus);
+
+    // meet_alice: branch (set_flag) then a top-level blocking dialog.
+    REQUIRE(runner.Start("meet_alice"));
+    runner.Tick(0.0);
+    REQUIRE(runner.IsDialogPending());
+    REQUIRE(dialogs.size() == 1);
+    REQUIRE(dialogs[0].speaker == "alice");
+    REQUIRE(dialogs[0].text_key == "alice.greeting.first");
+    runner.AdvanceDialog();
+    REQUIRE(runner.IsFinished());
+    REQUIRE(flags.Get("alice.met"));
+
+    // alice_ask_help: choice with two options, then a top-level dialog.
+    REQUIRE(runner.Start("alice_ask_help"));
+    runner.Tick(0.0);
+    REQUIRE(runner.IsDialogPending());
+    REQUIRE(dialogs.size() == 2);
+    REQUIRE(dialogs[1].text_key == "alice.ask.help");
+    REQUIRE(dialogs[1].options.size() == 2);
+    runner.AdvanceDialog(0);
+    REQUIRE(runner.IsDialogPending());
+    REQUIRE(dialogs.size() == 3);
+    REQUIRE(dialogs[2].text_key == "alice.help.reply");
+    runner.AdvanceDialog();
+    REQUIRE(runner.IsFinished());
+    REQUIRE(flags.Get("alice.quest.accepted"));
+
+    // chest_west: plain dialog then a set_flag.
+    REQUIRE(runner.Start("chest_west"));
+    runner.Tick(0.0);
+    REQUIRE(runner.IsDialogPending());
+    runner.AdvanceDialog();
+    REQUIRE(runner.IsFinished());
+    REQUIRE(flags.Get("chest.west.opened"));
 }
 
 TEST_CASE("event runner start with unknown event id returns false", "[domain][event_runner]") {

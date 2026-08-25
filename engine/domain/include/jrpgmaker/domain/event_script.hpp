@@ -21,7 +21,9 @@ struct SetFlagInstruction {
 };
 
 // Blocking dialog beat: presentation renders speaker + text_key; the event
-// runner pauses until the UI acknowledges (future dialog model subtask).
+// runner pauses until the host acknowledges (AdvanceDialog) - docs/02 dialog
+// model subtask. A dialog with no options is a plain line; options make it a
+// branching prompt (see ChoiceInstruction).
 struct DialogInstruction {
     std::string speaker;
     std::string text_key;
@@ -33,8 +35,24 @@ struct WaitInstruction {
 };
 
 // One executable instruction in an event. Schema v1 op set:
-// set_flag / branch / dialog / wait.
+// set_flag / branch / dialog / choice / wait.
 struct Instruction;
+
+// A selectable dialog option: its text key plus the instruction sequence run
+// when the player picks it. Inline sequences keep a choice self-contained
+// (docs/01 schema v1); cross-event jumps are deliberately out of scope.
+struct DialogOption {
+    std::string text_key;
+    std::vector<Instruction> instructions;
+};
+
+// Blocking branching prompt: presentation renders the prompt plus each option's
+// text; the host reports the picked index (AdvanceDialog(index)) and the runner
+// executes that option's instruction sequence, then continues after the choice.
+struct ChoiceInstruction {
+    std::string prompt_text_key;
+    std::vector<DialogOption> options;
+};
 
 // Conditionally execute one of two instruction sequences based on a flag.
 struct BranchInstruction {
@@ -44,7 +62,9 @@ struct BranchInstruction {
 };
 
 struct Instruction {
-    std::variant<SetFlagInstruction, BranchInstruction, DialogInstruction, WaitInstruction> op;
+    std::variant<SetFlagInstruction, BranchInstruction, DialogInstruction, ChoiceInstruction,
+                 WaitInstruction>
+        op;
 };
 
 // A named event: a sequence of instructions, triggerable by the host (area /

@@ -23,6 +23,33 @@ std::string RequireString(const nlohmann::json& object, const char* key, const c
 
 std::vector<Instruction> ParseSequence(const nlohmann::json& node, const char* key,
                                        const char* context);
+Instruction ParseInstruction(const nlohmann::json& node);
+
+std::vector<DialogOption> ParseOptions(const nlohmann::json& node, const char* key,
+                                       const char* context) {
+    if (!node.contains(key)) {
+        RaiseParseError(std::string("missing '") + key + "' in " + context);
+    }
+    if (!node[key].is_array() || node[key].empty()) {
+        RaiseParseError(std::string("'") + key + "' must be a non-empty array in " + context);
+    }
+    std::vector<DialogOption> options;
+    options.reserve(node[key].size());
+    for (const auto& option_node : node[key]) {
+        DialogOption option;
+        option.text_key = RequireString(option_node, "text_key", "choice option");
+        if (!option_node.contains("instructions") || !option_node["instructions"].is_array()) {
+            RaiseParseError("choice option '" + option.text_key +
+                            "' must have an 'instructions' array");
+        }
+        option.instructions.reserve(option_node["instructions"].size());
+        for (const auto& instruction_node : option_node["instructions"]) {
+            option.instructions.push_back(ParseInstruction(instruction_node));
+        }
+        options.push_back(std::move(option));
+    }
+    return options;
+}
 
 Instruction ParseInstruction(const nlohmann::json& node) {
     if (!node.is_object() || !node.contains("op") || !node["op"].is_string()) {
@@ -49,6 +76,11 @@ Instruction ParseInstruction(const nlohmann::json& node) {
         return Instruction{
             DialogInstruction{.speaker = RequireString(node, "speaker", op.c_str()),
                               .text_key = RequireString(node, "text_key", op.c_str())}};
+    }
+    if (op == "choice") {
+        return Instruction{
+            ChoiceInstruction{.prompt_text_key = RequireString(node, "prompt_text_key", op.c_str()),
+                              .options = ParseOptions(node, "options", op.c_str())}};
     }
     if (op == "wait") {
         const double seconds = node.value("seconds", 0.0);

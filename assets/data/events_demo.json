@@ -8,15 +8,35 @@
           "op": "branch",
           "flag": "alice.met",
           "if_set": [
-            { "op": "dialog", "speaker": "alice", "text_key": "alice.greeting.again" },
             { "op": "set_flag", "flag": "alice.conversations", "value": true }
           ],
           "if_not_set": [
-            { "op": "dialog", "speaker": "alice", "text_key": "alice.greeting.first" },
-            { "op": "set_flag", "flag": "alice.met", "value": true },
-            { "op": "wait", "seconds": 0.5 }
+            { "op": "set_flag", "flag": "alice.met", "value": true }
           ]
-        }
+        },
+        { "op": "dialog", "speaker": "alice", "text_key": "alice.greeting.first" }
+      ]
+    },
+    {
+      "id": "alice_ask_help",
+      "instructions": [
+        {
+          "op": "choice",
+          "prompt_text_key": "alice.ask.help",
+          "options": [
+            {
+              "text_key": "alice.opt.yes",
+              "instructions": [
+                { "op": "set_flag", "flag": "alice.quest.accepted", "value": true }
+              ]
+            },
+            {
+              "text_key": "alice.opt.no",
+              "instructions": []
+            }
+          ]
+        },
+        { "op": "dialog", "speaker": "alice", "text_key": "alice.help.reply" }
       ]
     },
     {

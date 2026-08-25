@@ -10,6 +10,7 @@
 #include "jrpgmaker/domain/event_script.hpp"
 
 using jrpgmaker::domain::BranchInstruction;
+using jrpgmaker::domain::ChoiceInstruction;
 using jrpgmaker::domain::DialogInstruction;
 using jrpgmaker::domain::EventScript;
 using jrpgmaker::domain::Instruction;
@@ -151,7 +152,52 @@ TEST_CASE("event script parses the committed demo data file", "[domain][event_sc
     std::ifstream file(path);
     REQUIRE(file.is_open());
     const EventScript script = ParseEventScript(nlohmann::json::parse(file));
-    REQUIRE(script.events.size() == 2);
+    REQUIRE(script.events.size() == 3);
     REQUIRE(script.events[0].id == "meet_alice");
-    REQUIRE(script.events[1].id == "chest_west");
+    REQUIRE(script.events[1].id == "alice_ask_help");
+    REQUIRE(script.events[2].id == "chest_west");
+}
+
+TEST_CASE("event script parses choice with inline option sequences", "[domain][event_script]") {
+    const json document = R"({
+        "schema": 1,
+        "events": [
+            {
+                "id": "ask",
+                "instructions": [
+                    {
+                        "op": "choice", "prompt_text_key": "ask.help",
+                        "options": [
+                            {"text_key": "opt.yes", "instructions": [{"op": "set_flag", "flag": "help.yes"}]},
+                            {"text_key": "opt.no", "instructions": [{"op": "dialog", "speaker": "alice", "text_key": "declined"}]}
+                        ]
+                    }
+                ]
+            }
+        ]
+    })"_json;
+
+    const EventScript script = ParseEventScript(document);
+    const auto* choice = std::get_if<ChoiceInstruction>(&script.events[0].instructions[0].op);
+    REQUIRE(choice != nullptr);
+    REQUIRE(choice->prompt_text_key == "ask.help");
+    REQUIRE(choice->options.size() == 2);
+    REQUIRE(choice->options[0].text_key == "opt.yes");
+    REQUIRE(std::holds_alternative<SetFlagInstruction>(choice->options[0].instructions[0].op));
+    REQUIRE(choice->options[1].text_key == "opt.no");
+    REQUIRE(std::holds_alternative<DialogInstruction>(choice->options[1].instructions[0].op));
+}
+
+TEST_CASE("event script rejects choice with empty options", "[domain][event_script]") {
+    const json document = R"({
+        "schema": 1,
+        "events": [
+            {
+                "id": "ask",
+                "instructions": [{"op": "choice", "prompt_text_key": "ask", "options": []}]
+            }
+        ]
+    })"_json;
+
+    REQUIRE_THROWS_AS(ParseEventScript(document), std::invalid_argument);
 }

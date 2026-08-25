@@ -18,11 +18,13 @@ bool EventRunner::Start(const std::string& event_id) {
     index_ = 0;
     finished_ = false;
     wait_remaining_ = 0.0;
+    dialog_pending_ = false;
+    pending_options_.clear();
     return true;
 }
 
 void EventRunner::Tick(double delta_seconds) {
-    if (!active_.has_value() || finished_) {
+    if (!active_.has_value() || finished_ || dialog_pending_) {
         return;
     }
     if (delta_seconds < 0.0) {
@@ -43,9 +45,49 @@ void EventRunner::Tick(double delta_seconds) {
     AdvanceOne(delta_seconds);
 }
 
+void EventRunner::AdvanceDialog() {
+    if (!dialog_pending_ || !pending_options_.empty()) {
+        throw std::logic_error("EventRunner::AdvanceDialog called with no pending plain dialog");
+    }
+    dialog_pending_ = false;
+    ++index_; // leave the dialog instruction
+    AdvanceOne(0.0);
+}
+
+void EventRunner::AdvanceDialog(std::size_t option_index) {
+    if (!dialog_pending_ || pending_options_.empty()) {
+        throw std::logic_error("EventRunner::AdvanceDialog(index) called with no pending choice");
+    }
+    if (option_index >= pending_options_.size()) {
+        throw std::out_of_range("EventRunner::AdvanceDialog index out of range");
+    }
+    const DialogOption chosen = std::move(pending_options_[option_index]);
+    dialog_pending_ = false;
+    pending_options_.clear();
+    ++index_; // leave the choice instruction
+    std::size_t option_index_local = 0;
+    RunSequence(chosen.instructions, option_index_local);
+    AdvanceOne(0.0);
+}
+
+void EventRunner::BeginDialog(std::string speaker, std::string text_key,
+                              std::vector<DialogOption> options) {
+    dialog_pending_ = true;
+    pending_options_ = std::move(options);
+    bus_.Publish(DialogRequested{
+        .event_id = active_->id,
+        .speaker = std::move(speaker),
+        .text_key = std::move(text_key),
+        .options = pending_options_,
+    });
+}
+
 bool EventRunner::AdvanceOne(double delta_seconds) {
+    if (dialog_pending_) {
+        return false;
+    }
     Event& event = *active_;
-    // Run until we either block (wait) or exhaust the sequence.
+    // Run until we either block (wait / dialog) or exhaust the sequence.
     while (index_ < event.instructions.size()) {
         const Instruction& instruction = event.instructions[index_];
         if (const auto* set_flag = std::get_if<SetFlagInstruction>(&instruction.op)) {
@@ -57,16 +99,17 @@ bool EventRunner::AdvanceOne(double delta_seconds) {
             const bool set = flags_.Get(branch->flag);
             const std::vector<Instruction>& chosen = set ? branch->if_set : branch->if_not_set;
             std::size_t nested_index = 0;
-            std::string event_id = event.id;
-            RunSequence(chosen, nested_index, event_id);
+            RunSequence(chosen, nested_index);
             ++index_;
             continue;
         }
         if (const auto* dialog = std::get_if<DialogInstruction>(&instruction.op)) {
-            bus_.Publish(DialogRequested{
-                .event_id = event.id, .speaker = dialog->speaker, .text_key = dialog->text_key});
-            ++index_;
-            continue;
+            BeginDialog(dialog->speaker, dialog->text_key, {});
+            return false;
+        }
+        if (const auto* choice = std::get_if<ChoiceInstruction>(&instruction.op)) {
+            BeginDialog(/*speaker=*/std::string{}, choice->prompt_text_key, choice->options);
+            return false;
         }
         if (const auto* wait = std::get_if<WaitInstruction>(&instruction.op)) {
             if (wait->seconds > 0.0) {
@@ -89,8 +132,7 @@ bool EventRunner::AdvanceOne(double delta_seconds) {
     return false;
 }
 
-void EventRunner::RunSequence(const std::vector<Instruction>& sequence, std::size_t& index,
-                              std::string& event_id) {
+void EventRunner::RunSequence(const std::vector<Instruction>& sequence, std::size_t& index) {
     while (index < sequence.size()) {
         const Instruction& instruction = sequence[index];
         if (const auto* set_flag = std::get_if<SetFlagInstruction>(&instruction.op)) {
@@ -102,20 +144,24 @@ void EventRunner::RunSequence(const std::vector<Instruction>& sequence, std::siz
             const bool set = flags_.Get(branch->flag);
             const std::vector<Instruction>& chosen = set ? branch->if_set : branch->if_not_set;
             std::size_t nested_index = 0;
-            RunSequence(chosen, nested_index, event_id);
+            RunSequence(chosen, nested_index);
             ++index;
             continue;
         }
-        if (const auto* dialog = std::get_if<DialogInstruction>(&instruction.op)) {
-            bus_.Publish(DialogRequested{
-                .event_id = event_id, .speaker = dialog->speaker, .text_key = dialog->text_key});
-            ++index;
-            continue;
+        if (std::get_if<DialogInstruction>(&instruction.op) != nullptr) {
+            // Blocking instructions are top-level only in schema v1: a dialog
+            // inside a branch/option would break the linear runner. Reject
+            // loudly rather than silently eliding script semantics.
+            throw std::logic_error(
+                "EventRunner: dialog inside a branch/option is not supported in schema v1");
+        }
+        if (std::get_if<ChoiceInstruction>(&instruction.op) != nullptr) {
+            throw std::logic_error(
+                "EventRunner: choice inside a branch/option is not supported in schema v1");
         }
         if (std::get_if<WaitInstruction>(&instruction.op) != nullptr) {
-            // Nested waits are not supported in schema v1: a blocking wait
-            // inside a branch would break the linear runner. Reject loudly
-            // rather than silently eliding script semantics.
+            // Nested waits are not supported in schema v1 (blocking inside a
+            // branch would break the linear runner). Reject loudly.
             throw std::logic_error(
                 "EventRunner: wait inside a branch is not supported in schema v1");
         }
