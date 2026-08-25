@@ -1,10 +1,10 @@
-add_library(jrpgmaker_ui src/text.cpp)
+add_library(jrpgmaker_ui src/text.cpp src/widget.cpp)
 add_library(jrpgmaker::ui ALIAS jrpgmaker_ui)
 
 target_sources(
   jrpgmaker_ui
   PUBLIC FILE_SET HEADERS BASE_DIRS include
-                FILES include/jrpgmaker/ui/text.hpp)
+                FILES include/jrpgmaker/ui/text.hpp include/jrpgmaker/ui/widget.hpp)
 
 target_include_directories(jrpgmaker_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
