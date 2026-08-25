@@ -4,12 +4,14 @@
 //
 // Usage:
 //   eventlint <file.json> [file2.json ...]
+//   eventlint --check-triggers <events.json> <triggers.json>
 //
 // Exit code:
 //   0  all files clean (schema parses, no lint errors; warnings allowed)
 //   1  at least one file has a parse error or lint error
 //   2  usage error
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -21,25 +23,33 @@
 
 #include "jrpgmaker/domain/event_lint.hpp"
 #include "jrpgmaker/domain/event_script.hpp"
+#include "jrpgmaker/domain/flag_trigger.hpp"
 
 namespace {
+
+// Loads and parses a JSON file. Returns an empty document on failure (the
+// error is reported to stderr).
+nlohmann::json LoadJson(const std::filesystem::path& path) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cerr << path.string() << ": cannot open file\n";
+        return {};
+    }
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    try {
+        return nlohmann::json::parse(buffer.str());
+    } catch (const nlohmann::json::exception& error) {
+        std::cerr << path.string() << ": JSON parse error: " << error.what() << '\n';
+        return {};
+    }
+}
 
 // Lints a single file. Returns false if the file fails to parse or has at
 // least one lint error. Warnings are printed but do not fail the file.
 bool LintFile(const std::filesystem::path& path) {
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        std::cerr << path.string() << ": cannot open file\n";
-        return false;
-    }
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-
-    nlohmann::json document;
-    try {
-        document = nlohmann::json::parse(buffer.str());
-    } catch (const nlohmann::json::exception& error) {
-        std::cerr << path.string() << ": JSON parse error: " << error.what() << '\n';
+    const nlohmann::json document = LoadJson(path);
+    if (document.is_null()) {
         return false;
     }
 
@@ -71,12 +81,70 @@ bool LintFile(const std::filesystem::path& path) {
     return ok;
 }
 
+// Cross-checks a trigger table against an event script: every trigger's target
+// event id must exist in the script, otherwise firing the trigger silently
+// no-ops (EventRunner::Start returns false). Returns false on any failure.
+bool CheckTriggerReferences(const std::filesystem::path& events_path,
+                            const std::filesystem::path& triggers_path) {
+    const nlohmann::json events_document = LoadJson(events_path);
+    if (events_document.is_null()) {
+        return false;
+    }
+    jrpgmaker::domain::EventScript script;
+    try {
+        script = jrpgmaker::domain::ParseEventScript(events_document);
+    } catch (const std::invalid_argument& error) {
+        std::cerr << events_path.string() << ": " << error.what() << '\n';
+        return false;
+    }
+
+    const nlohmann::json triggers_document = LoadJson(triggers_path);
+    if (triggers_document.is_null()) {
+        return false;
+    }
+    jrpgmaker::domain::FlagTriggerTable table;
+    try {
+        table = jrpgmaker::domain::ParseFlagTriggers(triggers_document);
+    } catch (const std::invalid_argument& error) {
+        std::cerr << triggers_path.string() << ": " << error.what() << '\n';
+        return false;
+    }
+
+    bool ok = true;
+    for (const jrpgmaker::domain::FlagTrigger& trigger : table.triggers) {
+        const bool exists = std::any_of(script.events.begin(), script.events.end(),
+                                        [&](const jrpgmaker::domain::Event& event) {
+                                            return event.id == trigger.target_event_id;
+                                        });
+        if (!exists) {
+            std::cerr << triggers_path.string() << ": trigger on flag '" << trigger.flag
+                      << "' targets unknown event '" << trigger.target_event_id << "' (not in "
+                      << events_path.string() << "); firing would silently no-op\n";
+            ok = false;
+        }
+    }
+    if (ok) {
+        std::cout << triggers_path.string() << ": all trigger targets resolve in "
+                  << events_path.string() << '\n';
+    }
+    return ok;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::cerr << "usage: eventlint <file.json> [file2.json ...]\n";
+        std::cerr << "usage: eventlint <file.json> [file2.json ...]\n"
+                  << "       eventlint --check-triggers <events.json> <triggers.json>\n";
         return 2;
+    }
+
+    if (std::string(argv[1]) == "--check-triggers") {
+        if (argc != 4) {
+            std::cerr << "eventlint --check-triggers requires <events.json> <triggers.json>\n";
+            return 2;
+        }
+        return CheckTriggerReferences(argv[2], argv[3]) ? 0 : 1;
     }
 
     bool all_ok = true;

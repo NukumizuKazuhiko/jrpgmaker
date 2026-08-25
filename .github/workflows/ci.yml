@@ -131,6 +131,7 @@ jobs:
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate ./tests/golden/triangle_64x64.ppm
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-scene ./tests/golden/scene_64x64.ppm ./assets/art/meshes/scene_hierarchy.gltf
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-camera ./tests/golden/camera_64x64.ppm ./assets/art/meshes/scene_hierarchy.gltf
+          ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-texture ./tests/golden/texture_quad_64x64.ppm
           git diff --exit-code -- tests/golden
 
       - name: Upload golden screenshots as artifacts
@@ -141,6 +142,7 @@ jobs:
             tests/golden/triangle_64x64.ppm
             tests/golden/scene_64x64.ppm
             tests/golden/camera_64x64.ppm
+            tests/golden/texture_quad_64x64.ppm
 
   private-headers:
     runs-on: ubuntu-latest
@@ -178,3 +180,4 @@ jobs:
       - name: Lint committed event data files
         run: |
           ./build/linux-debug/tools/eventlint/jrpgmaker_eventlint ./assets/data/events_demo.json
+          ./build/linux-debug/tools/eventlint/jrpgmaker_eventlint --check-triggers ./assets/data/events_demo.json ./assets/data/triggers_demo.json
