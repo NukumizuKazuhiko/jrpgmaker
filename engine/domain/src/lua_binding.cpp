@@ -34,7 +34,7 @@ struct LuaScriptEngine::Impl {
         events_api["run"] = [this](const std::string& event_id) { return event_trigger(event_id); };
         lua["events"] = events_api;
 
-        lua["log"] = [this](const std::string& message) { (void) message; };
+        lua["log"] = [](const std::string& message) { (void) message; };
     }
 };
 
