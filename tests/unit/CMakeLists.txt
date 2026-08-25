@@ -22,7 +22,8 @@ else()
 endif()
 
 target_sources(jrpgmaker_unit_tests PRIVATE clear_baseline_test.cpp triangle_test.cpp
-                                               scene_golden_test.cpp camera_golden_test.cpp)
+                                               scene_golden_test.cpp camera_golden_test.cpp
+                                               texture_quad_test.cpp)
 
 target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::golden)
 target_compile_definitions(jrpgmaker_unit_tests PRIVATE

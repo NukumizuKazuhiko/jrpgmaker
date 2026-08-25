@@ -13,6 +13,7 @@
 // lavapipe-generated, read-only build artifacts: regenerate them with the
 // generate commands and commit the diff.
 
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -321,6 +322,156 @@ bool RenderSceneWithCamera(std::vector<std::uint8_t>& rgba, const std::filesyste
     return RenderInto(rgba, meshes_to_draw, MakeCameraPipelineDesc(), &constants);
 }
 
+// Sampled-texture quad (P3 DEBT-029): a 2x2 four-color texture (top-left red,
+// top-right green, bottom-left blue, bottom-right white) is uploaded and
+// sampled across a fullscreen quad with a nearest/clamp sampler. Each color
+// occupies a 32x32 quadrant of the 64x64 target, giving the golden reference a
+// sharp, backend-independent color boundary.
+constexpr std::uint32_t kQuadTextureSize = 2;
+constexpr std::uint32_t kQuadStride = 5u * sizeof(float);
+constexpr VertexAttribute kQuadAttributes[] = {
+    VertexAttribute{
+        .location = 0,
+        .format = VertexAttributeFormat::kFloat3,
+        .offset_bytes = 0,
+    },
+    VertexAttribute{
+        .location = 1,
+        .format = VertexAttributeFormat::kFloat2,
+        .offset_bytes = 3u * sizeof(float),
+        .semantic_name = "TEXCOORD",
+    },
+};
+
+const std::vector<float>& QuadVertices() {
+    // Two triangles covering the full viewport. UV v is 0 at the top of the
+    // texture, matching the pixel row order of the uploaded data.
+    static const std::vector<float> vertices = {
+        -1.0f, -1.0f, 0.0f, 0.0f, 1.0f, //
+        1.0f,  -1.0f, 0.0f, 1.0f, 1.0f, //
+        -1.0f, 1.0f,  0.0f, 0.0f, 0.0f, //
+        1.0f,  -1.0f, 0.0f, 1.0f, 1.0f, //
+        1.0f,  1.0f,  0.0f, 1.0f, 0.0f, //
+        -1.0f, 1.0f,  0.0f, 0.0f, 0.0f, //
+    };
+    return vertices;
+}
+
+// Four-color texture data in row-major order (top row first).
+std::array<std::uint8_t, kQuadTextureSize * kQuadTextureSize * 4u> MakeQuadTexture() {
+    constexpr std::uint8_t kRed[4] = {255, 0, 0, 255};
+    constexpr std::uint8_t kGreen[4] = {0, 255, 0, 255};
+    constexpr std::uint8_t kBlue[4] = {0, 0, 255, 255};
+    constexpr std::uint8_t kWhite[4] = {255, 255, 255, 255};
+    std::array<std::uint8_t, kQuadTextureSize * kQuadTextureSize * 4u> pixels{};
+    std::memcpy(pixels.data(), kRed, 4u);
+    std::memcpy(pixels.data() + 4u, kGreen, 4u);
+    std::memcpy(pixels.data() + 8u, kBlue, 4u);
+    std::memcpy(pixels.data() + 12u, kWhite, 4u);
+    return pixels;
+}
+
+bool RenderTexturedQuad(std::vector<std::uint8_t>& rgba) {
+    const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
+    if (device == nullptr) {
+        std::cerr << "failed to create device\n";
+        return false;
+    }
+
+    const TextureHandle target = device->CreateTexture(
+        TextureDesc{.width = kWidth,
+                    .height = kHeight,
+                    .format = Format::kR8G8B8A8Unorm,
+                    .usage = TextureUsage::kRenderTarget | TextureUsage::kReadBack});
+    const TextureHandle texture =
+        device->CreateTexture(TextureDesc{.width = kQuadTextureSize,
+                                          .height = kQuadTextureSize,
+                                          .format = Format::kR8G8B8A8Unorm,
+                                          .usage = TextureUsage::kSampled});
+    if (target == TextureHandle::kInvalid || texture == TextureHandle::kInvalid) {
+        std::cerr << "failed to create textures\n";
+        return false;
+    }
+
+    const auto pixels = MakeQuadTexture();
+    device->UploadTexture(texture, pixels.data(),
+                          static_cast<std::uint64_t>(kQuadTextureSize) * 4u);
+
+    const SamplerHandle sampler = device->CreateSampler(
+        SamplerDesc{.filter = SamplerFilter::kNearest, .address = SamplerAddress::kClamp});
+    if (sampler == SamplerHandle::kInvalid) {
+        std::cerr << "failed to create sampler\n";
+        return false;
+    }
+
+    GraphicsPipelineDesc pipeline_desc;
+    pipeline_desc.color_format = Format::kR8G8B8A8Unorm;
+    pipeline_desc.vertex_input = VertexInputLayout{
+        .attributes = kQuadAttributes,
+        .attribute_count = 2,
+        .stride_bytes = kQuadStride,
+    };
+    pipeline_desc.sample_slot = 1;
+#if defined(_WIN32)
+    pipeline_desc.vertex_shader = ShaderBytecode{jrpgmaker::shaders::kTexturedVsDxil,
+                                                 jrpgmaker::shaders::kTexturedVsDxil_size};
+    pipeline_desc.pixel_shader = ShaderBytecode{jrpgmaker::shaders::kTexturedPsDxil,
+                                                jrpgmaker::shaders::kTexturedPsDxil_size};
+#else
+    pipeline_desc.vertex_shader =
+        ShaderBytecode{jrpgmaker::shaders::kTexturedVsSpv, jrpgmaker::shaders::kTexturedVsSpv_size};
+    pipeline_desc.pixel_shader =
+        ShaderBytecode{jrpgmaker::shaders::kTexturedPsSpv, jrpgmaker::shaders::kTexturedPsSpv_size};
+#endif
+
+    const PipelineHandle pipeline = device->CreatePipeline(pipeline_desc);
+    if (pipeline == PipelineHandle::kInvalid) {
+        std::cerr << "failed to create pipeline\n";
+        return false;
+    }
+
+    const BufferHandle vertex_buffer = device->CreateBuffer(
+        BufferDesc{.size_bytes = static_cast<std::uint64_t>(QuadVertices().size()) * sizeof(float),
+                   .usage = BufferUsage::kVertex});
+    device->MapWrite(vertex_buffer, QuadVertices().data(),
+                     static_cast<std::uint64_t>(QuadVertices().size()) * sizeof(float));
+
+    ICommandList* command_list = device->CreateCommandList();
+    command_list->Begin();
+    command_list->BeginRendering(target, kClearColor);
+    command_list->SetPipeline(pipeline);
+    command_list->SetSampledTexture(texture, sampler);
+    command_list->SetVertexBuffer(vertex_buffer, kQuadStride);
+    command_list->Draw(6, 1);
+    command_list->EndRendering();
+    command_list->End();
+    device->Submit(*command_list);
+    device->WaitForGpuIdle();
+    device->DestroyCommandList(command_list);
+    device->DestroyBuffer(vertex_buffer);
+    device->DestroyPipeline(pipeline);
+    device->DestroySampler(sampler);
+    device->DestroyTexture(texture);
+
+    const MappedTexture mapped = device->MapReadBack(target);
+    if (mapped.data == nullptr) {
+        std::cerr << "readback returned null\n";
+        device->DestroyTexture(target);
+        return false;
+    }
+
+    rgba.resize(static_cast<std::size_t>(kWidth) * kHeight * 4u);
+    for (std::uint32_t y = 0; y < kHeight; ++y) {
+        const auto* row = reinterpret_cast<const std::uint8_t*>(mapped.data) +
+                          static_cast<std::uint64_t>(y) * mapped.row_pitch_bytes;
+        std::uint8_t* out_row = rgba.data() + static_cast<std::size_t>(y) * kWidth * 4u;
+        std::memcpy(out_row, row, static_cast<std::size_t>(kWidth) * 4u);
+    }
+
+    device->DestroyTexture(target);
+    return true;
+}
+
 int WritePpmFromRgba(const std::string& output_path, const std::vector<std::uint8_t>& rgba) {
     golden::Image image;
     image.width = kWidth;
@@ -366,6 +517,8 @@ int main(int argc, char** argv) {
     //   goldenimage compare-scene <ref.ppm> <gltf_path> [tolerance]
     //   goldenimage generate-camera <out.ppm> <gltf_path>
     //   goldenimage compare-camera <ref.ppm> <gltf_path> [tolerance]
+    //   goldenimage generate-texture <out.ppm>
+    //   goldenimage compare-texture <ref.ppm> [tolerance]
     // The single-mesh glTF path defaults to the committed triangle asset
     // (assets/art/meshes/triangle.gltf), whose geometry matches the golden
     // reference.
@@ -379,7 +532,9 @@ int main(int argc, char** argv) {
                   << "  goldenimage generate-scene <out.ppm> <gltf_path>\n"
                   << "  goldenimage compare-scene <ref.ppm> <gltf_path> [tolerance]\n"
                   << "  goldenimage generate-camera <out.ppm> <gltf_path>\n"
-                  << "  goldenimage compare-camera <ref.ppm> <gltf_path> [tolerance]\n";
+                  << "  goldenimage compare-camera <ref.ppm> <gltf_path> [tolerance]\n"
+                  << "  goldenimage generate-texture <out.ppm>\n"
+                  << "  goldenimage compare-texture <ref.ppm> [tolerance]\n";
         return 2;
     }
 
@@ -459,6 +614,24 @@ int main(int argc, char** argv) {
         }
         std::vector<std::uint8_t> rgba;
         if (!RenderSceneWithCamera(rgba, argv[3], camera)) {
+            return 1;
+        }
+        return CompareRgba(argv[2], tolerance, rgba);
+    }
+    if (command == "generate-texture") {
+        std::vector<std::uint8_t> rgba;
+        if (!RenderTexturedQuad(rgba)) {
+            return 1;
+        }
+        return WritePpmFromRgba(argv[2], rgba);
+    }
+    if (command == "compare-texture") {
+        int tolerance = 1;
+        if (argc >= 4) {
+            tolerance = std::atoi(argv[3]);
+        }
+        std::vector<std::uint8_t> rgba;
+        if (!RenderTexturedQuad(rgba)) {
             return 1;
         }
         return CompareRgba(argv[2], tolerance, rgba);

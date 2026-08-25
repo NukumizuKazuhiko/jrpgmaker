@@ -26,6 +26,16 @@ public:
     virtual TextureHandle CreateTexture(const TextureDesc& desc) = 0;
     virtual void DestroyTexture(TextureHandle handle) = 0;
 
+    virtual SamplerHandle CreateSampler(const SamplerDesc& desc) = 0;
+    virtual void DestroySampler(SamplerHandle handle) = 0;
+
+    // Uploads a single level of host pixel data into a texture created with
+    // TextureUsage::kSampled. `data` must contain at least
+    // row_pitch_bytes * height bytes. The texture is transitioned to the
+    // shader-visible state and stays there; call once before first use.
+    virtual void UploadTexture(TextureHandle handle, const void* data,
+                               std::uint64_t row_pitch_bytes) = 0;
+
     virtual BufferHandle CreateBuffer(const BufferDesc& desc) = 0;
     virtual void DestroyBuffer(BufferHandle handle) = 0;
     // Copies the given data into a buffer that is writable from the host (v0:

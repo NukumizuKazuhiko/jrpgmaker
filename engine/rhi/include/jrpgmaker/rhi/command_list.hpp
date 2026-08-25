@@ -41,6 +41,12 @@ public:
     // shader's cbuffer/push-constant declaration byte-for-byte.
     virtual void SetPushConstants(const void* data, std::uint32_t size_bytes) = 0;
 
+    // Binds a sampled texture and sampler to the active pipeline's sample slot
+    // 0. Requires a pipeline created with sample_slot > 0. Must be called after
+    // SetPipeline and before the next Draw. The texture must have been created
+    // with TextureUsage::kSampled and uploaded via IDevice::UploadTexture.
+    virtual void SetSampledTexture(TextureHandle texture, SamplerHandle sampler) = 0;
+
 protected:
     ICommandList() = default;
 };

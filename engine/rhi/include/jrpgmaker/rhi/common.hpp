@@ -27,6 +27,16 @@ enum class BufferUsage : std::uint32_t {
     kIndex = 1u << 1,
 };
 
+enum class SamplerFilter : std::uint8_t {
+    kNearest,
+    kLinear,
+};
+
+enum class SamplerAddress : std::uint8_t {
+    kClamp,
+    kRepeat,
+};
+
 constexpr BufferUsage operator|(BufferUsage a, BufferUsage b) {
     return static_cast<BufferUsage>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
 }

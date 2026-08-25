@@ -17,6 +17,8 @@ namespace {
 using Microsoft::WRL::ComPtr;
 
 constexpr UINT kRtvHeapCapacity = 64;
+constexpr UINT kSrvHeapCapacity = 64;
+constexpr UINT kSamplerHeapCapacity = 16;
 
 void ThrowIfFailed(HRESULT hr, const char* context) {
     if (FAILED(hr)) {
@@ -116,6 +118,26 @@ std::unique_ptr<IDevice> D3D12Device::Create() {
     instance->rtv_descriptor_size_ =
         instance->device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
+    D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc{};
+    srv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    srv_heap_desc.NumDescriptors = kSrvHeapCapacity;
+    srv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(instance->device_->CreateDescriptorHeap(
+                      &srv_heap_desc, IID_PPV_ARGS(instance->srv_heap_.GetAddressOf())),
+                  "CreateDescriptorHeap(CBV_SRV_UAV)");
+    instance->srv_descriptor_size_ =
+        instance->device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    D3D12_DESCRIPTOR_HEAP_DESC sampler_heap_desc{};
+    sampler_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+    sampler_heap_desc.NumDescriptors = kSamplerHeapCapacity;
+    sampler_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(instance->device_->CreateDescriptorHeap(
+                      &sampler_heap_desc, IID_PPV_ARGS(instance->sampler_heap_.GetAddressOf())),
+                  "CreateDescriptorHeap(SAMPLER)");
+    instance->sampler_descriptor_size_ =
+        instance->device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+
     instance->fence_event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (instance->fence_event_ == nullptr) {
         throw std::runtime_error("d3d12 backend failed to create fence event");
@@ -199,19 +221,42 @@ const D3D12Device::BufferEntry& D3D12Device::BufferResource(BufferHandle handle)
 
 PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
     if (root_signature_ == nullptr) {
-        // One 32-bit root-constant parameter covering the v0 push-constant
-        // block (a single 64-byte view-proj matrix = 16 DWORDs, bound to the
-        // vertex shader). The signature is shared by all pipelines; pipelines
-        // that never call SetPushConstants simply leave the constants unused.
-        D3D12_ROOT_PARAMETER root_parameters[1]{};
+        // Root signature, shared by all pipelines:
+        //  - parameter 0: 32-bit root constants (the v0 push-constant block,
+        //    a single 64-byte view-proj matrix = 16 DWORDs, vertex shader).
+        //  - parameter 1: descriptor table with one SRV (register t0, pixel
+        //    shader) for the v0 sampled-texture slot.
+        //  - parameter 2: descriptor table with one sampler (register s0,
+        //    pixel shader) for the same slot.
+        // Pipelines that never sample simply never bind parameters 1/2; the
+        // shaders they use do not reference the resources, which D3D12 allows.
+        D3D12_DESCRIPTOR_RANGE ranges[2]{};
+        ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        ranges[0].NumDescriptors = 1;
+        ranges[0].BaseShaderRegister = 0;
+        ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+        ranges[1].NumDescriptors = 1;
+        ranges[1].BaseShaderRegister = 0;
+
+        D3D12_ROOT_PARAMETER root_parameters[3]{};
         root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         root_parameters[0].Constants.ShaderRegister = 0;
         root_parameters[0].Constants.RegisterSpace = 0;
         root_parameters[0].Constants.Num32BitValues = 16;
         root_parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 
+        root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        root_parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+        root_parameters[1].DescriptorTable.pDescriptorRanges = &ranges[0];
+        root_parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        root_parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        root_parameters[2].DescriptorTable.NumDescriptorRanges = 1;
+        root_parameters[2].DescriptorTable.pDescriptorRanges = &ranges[1];
+        root_parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
         D3D12_ROOT_SIGNATURE_DESC root_desc{};
-        root_desc.NumParameters = 1;
+        root_desc.NumParameters = static_cast<UINT>(std::size(root_parameters));
         root_desc.pParameters = root_parameters;
         root_desc.NumStaticSamplers = 0;
         // Without ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT the pipeline state cannot
@@ -268,12 +313,13 @@ PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
         for (std::uint32_t i = 0; i < desc.vertex_input.attribute_count; ++i) {
             const VertexAttribute& attribute = desc.vertex_input.attributes[i];
             D3D12_INPUT_ELEMENT_DESC element{};
-            element.SemanticName = "POSITION";
-            element.SemanticIndex = attribute.location;
-            element.Format = (attribute.format == VertexAttributeFormat::kFloat3)
-                                 ? DXGI_FORMAT_R32G32B32_FLOAT
-                                 : DXGI_FORMAT_UNKNOWN;
-            if (element.Format == DXGI_FORMAT_UNKNOWN) {
+            element.SemanticName = attribute.semantic_name;
+            element.SemanticIndex = 0;
+            if (attribute.format == VertexAttributeFormat::kFloat3) {
+                element.Format = DXGI_FORMAT_R32G32B32_FLOAT;
+            } else if (attribute.format == VertexAttributeFormat::kFloat2) {
+                element.Format = DXGI_FORMAT_R32G32_FLOAT;
+            } else {
                 throw std::runtime_error("d3d12 backend: unsupported vertex attribute format");
             }
             element.InputSlot = 0;
@@ -357,6 +403,20 @@ TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc) {
         entry.has_rtv = true;
     }
 
+    if ((desc.usage & TextureUsage::kSampled) != TextureUsage::kNone) {
+        entry.srv_slot = AllocateDescriptorSlot(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE srv =
+            CpuDescriptorHandle(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, entry.srv_slot);
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc{};
+        srv_desc.Format = native_format;
+        srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv_desc.Texture2D.MipLevels = 1;
+        device_->CreateShaderResourceView(entry.resource.Get(), &srv_desc, srv);
+        entry.srv = srv;
+        entry.has_srv = true;
+    }
+
     const std::uint64_t handle_value = next_handle_++;
     textures_.emplace(handle_value, std::move(entry));
     return static_cast<TextureHandle>(handle_value);
@@ -374,7 +434,117 @@ void D3D12Device::DestroyTexture(TextureHandle handle) {
     if (it != textures_.end() && it->second.has_rtv) {
         ReleaseRtvSlot(it->second.rtv_slot);
     }
+    if (it != textures_.end() && it->second.has_srv) {
+        ReleaseDescriptorSlot(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, it->second.srv_slot);
+    }
     textures_.erase(key);
+}
+
+SamplerHandle D3D12Device::CreateSampler(const SamplerDesc& desc) {
+    const UINT slot = AllocateDescriptorSlot(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+
+    D3D12_SAMPLER_DESC sampler_desc{};
+    sampler_desc.Filter = (desc.filter == SamplerFilter::kLinear) ? D3D12_FILTER_MIN_MAG_MIP_LINEAR
+                                                                  : D3D12_FILTER_MIN_MAG_MIP_POINT;
+    sampler_desc.AddressU = (desc.address == SamplerAddress::kRepeat)
+                                ? D3D12_TEXTURE_ADDRESS_MODE_WRAP
+                                : D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    sampler_desc.AddressV = sampler_desc.AddressU;
+    sampler_desc.AddressW = sampler_desc.AddressU;
+    sampler_desc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+    sampler_desc.MinLOD = 0.0f;
+    sampler_desc.MaxLOD = D3D12_FLOAT32_MAX;
+
+    const D3D12_CPU_DESCRIPTOR_HANDLE descriptor =
+        CpuDescriptorHandle(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, slot);
+    device_->CreateSampler(&sampler_desc, descriptor);
+
+    SamplerEntry entry{};
+    entry.descriptor = descriptor;
+    entry.slot = slot;
+    const std::uint64_t handle_value = next_handle_++;
+    samplers_.emplace(handle_value, std::move(entry));
+    return static_cast<SamplerHandle>(handle_value);
+}
+
+void D3D12Device::DestroySampler(SamplerHandle handle) {
+    const auto it = samplers_.find(static_cast<std::uint64_t>(handle));
+    if (it == samplers_.end()) {
+        return;
+    }
+    ReleaseDescriptorSlot(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, it->second.slot);
+    samplers_.erase(it);
+}
+
+void D3D12Device::UploadTexture(TextureHandle handle, const void* data,
+                                std::uint64_t row_pitch_bytes) {
+    if (data == nullptr || row_pitch_bytes == 0) {
+        throw std::runtime_error("d3d12 backend: invalid texture upload data");
+    }
+    const std::uint64_t key = static_cast<std::uint64_t>(handle);
+    const auto it = textures_.find(key);
+    if (it == textures_.end() || !it->second.has_srv) {
+        throw std::runtime_error("d3d12 backend: upload requires a texture created with kSampled");
+    }
+    if (it->second.is_swapchain) {
+        throw std::runtime_error("d3d12 backend: cannot upload into a swapchain texture");
+    }
+
+    const D3D12_RESOURCE_DESC source = it->second.desc;
+    UINT64 total_bytes = 0;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    device_->GetCopyableFootprints(&source, 0, 1, 0, &footprint, nullptr, nullptr, &total_bytes);
+
+    D3D12_RESOURCE_DESC buffer_desc{};
+    buffer_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer_desc.Width = total_bytes;
+    buffer_desc.Height = 1;
+    buffer_desc.DepthOrArraySize = 1;
+    buffer_desc.MipLevels = 1;
+    buffer_desc.SampleDesc.Count = 1;
+    buffer_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+    D3D12_HEAP_PROPERTIES upload_heap{};
+    upload_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> staging;
+    ThrowIfFailed(device_->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer_desc,
+                                                   D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                   IID_PPV_ARGS(staging.GetAddressOf())),
+                  "CreateCommittedResource(upload staging)");
+
+    std::byte* mapped = nullptr;
+    D3D12_RANGE write_range{0, 0};
+    ThrowIfFailed(staging->Map(0, &write_range, reinterpret_cast<void**>(&mapped)),
+                  "Map(upload staging)");
+    if (mapped == nullptr) {
+        throw std::runtime_error("d3d12 backend: failed to map upload staging buffer");
+    }
+    // The staging buffer uses the texture's footprint row pitch; the caller's
+    // pitch is copied row-by-row so tight/legacy layouts both work.
+    const std::uint64_t pitch = footprint.Footprint.RowPitch;
+    const std::uint64_t height = footprint.Footprint.Height;
+    const auto* src = static_cast<const std::byte*>(data);
+    for (std::uint64_t row = 0; row < height; ++row) {
+        std::memcpy(mapped + row * pitch, src + row * row_pitch_bytes,
+                    static_cast<std::size_t>(pitch));
+    }
+    staging->Unmap(0, nullptr);
+
+    Microsoft::WRL::ComPtr<ID3D12CommandAllocator> copy_allocator;
+    ThrowIfFailed(device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                  IID_PPV_ARGS(copy_allocator.GetAddressOf())),
+                  "CreateCommandAllocator(upload)");
+
+    ICommandList* copy_list = CreateCommandList();
+    static_cast<D3D12CommandList*>(copy_list)->SetAllocator(copy_allocator.Get());
+    copy_list->Begin();
+    static_cast<D3D12CommandList*>(copy_list)->CopyBufferToTexture(
+        staging.Get(), it->second.resource.Get(), footprint);
+    copy_list->End();
+    Submit(*copy_list);
+    DestroyCommandList(copy_list);
+    WaitForGpuIdle();
 }
 
 ICommandList* D3D12Device::CreateCommandList() {
@@ -444,6 +614,92 @@ UINT D3D12Device::AllocateRtvSlot() {
 
 void D3D12Device::ReleaseRtvSlot(UINT slot) {
     rtv_free_slots_.push_back(slot);
+}
+
+UINT D3D12Device::AllocateDescriptorSlot(D3D12_DESCRIPTOR_HEAP_TYPE heap_type) {
+    if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) {
+        if (!srv_free_slots_.empty()) {
+            const UINT slot = srv_free_slots_.back();
+            srv_free_slots_.pop_back();
+            return slot;
+        }
+        if (srv_allocated_ >= kSrvHeapCapacity) {
+            throw std::runtime_error("d3d12 backend: shader resource view heap exhausted");
+        }
+        return srv_allocated_++;
+    }
+    if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER) {
+        if (!sampler_free_slots_.empty()) {
+            const UINT slot = sampler_free_slots_.back();
+            sampler_free_slots_.pop_back();
+            return slot;
+        }
+        if (sampler_allocated_ >= kSamplerHeapCapacity) {
+            throw std::runtime_error("d3d12 backend: sampler heap exhausted");
+        }
+        return sampler_allocated_++;
+    }
+    throw std::runtime_error("d3d12 backend: unsupported descriptor heap type");
+}
+
+void D3D12Device::ReleaseDescriptorSlot(D3D12_DESCRIPTOR_HEAP_TYPE heap_type, UINT slot) {
+    if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) {
+        srv_free_slots_.push_back(slot);
+    } else if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER) {
+        sampler_free_slots_.push_back(slot);
+    }
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Device::CpuDescriptorHandle(D3D12_DESCRIPTOR_HEAP_TYPE heap_type,
+                                                             UINT slot) {
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap;
+    UINT descriptor_size = 0;
+    if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) {
+        heap = srv_heap_;
+        descriptor_size = srv_descriptor_size_;
+    } else if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER) {
+        heap = sampler_heap_;
+        descriptor_size = sampler_descriptor_size_;
+    } else {
+        throw std::runtime_error("d3d12 backend: unsupported descriptor heap type");
+    }
+    D3D12_CPU_DESCRIPTOR_HANDLE handle = heap->GetCPUDescriptorHandleForHeapStart();
+    handle.ptr += static_cast<SIZE_T>(slot) * descriptor_size;
+    return handle;
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE D3D12Device::GpuDescriptorHandle(D3D12_DESCRIPTOR_HEAP_TYPE heap_type,
+                                                             UINT slot) {
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap;
+    UINT descriptor_size = 0;
+    if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) {
+        heap = srv_heap_;
+        descriptor_size = srv_descriptor_size_;
+    } else if (heap_type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER) {
+        heap = sampler_heap_;
+        descriptor_size = sampler_descriptor_size_;
+    } else {
+        throw std::runtime_error("d3d12 backend: unsupported descriptor heap type");
+    }
+    D3D12_GPU_DESCRIPTOR_HANDLE handle = heap->GetGPUDescriptorHandleForHeapStart();
+    handle.ptr += static_cast<UINT64>(slot) * descriptor_size;
+    return handle;
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE D3D12Device::SrvGpuHandle(TextureHandle handle) {
+    const auto it = textures_.find(static_cast<std::uint64_t>(handle));
+    if (it == textures_.end() || !it->second.has_srv) {
+        throw std::runtime_error("d3d12 backend: texture was not created with kSampled");
+    }
+    return GpuDescriptorHandle(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, it->second.srv_slot);
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE D3D12Device::SamplerGpuHandle(SamplerHandle handle) {
+    const auto it = samplers_.find(static_cast<std::uint64_t>(handle));
+    if (it == samplers_.end()) {
+        throw std::runtime_error("d3d12 backend: unknown sampler handle");
+    }
+    return GpuDescriptorHandle(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, it->second.slot);
 }
 
 void D3D12Device::Submit(ICommandList& command_list) {
@@ -661,6 +917,35 @@ void D3D12CommandList::CopyTextureToReadBack(ID3D12Resource* source, ID3D12Resou
     command_list_->CopyTextureRegion(&destination_location, 0, 0, 0, &source_location, nullptr);
 }
 
+void D3D12CommandList::CopyBufferToTexture(ID3D12Resource* staging, ID3D12Resource* destination,
+                                           const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& footprint) {
+    D3D12_RESOURCE_BARRIER to_copy_dest{};
+    to_copy_dest.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    to_copy_dest.Transition.pResource = destination;
+    to_copy_dest.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    to_copy_dest.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+    to_copy_dest.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    command_list_->ResourceBarrier(1, &to_copy_dest);
+
+    D3D12_TEXTURE_COPY_LOCATION source_location{};
+    source_location.pResource = staging;
+    source_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    source_location.PlacedFootprint = footprint;
+    D3D12_TEXTURE_COPY_LOCATION destination_location{};
+    destination_location.pResource = destination;
+    destination_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    destination_location.SubresourceIndex = 0;
+    command_list_->CopyTextureRegion(&destination_location, 0, 0, 0, &source_location, nullptr);
+
+    D3D12_RESOURCE_BARRIER to_shader_read{};
+    to_shader_read.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    to_shader_read.Transition.pResource = destination;
+    to_shader_read.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    to_shader_read.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    to_shader_read.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    command_list_->ResourceBarrier(1, &to_shader_read);
+}
+
 void D3D12CommandList::SetPipeline(PipelineHandle handle) {
     command_list_->SetGraphicsRootSignature(owner_->RootSignature());
     command_list_->SetPipelineState(owner_->PipelineState(handle));
@@ -707,6 +992,13 @@ void D3D12CommandList::SetPushConstants(const void* data, std::uint32_t size_byt
         throw std::runtime_error("d3d12 backend: push constants must be a multiple of 4 bytes");
     }
     command_list_->SetGraphicsRoot32BitConstants(0, size_bytes / 4u, data, 0);
+}
+
+void D3D12CommandList::SetSampledTexture(TextureHandle texture, SamplerHandle sampler) {
+    ID3D12DescriptorHeap* heaps[] = {owner_->srv_heap_.Get(), owner_->sampler_heap_.Get()};
+    command_list_->SetDescriptorHeaps(static_cast<UINT>(std::size(heaps)), heaps);
+    command_list_->SetGraphicsRootDescriptorTable(1, owner_->SrvGpuHandle(texture));
+    command_list_->SetGraphicsRootDescriptorTable(2, owner_->SamplerGpuHandle(sampler));
 }
 
 } // namespace jrpgmaker::rhi::d3d12

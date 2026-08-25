@@ -238,8 +238,17 @@ VulkanDevice::~VulkanDevice() {
         for (const auto& [key, entry] : pipelines_) {
             vkDestroyPipeline(device_, entry.pipeline, nullptr);
         }
+        for (const auto& [key, entry] : samplers_) {
+            vkDestroySampler(device_, entry.sampler, nullptr);
+        }
         if (pipeline_layout_ != VK_NULL_HANDLE) {
             vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
+        }
+        if (sample_set_layout_ != VK_NULL_HANDLE) {
+            vkDestroyDescriptorSetLayout(device_, sample_set_layout_, nullptr);
+        }
+        if (sample_pool_ != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(device_, sample_pool_, nullptr);
         }
         for (const auto& [key, entry] : read_backs_) {
             vkFreeMemory(device_, entry.memory, nullptr);
@@ -276,6 +285,9 @@ TextureHandle VulkanDevice::CreateTexture(const TextureDesc& desc) {
     }
     if ((desc.usage & TextureUsage::kReadBack) != TextureUsage::kNone) {
         usage_flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
+    if ((desc.usage & TextureUsage::kSampled) != TextureUsage::kNone) {
+        usage_flags |= VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     }
     if (usage_flags == 0) {
         throw std::runtime_error(
@@ -353,11 +365,66 @@ void VulkanDevice::DestroyTexture(TextureHandle handle) {
     textures_.erase(destroy_it);
 }
 
+VkDescriptorSet VulkanDevice::SampleDescriptorSet() {
+    if (sample_set_layout_ == VK_NULL_HANDLE) {
+        // The v0 sampled-texture slot binds two descriptors to the fragment
+        // shader: binding 0 = the sampled image (matches register(t0) in the
+        // HLSL source), binding 1 = the sampler (register(s0)).
+        const VkDescriptorSetLayoutBinding bindings[] = {
+            VkDescriptorSetLayoutBinding{
+                .binding = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = nullptr,
+            },
+            VkDescriptorSetLayoutBinding{
+                .binding = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                .pImmutableSamplers = nullptr,
+            },
+        };
+        VkDescriptorSetLayoutCreateInfo layout_info{};
+        layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layout_info.bindingCount = static_cast<std::uint32_t>(std::size(bindings));
+        layout_info.pBindings = bindings;
+        ThrowIfFailed(
+            vkCreateDescriptorSetLayout(device_, &layout_info, nullptr, &sample_set_layout_),
+            "vkCreateDescriptorSetLayout(sample)");
+
+        const VkDescriptorPoolSize pool_sizes[] = {
+            VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 1},
+            VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1},
+        };
+        VkDescriptorPoolCreateInfo pool_info{};
+        pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_info.maxSets = 1;
+        pool_info.poolSizeCount = static_cast<std::uint32_t>(std::size(pool_sizes));
+        pool_info.pPoolSizes = pool_sizes;
+        ThrowIfFailed(vkCreateDescriptorPool(device_, &pool_info, nullptr, &sample_pool_),
+                      "vkCreateDescriptorPool(sample)");
+
+        VkDescriptorSetAllocateInfo allocate_info{};
+        allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocate_info.descriptorPool = sample_pool_;
+        allocate_info.descriptorSetCount = 1;
+        allocate_info.pSetLayouts = &sample_set_layout_;
+        ThrowIfFailed(vkAllocateDescriptorSets(device_, &allocate_info, &sample_set_),
+                      "vkAllocateDescriptorSets(sample)");
+    }
+    return sample_set_;
+}
+
 VkPipelineLayout VulkanDevice::PipelineLayout() {
     if (pipeline_layout_ == VK_NULL_HANDLE) {
         // One push-constant range covering the v0 constant block (a single
-        // 64-byte view-proj matrix, bound to the vertex shader). Shared by all
-        // pipelines; those that never call SetPushConstants leave it unused.
+        // 64-byte view-proj matrix, bound to the vertex shader) plus the shared
+        // sampled-texture descriptor set. Shared by all pipelines; those that
+        // never sample simply never bind the set, and pipelines that never call
+        // SetPushConstants leave the range unused.
+        SampleDescriptorSet();
         const VkPushConstantRange push_constant_range{
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
             .offset = 0,
@@ -365,12 +432,112 @@ VkPipelineLayout VulkanDevice::PipelineLayout() {
         };
         VkPipelineLayoutCreateInfo layout_info{};
         layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout_info.setLayoutCount = 1;
+        layout_info.pSetLayouts = &sample_set_layout_;
         layout_info.pushConstantRangeCount = 1;
         layout_info.pPushConstantRanges = &push_constant_range;
         ThrowIfFailed(vkCreatePipelineLayout(device_, &layout_info, nullptr, &pipeline_layout_),
                       "vkCreatePipelineLayout");
     }
     return pipeline_layout_;
+}
+
+SamplerHandle VulkanDevice::CreateSampler(const SamplerDesc& desc) {
+    VkSamplerCreateInfo sampler_info{};
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.magFilter =
+        (desc.filter == SamplerFilter::kLinear) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+    sampler_info.minFilter = sampler_info.magFilter;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sampler_info.addressModeU = (desc.address == SamplerAddress::kRepeat)
+                                    ? VK_SAMPLER_ADDRESS_MODE_REPEAT
+                                    : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeV = sampler_info.addressModeU;
+    sampler_info.addressModeW = sampler_info.addressModeU;
+    sampler_info.minLod = 0.0f;
+    sampler_info.maxLod = 0.0f;
+
+    SamplerEntry entry{};
+    ThrowIfFailed(vkCreateSampler(device_, &sampler_info, nullptr, &entry.sampler),
+                  "vkCreateSampler");
+
+    const std::uint64_t handle_value = next_handle_++;
+    samplers_.emplace(handle_value, std::move(entry));
+    return static_cast<SamplerHandle>(handle_value);
+}
+
+void VulkanDevice::DestroySampler(SamplerHandle handle) {
+    const auto it = samplers_.find(static_cast<std::uint64_t>(handle));
+    if (it == samplers_.end()) {
+        return;
+    }
+    vkDestroySampler(device_, it->second.sampler, nullptr);
+    samplers_.erase(it);
+}
+
+void VulkanDevice::UploadTexture(TextureHandle handle, const void* data,
+                                 std::uint64_t row_pitch_bytes) {
+    if (data == nullptr || row_pitch_bytes == 0) {
+        throw std::runtime_error("vulkan backend: invalid texture upload data");
+    }
+    const std::uint64_t key = static_cast<std::uint64_t>(handle);
+    const auto it = textures_.find(key);
+    if (it == textures_.end()) {
+        throw std::runtime_error("vulkan backend: upload of an unknown texture");
+    }
+    if (it->second.is_swapchain) {
+        throw std::runtime_error("vulkan backend: cannot upload into a swapchain texture");
+    }
+    TextureEntry& entry = it->second;
+
+    const VkDeviceSize buffer_size = row_pitch_bytes * entry.height;
+
+    VkBufferCreateInfo buffer_info{};
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.size = buffer_size;
+    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkBuffer staging = VK_NULL_HANDLE;
+    ThrowIfFailed(vkCreateBuffer(device_, &buffer_info, nullptr, &staging),
+                  "vkCreateBuffer(upload)");
+
+    VkMemoryRequirements requirements{};
+    vkGetBufferMemoryRequirements(device_, staging, &requirements);
+    const std::uint32_t memory_type =
+        FindMemoryType(requirements.memoryTypeBits,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    VkDeviceMemory staging_memory = VK_NULL_HANDLE;
+    VkMemoryAllocateInfo allocate_info{};
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocate_info.allocationSize = requirements.size;
+    allocate_info.memoryTypeIndex = memory_type;
+    ThrowIfFailed(vkAllocateMemory(device_, &allocate_info, nullptr, &staging_memory),
+                  "vkAllocateMemory(upload)");
+    ThrowIfFailed(vkBindBufferMemory(device_, staging, staging_memory, 0),
+                  "vkBindBufferMemory(upload)");
+
+    void* mapped = nullptr;
+    ThrowIfFailed(vkMapMemory(device_, staging_memory, 0, buffer_size, 0, &mapped),
+                  "vkMapMemory(upload)");
+    if (mapped == nullptr) {
+        throw std::runtime_error("vulkan backend: failed to map upload staging buffer");
+    }
+    std::memcpy(mapped, data, static_cast<std::size_t>(buffer_size));
+    vkUnmapMemory(device_, staging_memory);
+
+    ICommandList* copy_list = CreateCommandList();
+    copy_list->Begin();
+    static_cast<VulkanCommandList*>(copy_list)->CopyBufferToTexture(
+        staging, entry.image, VkExtent3D{entry.width, entry.height, 1});
+    copy_list->End();
+    Submit(*copy_list);
+    DestroyCommandList(copy_list);
+    WaitForGpuIdle();
+
+    entry.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    vkDestroyBuffer(device_, staging, nullptr);
+    vkFreeMemory(device_, staging_memory, nullptr);
 }
 
 PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
@@ -437,6 +604,8 @@ PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
             VkFormat format = VK_FORMAT_UNDEFINED;
             if (attribute.format == VertexAttributeFormat::kFloat3) {
                 format = VK_FORMAT_R32G32B32_SFLOAT;
+            } else if (attribute.format == VertexAttributeFormat::kFloat2) {
+                format = VK_FORMAT_R32G32_SFLOAT;
             }
             if (format == VK_FORMAT_UNDEFINED) {
                 throw std::runtime_error("vulkan backend: unsupported vertex attribute format");
@@ -864,6 +1033,48 @@ void VulkanCommandList::CopyTextureToReadBack(VkImage source, VkBuffer staging, 
                            1, &region);
 }
 
+void VulkanCommandList::CopyBufferToTexture(VkBuffer staging, VkImage destination,
+                                            VkExtent3D extent) {
+    VkImageMemoryBarrier to_transfer_dst{};
+    to_transfer_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    to_transfer_dst.srcAccessMask = 0;
+    to_transfer_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    to_transfer_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    to_transfer_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    to_transfer_dst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_transfer_dst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_transfer_dst.image = destination;
+    to_transfer_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    to_transfer_dst.subresourceRange.levelCount = 1;
+    to_transfer_dst.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                         &to_transfer_dst);
+
+    VkBufferImageCopy region{};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageExtent = extent;
+    vkCmdCopyBufferToImage(command_buffer_, staging, destination,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    VkImageMemoryBarrier to_shader_read{};
+    to_shader_read.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    to_shader_read.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    to_shader_read.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    to_shader_read.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    to_shader_read.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    to_shader_read.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_shader_read.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_shader_read.image = destination;
+    to_shader_read.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    to_shader_read.subresourceRange.levelCount = 1;
+    to_shader_read.subresourceRange.layerCount = 1;
+    vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                         &to_shader_read);
+}
+
 void VulkanCommandList::SetPipeline(PipelineHandle handle) {
     vkCmdBindPipeline(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       owner_->PipelineState(handle));
@@ -899,6 +1110,45 @@ void VulkanCommandList::SetPushConstants(const void* data, std::uint32_t size_by
     }
     vkCmdPushConstants(command_buffer_, owner_->PipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                        size_bytes, data);
+}
+
+void VulkanCommandList::SetSampledTexture(TextureHandle texture, SamplerHandle sampler) {
+    const VulkanDevice::TextureEntry* entry = owner_->LookupTexture(texture);
+    if (entry->view == VK_NULL_HANDLE ||
+        entry->layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        throw std::runtime_error(
+            "vulkan backend: sampled texture was not uploaded (UploadTexture)");
+    }
+    const auto sampler_it = owner_->samplers_.find(static_cast<std::uint64_t>(sampler));
+    if (sampler_it == owner_->samplers_.end()) {
+        throw std::runtime_error("vulkan backend: unknown sampler handle");
+    }
+
+    VkDescriptorSet set = owner_->SampleDescriptorSet();
+
+    VkDescriptorImageInfo image_info{};
+    image_info.imageView = entry->view;
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorImageInfo sampler_info{};
+    sampler_info.sampler = sampler_it->second.sampler;
+
+    VkWriteDescriptorSet writes[2]{};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = set;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    writes[0].pImageInfo = &image_info;
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = set;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    writes[1].pImageInfo = &sampler_info;
+    vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
+
+    vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            owner_->PipelineLayout(), 0, 1, &set, 0, nullptr);
 }
 
 } // namespace jrpgmaker::rhi::vulkan
