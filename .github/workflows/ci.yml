@@ -171,6 +171,10 @@ jobs:
           vcpkgDirectory: '${{ github.workspace }}/vcpkg'
           vcpkgGitCommitId: '127402f1c75bb3d5ff6bce04b285faa4930a5aca'
 
+      - name: Install build toolchain system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libvulkan-dev mesa-vulkan-drivers libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev libdbus-1-dev libudev-dev libasound2-dev autoconf automake autopoint libtool libltdl-dev pkg-config autoconf-archive python3-venv
+
       - name: Configure and build
         uses: lukka/run-cmake@v10
         with:
