@@ -25,6 +25,28 @@ struct DialogRequested {
     std::vector<DialogOption> options;
 };
 
+// Flag mutation projection (P3 change-detection contract, docs/01 owner map):
+// published on the event bus whenever the runner writes a flag via
+// set_flag/clear_flag. Presentation layers consume this instead of reading the
+// FlagStore directly - the store is domain-owned, the projection is the dirty
+// change notification (A3: "Presentation Sync only consumes dirty-marked
+// domain state changes").
+struct FlagChanged {
+    std::string flag;
+    bool value = false;
+};
+
+// Event lifecycle projection: published when Start begins an event and when the
+// event runs to completion. Lets presentation open/close per-event UI (e.g. a
+// dialog window tied to an event's lifetime).
+struct EventStarted {
+    std::string event_id;
+};
+
+struct EventFinished {
+    std::string event_id;
+};
+
 // Structured dialog state projection emitted after each handshake advance.
 // Presentation consumes this (docs/01 owner map: domain projects, ui renders).
 // Typewriter progress / portrait slots / i18n text tables are presentation

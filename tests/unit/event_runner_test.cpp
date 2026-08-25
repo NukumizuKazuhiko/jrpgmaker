@@ -317,3 +317,123 @@ TEST_CASE("event runner start while active throws", "[domain][event_runner]") {
     runner.Start("e");
     REQUIRE_THROWS_AS(runner.Start("e"), std::logic_error);
 }
+
+// --- Change-detection projection sync v1 (A3): the runner broadcasts dirty
+// domain-state changes on the event bus. Presentation subscribes to
+// FlagChanged / DialogRequested / EventStarted / EventFinished instead of
+// reading FlagStore directly (docs/01 owner map).
+
+TEST_CASE("event runner broadcasts FlagChanged on set_flag", "[domain][event_runner][projection]") {
+    FlagStore flags;
+    EventBus bus;
+    std::vector<jrpgmaker::domain::FlagChanged> changes;
+    bus.Subscribe<jrpgmaker::domain::FlagChanged>(
+        [&](const jrpgmaker::domain::FlagChanged& change) { changes.push_back(change); });
+    EventScript script = MakeScript(R"({
+        "schema": 1,
+        "events": [{"id": "e", "instructions": [
+            {"op": "set_flag", "flag": "quest.done", "value": true},
+            {"op": "set_flag", "flag": "quest.done", "value": false}
+        ]}]
+    })");
+    EventRunner runner(script, flags, bus);
+
+    runner.Start("e");
+    runner.Tick(0.0);
+    REQUIRE(changes.size() == 2);
+    REQUIRE(changes[0].flag == "quest.done");
+    REQUIRE(changes[0].value);
+    REQUIRE_FALSE(changes[1].value);
+}
+
+TEST_CASE("event runner broadcasts FlagChanged from choice option sequences",
+          "[domain][event_runner][projection]") {
+    FlagStore flags;
+    EventBus bus;
+    std::vector<jrpgmaker::domain::FlagChanged> changes;
+    bus.Subscribe<jrpgmaker::domain::FlagChanged>(
+        [&](const jrpgmaker::domain::FlagChanged& change) { changes.push_back(change); });
+    EventScript script = MakeScript(R"({
+        "schema": 1,
+        "events": [{"id": "e", "instructions": [{
+            "op": "choice", "prompt_text_key": "ask",
+            "options": [
+                {"text_key": "yes", "instructions": [{"op": "set_flag", "flag": "quest.accepted"}]}
+            ]
+        }]}]
+    })");
+    EventRunner runner(script, flags, bus);
+
+    runner.Start("e");
+    runner.Tick(0.0);
+    REQUIRE(runner.IsDialogPending());
+    runner.AdvanceDialog(0);
+    REQUIRE(runner.IsFinished());
+    REQUIRE(changes.size() == 1);
+    REQUIRE(changes[0].flag == "quest.accepted");
+    REQUIRE(changes[0].value);
+}
+
+TEST_CASE("event runner broadcasts event lifecycle projections",
+          "[domain][event_runner][projection]") {
+    FlagStore flags;
+    EventBus bus;
+    std::vector<std::string> started;
+    std::vector<std::string> finished;
+    bus.Subscribe<jrpgmaker::domain::EventStarted>(
+        [&](const jrpgmaker::domain::EventStarted& event) { started.push_back(event.event_id); });
+    bus.Subscribe<jrpgmaker::domain::EventFinished>(
+        [&](const jrpgmaker::domain::EventFinished& event) { finished.push_back(event.event_id); });
+    EventScript script = MakeScript(R"({
+        "schema": 1,
+        "events": [{"id": "e", "instructions": [{"op": "set_flag", "flag": "a"}]}]
+    })");
+    EventRunner runner(script, flags, bus);
+
+    runner.Start("e");
+    REQUIRE(started == std::vector<std::string>{"e"});
+    runner.Tick(0.0);
+    REQUIRE(runner.IsFinished());
+    REQUIRE(finished == std::vector<std::string>{"e"});
+}
+
+TEST_CASE("event runner does not broadcast lifecycle projections for unknown event id",
+          "[domain][event_runner][projection]") {
+    FlagStore flags;
+    EventBus bus;
+    std::vector<std::string> started;
+    bus.Subscribe<jrpgmaker::domain::EventStarted>(
+        [&](const jrpgmaker::domain::EventStarted& event) { started.push_back(event.event_id); });
+    EventScript script = MakeScript(R"({"schema": 1, "events": []})");
+    EventRunner runner(script, flags, bus);
+
+    REQUIRE_FALSE(runner.Start("missing"));
+    REQUIRE(started.empty());
+}
+
+TEST_CASE("event runner broadcasts FlagChanged before dialog blocks",
+          "[domain][event_runner][projection]") {
+    FlagStore flags;
+    EventBus bus;
+    std::vector<jrpgmaker::domain::FlagChanged> changes;
+    std::vector<jrpgmaker::domain::DialogRequested> dialogs;
+    bus.Subscribe<jrpgmaker::domain::FlagChanged>(
+        [&](const jrpgmaker::domain::FlagChanged& change) { changes.push_back(change); });
+    bus.Subscribe<jrpgmaker::domain::DialogRequested>(
+        [&](const jrpgmaker::domain::DialogRequested& dialog) { dialogs.push_back(dialog); });
+    EventScript script = MakeScript(R"({
+        "schema": 1,
+        "events": [{"id": "e", "instructions": [
+            {"op": "set_flag", "flag": "alice.met", "value": true},
+            {"op": "dialog", "speaker": "alice", "text_key": "hello"}
+        ]}]
+    })");
+    EventRunner runner(script, flags, bus);
+
+    runner.Start("e");
+    runner.Tick(0.0);
+    REQUIRE(runner.IsDialogPending());
+    REQUIRE(changes.size() == 1);
+    REQUIRE(changes[0].flag == "alice.met");
+    REQUIRE(dialogs.size() == 1);
+}

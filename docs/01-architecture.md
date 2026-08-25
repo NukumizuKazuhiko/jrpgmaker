@@ -132,6 +132,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
   - 非法 op / 缺字段 / 负 wait / 空 choice options / 错误 schema 版本 → 解析期 `std::invalid_argument`（含上下文信息）
 - **解释器**：`jrpgmaker::domain::EventRunner`（持有 `EventScript&` + `FlagStore&` + `core::EventBus&`）。`Start(event_id)`（事件进行中再 Start 抛错）、`Tick(delta)`（固定时间步驱动，wait 阻塞时扣 delta 不推进，到期后继续后续指令；dialog/choice 阻塞时 Tick 为 no-op）、`AdvanceDialog()`（确认纯文本对话）/`AdvanceDialog(index)`（选中 choice 选项，越界抛 `std::out_of_range`，无待确认对话时调用抛 `std::logic_error`）、`IsDialogPending()`、`IsActive()`/`IsFinished()`（完成后保留事件供查询，`IsActive()` 归 false）。`Start` 对未知事件 id 返回 false 无副作用。
 - **对话投影**：`DialogRequested` 含可选项列表（choice 有、dialog 空）；`DialogState{event_id, speaker, text_key, options}` 为结构化投影供 UI 消费。打字机进度 / 立绘槽位 / i18n 文本表属 presentation 消费层，随 P3 UI/HarfBuzz 子任务落地。
+- **变更检测投影同步（A3，P3 子任务 4 落地）**：Presentation Sync 只消费带脏标记的 domain 状态变更。`EventRunner` 在执行时向事件总线广播四个投影事件：`FlagChanged{flag, value}`（每次 set_flag/clear_flag 写入，含 choice 选支内写入）、`EventStarted{event_id}` / `EventFinished{event_id}`（生命周期）、`DialogRequested`（对话状态，含 options）。`FlagStore` 保持 domain 独占——ui/render 不直读，只订阅投影事件。flag 由宿主直接注入时宿主自行负责对应投影（脚本驱动路径由 runner 统一广播）。
 - **flag 存储**：`jrpgmaker::domain::FlagStore`（`Set`/`Get`，命名 bool，空名抛错；`live_count()` 为诊断探针）。单线程、domain 独占；ui/render 不直读（走事件总线 projection）。flag 在事件间持久（会话语义）。
 - **事件总线**：`jrpgmaker::core::EventBus`（类型擦除订阅/发布，docs/01 owner map 规定 domain 只发布、presentation 只消费）。订阅无退订（v0 消费者存活于进程期）。
 - **变更检测投影同步（A3）/ UI 消费**：P3 后续子任务（docs/02 P3）。

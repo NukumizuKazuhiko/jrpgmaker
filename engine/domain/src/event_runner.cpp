@@ -20,6 +20,7 @@ bool EventRunner::Start(const std::string& event_id) {
     wait_remaining_ = 0.0;
     dialog_pending_ = false;
     pending_options_.clear();
+    bus_.Publish(EventStarted{.event_id = event_id});
     return true;
 }
 
@@ -92,6 +93,7 @@ bool EventRunner::AdvanceOne(double delta_seconds) {
         const Instruction& instruction = event.instructions[index_];
         if (const auto* set_flag = std::get_if<SetFlagInstruction>(&instruction.op)) {
             flags_.Set(set_flag->flag, set_flag->value);
+            bus_.Publish(FlagChanged{.flag = set_flag->flag, .value = set_flag->value});
             ++index_;
             continue;
         }
@@ -129,6 +131,7 @@ bool EventRunner::AdvanceOne(double delta_seconds) {
         throw std::logic_error("EventRunner: unknown instruction kind");
     }
     finished_ = true;
+    bus_.Publish(EventFinished{.event_id = active_->id});
     return false;
 }
 
@@ -137,6 +140,7 @@ void EventRunner::RunSequence(const std::vector<Instruction>& sequence, std::siz
         const Instruction& instruction = sequence[index];
         if (const auto* set_flag = std::get_if<SetFlagInstruction>(&instruction.op)) {
             flags_.Set(set_flag->flag, set_flag->value);
+            bus_.Publish(FlagChanged{.flag = set_flag->flag, .value = set_flag->value});
             ++index;
             continue;
         }
