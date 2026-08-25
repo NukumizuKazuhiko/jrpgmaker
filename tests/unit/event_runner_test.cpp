@@ -1,3 +1,4 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
@@ -101,6 +102,71 @@ TEST_CASE("event runner blocks on wait until time elapses", "[domain][event_runn
     runner.Tick(0.4);
     REQUIRE(runner.IsFinished());
     REQUIRE(flags.Get("after.wait"));
+}
+
+// The wait timer must consume exactly its share of a tick and pass the leftover
+// time into the next instruction, so wall-clock time is never double-spent:
+// two consecutive wait(0.5) complete after a cumulative 1.0s of ticks (not
+// faster from the first tick being fed to both waits, nor slower from the
+// leftover being discarded).
+TEST_CASE("event runner consecutive waits elapse in exact cumulative time",
+          "[domain][event_runner]") {
+    FlagStore flags;
+    EventBus bus;
+    EventScript script = MakeScript(R"({
+        "schema": 1,
+        "events": [{"id": "w", "instructions": [
+            {"op": "wait", "seconds": 0.5},
+            {"op": "wait", "seconds": 0.5},
+            {"op": "set_flag", "flag": "after.waits"}
+        ]}]
+    })");
+    EventRunner runner(script, flags, bus);
+
+    runner.Start("w");
+    const double tick_values[] = {0.4, 0.3, 0.2};
+    double elapsed = 0.0;
+    for (const double tick : tick_values) {
+        runner.Tick(tick);
+        elapsed += tick;
+        REQUIRE_FALSE(flags.Get("after.waits"));
+    }
+    REQUIRE(runner.IsActive()); // 0.9s elapsed, 0.1s of wait(0.5) remains
+
+    runner.Tick(0.1);
+    elapsed += 0.1;
+    REQUIRE(runner.IsFinished());
+    REQUIRE(flags.Get("after.waits"));
+    REQUIRE(elapsed == Catch::Approx(1.0));
+}
+
+// A single wait whose seconds fit entirely inside one tick must not hand the
+// whole tick to the following instruction: the leftover delta advances the
+// next wait only by its share.
+TEST_CASE("event runner wait elapsing inside one tick passes only its leftover",
+          "[domain][event_runner]") {
+    FlagStore flags;
+    EventBus bus;
+    EventScript script = MakeScript(R"({
+        "schema": 1,
+        "events": [{"id": "w", "instructions": [
+            {"op": "wait", "seconds": 0.2},
+            {"op": "wait", "seconds": 0.5},
+            {"op": "set_flag", "flag": "after.waits"}
+        ]}]
+    })");
+    EventRunner runner(script, flags, bus);
+
+    // A single 0.5s tick: the 0.2s wait elapses and passes 0.3s leftover to the
+    // 0.5s wait, which still blocks with 0.2s remaining.
+    runner.Start("w");
+    runner.Tick(0.5);
+    REQUIRE(runner.IsActive());
+    REQUIRE_FALSE(flags.Get("after.waits"));
+
+    runner.Tick(0.2);
+    REQUIRE(runner.IsFinished());
+    REQUIRE(flags.Get("after.waits"));
 }
 
 TEST_CASE("event runner branches on flag state", "[domain][event_runner]") {

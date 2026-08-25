@@ -110,7 +110,11 @@ public:
     const std::string& active_event_id() const;
 
 private:
-    bool AdvanceOne(double delta_seconds);
+    // Advances the event by the given delta (a reference: a wait that elapses
+    // mid-delta consumes only its remaining time and passes the leftover on to
+    // the next instruction, so wall-clock time is never double-spent). Returns
+    // false when the event blocks (dialog/wait) or completes.
+    bool AdvanceOne(double& delta_seconds);
     void RunSequence(const std::vector<Instruction>& sequence, std::size_t& index);
     void BeginDialog(std::string speaker, std::string text_key, std::vector<DialogOption> options);
 

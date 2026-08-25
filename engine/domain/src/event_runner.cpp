@@ -32,15 +32,18 @@ void EventRunner::Tick(double delta_seconds) {
         throw std::invalid_argument("EventRunner::Tick delta must be non-negative");
     }
 
-    // A wait with remaining time blocks the runner; consume delta and return.
+    // A wait with remaining time blocks the runner; consume delta. When it
+    // elapses mid-delta, the leftover time carries into the next instruction so
+    // wall-clock time is not double-spent (docs/01: fixed-step runner).
     if (wait_remaining_ > 0.0) {
         wait_remaining_ -= delta_seconds;
         if (wait_remaining_ <= 0.0) {
+            double spillover = -wait_remaining_;
             wait_remaining_ = 0.0;
             ++index_; // leave the wait instruction
-        } else {
-            return;
+            AdvanceOne(spillover);
         }
+        return;
     }
 
     AdvanceOne(delta_seconds);
@@ -52,7 +55,8 @@ void EventRunner::AdvanceDialog() {
     }
     dialog_pending_ = false;
     ++index_; // leave the dialog instruction
-    AdvanceOne(0.0);
+    double zero = 0.0;
+    AdvanceOne(zero);
 }
 
 void EventRunner::AdvanceDialog(std::size_t option_index) {
@@ -68,7 +72,8 @@ void EventRunner::AdvanceDialog(std::size_t option_index) {
     ++index_; // leave the choice instruction
     std::size_t option_index_local = 0;
     RunSequence(chosen.instructions, option_index_local);
-    AdvanceOne(0.0);
+    double zero = 0.0;
+    AdvanceOne(zero);
 }
 
 void EventRunner::BeginDialog(std::string speaker, std::string text_key,
@@ -83,7 +88,7 @@ void EventRunner::BeginDialog(std::string speaker, std::string text_key,
     });
 }
 
-bool EventRunner::AdvanceOne(double delta_seconds) {
+bool EventRunner::AdvanceOne(double& delta_seconds) {
     if (dialog_pending_) {
         return false;
     }
@@ -115,13 +120,15 @@ bool EventRunner::AdvanceOne(double delta_seconds) {
         }
         if (const auto* wait = std::get_if<WaitInstruction>(&instruction.op)) {
             if (wait->seconds > 0.0) {
-                wait_remaining_ = wait->seconds - delta_seconds;
-                if (wait_remaining_ <= 0.0) {
-                    wait_remaining_ = 0.0;
+                if (delta_seconds >= wait->seconds) {
+                    // The wait elapses within this tick; consume only its share
+                    // and let the leftover carry into the next instruction.
+                    delta_seconds -= wait->seconds;
                     ++index_;
                     continue;
                 }
-                // Blocked: do not advance index; Tick subtracts remaining delta.
+                // Blocked: hold the remaining time; Tick subtracts it later.
+                wait_remaining_ = wait->seconds - delta_seconds;
                 return false;
             }
             ++index_;
