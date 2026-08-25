@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "triggers": [
+    { "flag": "alice.quest.accepted", "target_event_id": "alice_reward" },
+    { "flag": "chest.west.opened", "target_event_id": "chest_west_echo" }
+  ]
+}
