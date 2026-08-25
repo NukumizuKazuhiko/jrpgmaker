@@ -191,4 +191,70 @@ TEST_CASE("sampled texture quad matches the committed golden reference", "[rhi][
     device->DestroyTexture(target);
 }
 
+TEST_CASE("SetSampledTexture rejects a pipeline without a declared sample slot",
+          "[rhi][contract]") {
+    const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
+    REQUIRE(device != nullptr);
+
+    const TextureHandle target = device->CreateTexture(
+        TextureDesc{.width = kWidth,
+                    .height = kHeight,
+                    .format = Format::kR8G8B8A8Unorm,
+                    .usage = TextureUsage::kRenderTarget | TextureUsage::kReadBack});
+    const TextureHandle texture =
+        device->CreateTexture(TextureDesc{.width = kQuadTextureSize,
+                                          .height = kQuadTextureSize,
+                                          .format = Format::kR8G8B8A8Unorm,
+                                          .usage = TextureUsage::kSampled});
+    const auto pixels = MakeQuadTexture();
+    device->UploadTexture(texture, pixels.data(),
+                          static_cast<std::uint64_t>(kQuadTextureSize) * 4u);
+    const SamplerHandle sampler = device->CreateSampler(
+        SamplerDesc{.filter = SamplerFilter::kNearest, .address = SamplerAddress::kClamp});
+
+    // A pipeline with the default sample_slot == 0 (no sampling declared): the
+    // contract forbids binding a sampled texture to it.
+#if defined(_WIN32)
+    const GraphicsPipelineDesc pipeline_desc{
+        .vertex_shader = ShaderBytecode{jrpgmaker::shaders::kTriangleVsDxil,
+                                        jrpgmaker::shaders::kTriangleVsDxil_size},
+        .pixel_shader = ShaderBytecode{jrpgmaker::shaders::kTrianglePsDxil,
+                                       jrpgmaker::shaders::kTrianglePsDxil_size},
+        .color_format = Format::kR8G8B8A8Unorm,
+        .vertex_input = VertexInputLayout{
+            .attributes = kQuadAttributes,
+            .attribute_count = 2,
+            .stride_bytes = kQuadStride,
+        }};
+#else
+    const GraphicsPipelineDesc pipeline_desc{
+        .vertex_shader = ShaderBytecode{jrpgmaker::shaders::kTriangleVsSpv,
+                                        jrpgmaker::shaders::kTriangleVsSpv_size},
+        .pixel_shader = ShaderBytecode{jrpgmaker::shaders::kTrianglePsSpv,
+                                       jrpgmaker::shaders::kTrianglePsSpv_size},
+        .color_format = Format::kR8G8B8A8Unorm,
+        .vertex_input = VertexInputLayout{
+            .attributes = kQuadAttributes,
+            .attribute_count = 2,
+            .stride_bytes = kQuadStride,
+        }};
+#endif
+
+    const PipelineHandle pipeline = device->CreatePipeline(pipeline_desc);
+    REQUIRE(pipeline != PipelineHandle::kInvalid);
+
+    ICommandList* command_list = device->CreateCommandList();
+    command_list->Begin();
+    command_list->SetPipeline(pipeline);
+    REQUIRE_THROWS_AS(command_list->SetSampledTexture(texture, sampler), std::runtime_error);
+    command_list->End();
+
+    device->WaitForGpuIdle();
+    device->DestroyCommandList(command_list);
+    device->DestroySampler(sampler);
+    device->DestroyPipeline(pipeline);
+    device->DestroyTexture(texture);
+    device->DestroyTexture(target);
+}
+
 } // namespace

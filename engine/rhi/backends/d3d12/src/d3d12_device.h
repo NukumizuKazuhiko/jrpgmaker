@@ -48,6 +48,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> command_list_;
     ID3D12Resource* rendering_target_ = nullptr;
     D3D12_CPU_DESCRIPTOR_HANDLE rendering_rtv_{};
+    PipelineHandle bound_pipeline_ = PipelineHandle::kInvalid;
 };
 
 class D3D12Device final : public IDevice {
@@ -115,6 +116,7 @@ private:
 
     struct PipelineEntry {
         Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline;
+        std::uint32_t sample_slot = 0;
     };
 
     D3D12Device() = default;
@@ -131,6 +133,7 @@ private:
     void UnregisterSwapchainBuffer(TextureHandle handle);
     ID3D12Resource* EnsureReadBack(TextureHandle handle);
     ID3D12PipelineState* PipelineState(PipelineHandle handle);
+    std::uint32_t PipelineSampleSlot(PipelineHandle handle);
     ID3D12RootSignature* RootSignature() { return root_signature_.Get(); }
     void CheckGpuErrors();
 

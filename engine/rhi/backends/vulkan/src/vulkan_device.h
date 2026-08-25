@@ -44,6 +44,7 @@ private:
     VkImage rendering_image_ = VK_NULL_HANDLE;
     VkDevice device_ = VK_NULL_HANDLE;
     VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
+    PipelineHandle bound_pipeline_ = PipelineHandle::kInvalid;
 };
 
 class VulkanDevice final : public IDevice {
@@ -111,6 +112,7 @@ private:
 
     struct PipelineEntry {
         VkPipeline pipeline = VK_NULL_HANDLE;
+        std::uint32_t sample_slot = 0;
     };
 
     VulkanDevice() = default;
@@ -124,6 +126,7 @@ private:
     void UnregisterSwapchainTexture(TextureHandle handle);
     VkBuffer EnsureReadBackBuffer(TextureHandle handle);
     VkPipeline PipelineState(PipelineHandle handle);
+    std::uint32_t PipelineSampleSlot(PipelineHandle handle);
     VkPipelineLayout PipelineLayout();
     VkDescriptorSet SampleDescriptorSet();
     std::uint32_t FindMemoryType(std::uint32_t type_bits, VkMemoryPropertyFlags properties) const;

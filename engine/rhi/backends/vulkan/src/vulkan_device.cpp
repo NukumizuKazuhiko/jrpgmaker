@@ -676,6 +676,7 @@ PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
     pipeline_info.layout = PipelineLayout();
 
     PipelineEntry entry{};
+    entry.sample_slot = desc.sample_slot;
     ThrowIfFailed(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
                                             &entry.pipeline),
                   "vkCreateGraphicsPipelines");
@@ -777,6 +778,14 @@ VkPipeline VulkanDevice::PipelineState(PipelineHandle handle) {
         throw std::runtime_error("vulkan backend: unknown pipeline handle");
     }
     return it->second.pipeline;
+}
+
+std::uint32_t VulkanDevice::PipelineSampleSlot(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it == pipelines_.end()) {
+        throw std::runtime_error("vulkan backend: unknown pipeline handle");
+    }
+    return it->second.sample_slot;
 }
 
 const VulkanDevice::TextureEntry* VulkanDevice::LookupTexture(TextureHandle handle) {
@@ -1078,6 +1087,7 @@ void VulkanCommandList::CopyBufferToTexture(VkBuffer staging, VkImage destinatio
 void VulkanCommandList::SetPipeline(PipelineHandle handle) {
     vkCmdBindPipeline(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       owner_->PipelineState(handle));
+    bound_pipeline_ = handle;
 }
 
 void VulkanCommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_count) {
@@ -1113,6 +1123,11 @@ void VulkanCommandList::SetPushConstants(const void* data, std::uint32_t size_by
 }
 
 void VulkanCommandList::SetSampledTexture(TextureHandle texture, SamplerHandle sampler) {
+    if (bound_pipeline_ == PipelineHandle::kInvalid ||
+        owner_->PipelineSampleSlot(bound_pipeline_) == 0) {
+        throw std::runtime_error(
+            "vulkan backend: SetSampledTexture requires a pipeline with sample_slot > 0");
+    }
     const VulkanDevice::TextureEntry* entry = owner_->LookupTexture(texture);
     if (entry->view == VK_NULL_HANDLE ||
         entry->layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {

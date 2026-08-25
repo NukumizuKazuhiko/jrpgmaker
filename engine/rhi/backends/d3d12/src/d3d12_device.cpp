@@ -333,6 +333,7 @@ PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
     }
 
     PipelineEntry entry{};
+    entry.sample_slot = desc.sample_slot;
     ThrowIfFailed(device_->CreateGraphicsPipelineState(&pso_desc,
                                                        IID_PPV_ARGS(entry.pipeline.GetAddressOf())),
                   "CreateGraphicsPipelineState");
@@ -352,6 +353,14 @@ ID3D12PipelineState* D3D12Device::PipelineState(PipelineHandle handle) {
         throw std::runtime_error("d3d12 backend: unknown pipeline handle");
     }
     return it->second.pipeline.Get();
+}
+
+std::uint32_t D3D12Device::PipelineSampleSlot(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it == pipelines_.end()) {
+        throw std::runtime_error("d3d12 backend: unknown pipeline handle");
+    }
+    return it->second.sample_slot;
 }
 
 TextureHandle D3D12Device::CreateTexture(const TextureDesc& desc) {
@@ -520,14 +529,18 @@ void D3D12Device::UploadTexture(TextureHandle handle, const void* data,
     if (mapped == nullptr) {
         throw std::runtime_error("d3d12 backend: failed to map upload staging buffer");
     }
-    // The staging buffer uses the texture's footprint row pitch; the caller's
-    // pitch is copied row-by-row so tight/legacy layouts both work.
+    // The staging buffer uses the texture's footprint row pitch (aligned); the
+    // caller's pitch is copied row-by-row so tight/legacy layouts both work.
+    // Copy only the source's declared pitch per row - footprint RowPitch can be
+    // larger (256-byte aligned) and the source buffer only guarantees
+    // row_pitch_bytes, so copying the full footprint pitch would read OOB.
     const std::uint64_t pitch = footprint.Footprint.RowPitch;
     const std::uint64_t height = footprint.Footprint.Height;
+    const std::uint64_t copy_bytes = std::min(pitch, row_pitch_bytes);
     const auto* src = static_cast<const std::byte*>(data);
     for (std::uint64_t row = 0; row < height; ++row) {
         std::memcpy(mapped + row * pitch, src + row * row_pitch_bytes,
-                    static_cast<std::size_t>(pitch));
+                    static_cast<std::size_t>(copy_bytes));
     }
     staging->Unmap(0, nullptr);
 
@@ -949,6 +962,7 @@ void D3D12CommandList::CopyBufferToTexture(ID3D12Resource* staging, ID3D12Resour
 void D3D12CommandList::SetPipeline(PipelineHandle handle) {
     command_list_->SetGraphicsRootSignature(owner_->RootSignature());
     command_list_->SetPipelineState(owner_->PipelineState(handle));
+    bound_pipeline_ = handle;
 }
 
 void D3D12CommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_count) {
@@ -995,6 +1009,11 @@ void D3D12CommandList::SetPushConstants(const void* data, std::uint32_t size_byt
 }
 
 void D3D12CommandList::SetSampledTexture(TextureHandle texture, SamplerHandle sampler) {
+    if (bound_pipeline_ == PipelineHandle::kInvalid ||
+        owner_->PipelineSampleSlot(bound_pipeline_) == 0) {
+        throw std::runtime_error(
+            "d3d12 backend: SetSampledTexture requires a pipeline with sample_slot > 0");
+    }
     ID3D12DescriptorHeap* heaps[] = {owner_->srv_heap_.Get(), owner_->sampler_heap_.Get()};
     command_list_->SetDescriptorHeaps(static_cast<UINT>(std::size(heaps)), heaps);
     command_list_->SetGraphicsRootDescriptorTable(1, owner_->SrvGpuHandle(texture));
