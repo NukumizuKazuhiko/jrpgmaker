@@ -17,8 +17,10 @@
     },
     "glm",
     "harfbuzz",
+    "lua",
     "nlohmann-json",
     "sdl3",
+    "sol2",
     "stb",
     "vulkan-headers",
     "volk"

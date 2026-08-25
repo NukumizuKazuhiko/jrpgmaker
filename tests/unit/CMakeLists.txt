@@ -6,7 +6,7 @@ target_sources(
   PRIVATE smoke_test.cpp rhi_contract_test.cpp stage_test.cpp asset_import_test.cpp scene_test.cpp
           asset_test.cpp camera_test.cpp async_loader_test.cpp event_bus_test.cpp flag_store_test.cpp
           event_script_test.cpp event_runner_test.cpp event_lint_test.cpp flag_trigger_test.cpp
-          text_layout_test.cpp font_shaper_test.cpp)
+          text_layout_test.cpp font_shaper_test.cpp lua_binding_test.cpp)
 target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::core jrpgmaker::domain jrpgmaker::rhi
                                                 jrpgmaker::shaders jrpgmaker::assetimport
                                                 jrpgmaker::ui Catch2::Catch2WithMain)
