@@ -84,6 +84,25 @@
                     "interpolation": "LINEAR"
                 }
             ]
+        },
+        {
+            "name": "cubic",
+            "channels": [
+                {
+                    "sampler": 0,
+                    "target": {
+                        "node": 1,
+                        "path": "rotation"
+                    }
+                }
+            ],
+            "samplers": [
+                {
+                    "input": 9,
+                    "output": 10,
+                    "interpolation": "CUBICSPLINE"
+                }
+            ]
         }
     ],
     "accessors": [
@@ -140,6 +159,18 @@
             "componentType": 5126,
             "count": 2,
             "type": "VEC4"
+        },
+        {
+            "bufferView": 9,
+            "componentType": 5126,
+            "count": 2,
+            "type": "SCALAR"
+        },
+        {
+            "bufferView": 10,
+            "componentType": 5126,
+            "count": 6,
+            "type": "VEC4"
         }
     ],
     "bufferViews": [
@@ -187,12 +218,26 @@
             "buffer": 0,
             "byteOffset": 488,
             "byteLength": 32
+        },
+        {
+            "buffer": 1,
+            "byteOffset": 0,
+            "byteLength": 8
+        },
+        {
+            "buffer": 1,
+            "byteOffset": 8,
+            "byteLength": 96
         }
     ],
     "buffers": [
         {
             "byteLength": 520,
             "uri": "data:application/octet-stream;base64,AAAAvwAAAAAAAAAAAAAAPwAAAAAAAAAAAAAAvwAAAD8AAAAAAAAAPwAAAD8AAAAAAAAAvwAAAAAAAAAAAAAAPwAAAAAAAAAAAAAAvwAAAD8AAAAAAAAAPwAAAD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAEAAQABAAEAAQABAAEAAQABAAEAAQABAAEAAQABAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAABAAIAAQADAAIABAAFAAYABQAHAAYAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAC/AAAAAAAAgD8AAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAADzBDU/8wQ1Pw=="
+        },
+        {
+            "byteLength": 104,
+            "uri": "data:application/octet-stream;base64,AAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADzBDU/8wQ1PwAAAAAAAAAAAAAAAAAAAAA="
         }
     ]
 }

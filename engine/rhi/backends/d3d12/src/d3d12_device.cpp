@@ -175,6 +175,7 @@ BufferHandle D3D12Device::CreateBuffer(const BufferDesc& desc) {
 
     BufferEntry entry{};
     entry.size_bytes = desc.size_bytes;
+    entry.usage = desc.usage;
     ThrowIfFailed(device_->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE,
                                                    &resource_desc,
                                                    D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -221,6 +222,10 @@ const D3D12Device::BufferEntry& D3D12Device::BufferResource(BufferHandle handle)
 }
 
 PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
+    if (desc.push_constants_size > 64u || desc.push_constants_size % 4u != 0) {
+        throw std::runtime_error("d3d12 backend: pipeline push constants must be a multiple of 4 "
+                                 "bytes and at most 64 bytes");
+    }
     if (root_signature_ == nullptr) {
         // Root signature, shared by all pipelines:
         //  - parameter 0: 32-bit root constants (the v0 push-constant block,
@@ -346,6 +351,8 @@ PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
     }
 
     PipelineEntry entry{};
+    entry.has_vertex_input = desc.vertex_input.attributes != nullptr;
+    entry.push_constants_size = desc.push_constants_size;
     entry.sample_slot = desc.sample_slot;
     entry.vertex_uniform_size = desc.vertex_uniform_size;
     ThrowIfFailed(device_->CreateGraphicsPipelineState(&pso_desc,
@@ -367,6 +374,22 @@ ID3D12PipelineState* D3D12Device::PipelineState(PipelineHandle handle) {
         throw std::runtime_error("d3d12 backend: unknown pipeline handle");
     }
     return it->second.pipeline.Get();
+}
+
+bool D3D12Device::PipelineHasVertexInput(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it == pipelines_.end()) {
+        throw std::runtime_error("d3d12 backend: unknown pipeline handle");
+    }
+    return it->second.has_vertex_input;
+}
+
+std::uint32_t D3D12Device::PipelinePushConstantsSize(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it == pipelines_.end()) {
+        throw std::runtime_error("d3d12 backend: unknown pipeline handle");
+    }
+    return it->second.push_constants_size;
 }
 
 std::uint32_t D3D12Device::PipelineSampleSlot(PipelineHandle handle) {
@@ -880,6 +903,13 @@ D3D12CommandList::D3D12CommandList(D3D12Device* owner)
 
 void D3D12CommandList::Begin() {
     ThrowIfFailed(command_list_->Reset(allocator_.Get(), nullptr), "CommandListReset");
+    rendering_target_ = nullptr;
+    bound_pipeline_ = PipelineHandle::kInvalid;
+    vertex_buffer_bound_ = false;
+    index_buffer_bound_ = false;
+    push_constants_set_ = false;
+    sampled_texture_set_ = false;
+    vertex_uniform_buffer_set_ = false;
 }
 
 void D3D12CommandList::End() {
@@ -985,9 +1015,13 @@ void D3D12CommandList::SetPipeline(PipelineHandle handle) {
     command_list_->SetGraphicsRootSignature(owner_->RootSignature());
     command_list_->SetPipelineState(owner_->PipelineState(handle));
     bound_pipeline_ = handle;
+    push_constants_set_ = false;
+    sampled_texture_set_ = false;
+    vertex_uniform_buffer_set_ = false;
 }
 
 void D3D12CommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_count) {
+    ValidateDrawBindings(false);
     command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list_->DrawInstanced(vertex_count, instance_count, 0, 0);
     owner_->CheckGpuErrors();
@@ -995,6 +1029,9 @@ void D3D12CommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_c
 
 void D3D12CommandList::SetVertexBuffer(BufferHandle handle, std::uint32_t stride_bytes) {
     const D3D12Device::BufferEntry& entry = owner_->BufferResource(handle);
+    if ((entry.usage & BufferUsage::kVertex) == BufferUsage::kNone) {
+        throw std::runtime_error("d3d12 backend: vertex binding requires a kVertex buffer");
+    }
     if (stride_bytes == 0 || entry.size_bytes < stride_bytes) {
         throw std::runtime_error("d3d12 backend: invalid vertex buffer stride");
     }
@@ -1003,18 +1040,24 @@ void D3D12CommandList::SetVertexBuffer(BufferHandle handle, std::uint32_t stride
     view.SizeInBytes = static_cast<UINT>(entry.size_bytes);
     view.StrideInBytes = stride_bytes;
     command_list_->IASetVertexBuffers(0, 1, &view);
+    vertex_buffer_bound_ = true;
 }
 
 void D3D12CommandList::SetIndexBuffer(BufferHandle handle, bool indices_are_32_bit) {
     const D3D12Device::BufferEntry& entry = owner_->BufferResource(handle);
+    if ((entry.usage & BufferUsage::kIndex) == BufferUsage::kNone) {
+        throw std::runtime_error("d3d12 backend: index binding requires a kIndex buffer");
+    }
     D3D12_INDEX_BUFFER_VIEW view{};
     view.BufferLocation = entry.resource->GetGPUVirtualAddress();
     view.SizeInBytes = static_cast<UINT>(entry.size_bytes);
     view.Format = indices_are_32_bit ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT;
     command_list_->IASetIndexBuffer(&view);
+    index_buffer_bound_ = true;
 }
 
 void D3D12CommandList::DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) {
+    ValidateDrawBindings(true);
     command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list_->DrawIndexedInstanced(index_count, instance_count, 0, 0, 0);
     owner_->CheckGpuErrors();
@@ -1027,7 +1070,17 @@ void D3D12CommandList::SetPushConstants(const void* data, std::uint32_t size_byt
     if (size_bytes % 4u != 0) {
         throw std::runtime_error("d3d12 backend: push constants must be a multiple of 4 bytes");
     }
+    if (bound_pipeline_ == PipelineHandle::kInvalid ||
+        owner_->PipelinePushConstantsSize(bound_pipeline_) == 0) {
+        throw std::runtime_error(
+            "d3d12 backend: SetPushConstants requires a pipeline with push constants");
+    }
+    if (size_bytes > owner_->PipelinePushConstantsSize(bound_pipeline_)) {
+        throw std::runtime_error(
+            "d3d12 backend: push constants exceed the pipeline's declared size");
+    }
     command_list_->SetGraphicsRoot32BitConstants(0, size_bytes / 4u, data, 0);
+    push_constants_set_ = true;
 }
 
 void D3D12CommandList::SetSampledTexture(TextureHandle texture, SamplerHandle sampler) {
@@ -1040,6 +1093,7 @@ void D3D12CommandList::SetSampledTexture(TextureHandle texture, SamplerHandle sa
     command_list_->SetDescriptorHeaps(static_cast<UINT>(std::size(heaps)), heaps);
     command_list_->SetGraphicsRootDescriptorTable(1, owner_->SrvGpuHandle(texture));
     command_list_->SetGraphicsRootDescriptorTable(2, owner_->SamplerGpuHandle(sampler));
+    sampled_texture_set_ = true;
 }
 
 void D3D12CommandList::SetVertexUniformBuffer(BufferHandle handle, std::uint32_t size_bytes) {
@@ -1053,10 +1107,50 @@ void D3D12CommandList::SetVertexUniformBuffer(BufferHandle handle, std::uint32_t
                                  "pipeline's declared uniform size");
     }
     const D3D12Device::BufferEntry& entry = owner_->BufferResource(handle);
+    if ((entry.usage & BufferUsage::kUniform) == BufferUsage::kNone) {
+        throw std::runtime_error("d3d12 backend: uniform binding requires a kUniform buffer");
+    }
     if (entry.size_bytes < size_bytes) {
         throw std::runtime_error("d3d12 backend: SetVertexUniformBuffer exceeds the buffer size");
     }
     command_list_->SetGraphicsRootConstantBufferView(3, entry.gpu_va);
+    vertex_uniform_buffer_set_ = true;
+}
+
+void D3D12CommandList::ValidateDrawBindings(bool indexed) const {
+    const char* draw_name = indexed ? "indexed draw" : "draw";
+    if (bound_pipeline_ == PipelineHandle::kInvalid) {
+        throw std::runtime_error(
+            std::format("d3d12 backend: {} requires a bound pipeline", draw_name));
+    }
+    if (rendering_target_ == nullptr) {
+        throw std::runtime_error(
+            std::format("d3d12 backend: {} requires active rendering", draw_name));
+    }
+    const bool has_vertex_input = owner_->PipelineHasVertexInput(bound_pipeline_);
+    if (has_vertex_input && !vertex_buffer_bound_) {
+        throw std::runtime_error(
+            std::format("d3d12 backend: {} requires a bound vertex buffer", draw_name));
+    }
+    if (indexed && !has_vertex_input) {
+        throw std::runtime_error(
+            "d3d12 backend: indexed draw requires a pipeline with vertex input");
+    }
+    if (indexed && !index_buffer_bound_) {
+        throw std::runtime_error("d3d12 backend: indexed draw requires a bound index buffer");
+    }
+    if (owner_->PipelinePushConstantsSize(bound_pipeline_) > 0 && !push_constants_set_) {
+        throw std::runtime_error(
+            std::format("d3d12 backend: {} requires push constants", draw_name));
+    }
+    if (owner_->PipelineSampleSlot(bound_pipeline_) > 0 && !sampled_texture_set_) {
+        throw std::runtime_error(
+            std::format("d3d12 backend: {} requires a sampled texture", draw_name));
+    }
+    if (owner_->PipelineVertexUniformSize(bound_pipeline_) > 0 && !vertex_uniform_buffer_set_) {
+        throw std::runtime_error(
+            std::format("d3d12 backend: {} requires a vertex uniform buffer", draw_name));
+    }
 }
 
 } // namespace jrpgmaker::rhi::d3d12

@@ -41,11 +41,24 @@ public:
     void CopyBufferToTexture(VkBuffer staging, VkImage destination, VkExtent3D extent);
 
 private:
+    void ValidateDrawBindings(bool indexed) const;
+    void BindSampleDescriptorSet();
+
     VulkanDevice* owner_ = nullptr;
     VkImage rendering_image_ = VK_NULL_HANDLE;
     VkDevice device_ = VK_NULL_HANDLE;
     VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
     PipelineHandle bound_pipeline_ = PipelineHandle::kInvalid;
+    bool vertex_buffer_bound_ = false;
+    bool index_buffer_bound_ = false;
+    bool push_constants_set_ = false;
+    bool sampled_texture_set_ = false;
+    bool vertex_uniform_buffer_set_ = false;
+    bool sampled_descriptor_ready_ = false;
+    bool uniform_descriptor_ready_ = false;
+    VkDescriptorImageInfo sampled_image_info_{};
+    VkDescriptorImageInfo sampler_info_{};
+    VkDescriptorBufferInfo uniform_buffer_info_{};
 };
 
 class VulkanDevice final : public IDevice {
@@ -109,10 +122,13 @@ private:
         VkDeviceMemory memory = VK_NULL_HANDLE;
         std::byte* mapped = nullptr;
         VkDeviceSize size = 0;
+        BufferUsage usage = BufferUsage::kNone;
     };
 
     struct PipelineEntry {
         VkPipeline pipeline = VK_NULL_HANDLE;
+        bool has_vertex_input = false;
+        std::uint32_t push_constants_size = 0;
         std::uint32_t sample_slot = 0;
         std::uint32_t vertex_uniform_size = 0;
     };
@@ -128,10 +144,13 @@ private:
     void UnregisterSwapchainTexture(TextureHandle handle);
     VkBuffer EnsureReadBackBuffer(TextureHandle handle);
     VkPipeline PipelineState(PipelineHandle handle);
+    bool PipelineHasVertexInput(PipelineHandle handle);
+    std::uint32_t PipelinePushConstantsSize(PipelineHandle handle);
     std::uint32_t PipelineSampleSlot(PipelineHandle handle);
     std::uint32_t PipelineVertexUniformSize(PipelineHandle handle);
     VkPipelineLayout PipelineLayout();
-    VkDescriptorSet SampleDescriptorSet();
+    VkDescriptorSetLayout SampleDescriptorSetLayout();
+    VkDescriptorSet AllocateSampleDescriptorSet();
     std::uint32_t FindMemoryType(std::uint32_t type_bits, VkMemoryPropertyFlags properties) const;
 
     VkInstance instance_ = VK_NULL_HANDLE;
@@ -142,8 +161,7 @@ private:
     VkCommandPool command_pool_ = VK_NULL_HANDLE;
     VkFence fence_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout sample_set_layout_ = VK_NULL_HANDLE;
-    VkDescriptorPool sample_pool_ = VK_NULL_HANDLE;
-    VkDescriptorSet sample_set_ = VK_NULL_HANDLE;
+    std::vector<VkDescriptorPool> sample_pools_;
     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
     bool swapchain_supported_ = false;
 

@@ -38,9 +38,10 @@ struct Joint {
 };
 
 // A joint hierarchy with inverse-bind matrices (glTF skin). Roots are joints
-// whose `parent` is kNullJoint. Local poses are composed along the parent
-// chain to world space, then multiplied by the inverse-bind matrix to get the
-// final per-joint bone matrix consumed by the vertex shader.
+// whose `parent` is kNullJoint. Joint array order is arbitrary; construction
+// rejects out-of-range parent indices and cycles. Local poses are composed
+// along the parent chain to world space, then multiplied by the inverse-bind
+// matrix to get the final per-joint bone matrix consumed by the vertex shader.
 class Skeleton {
 public:
     explicit Skeleton(std::vector<Joint> joints);
@@ -103,6 +104,12 @@ struct AnimationClip {
 
     [[nodiscard]] bool empty() const { return channels.empty() || duration_seconds <= 0.0f; }
 };
+
+enum class LocomotionState { kIdle, kWalk, kRun };
+
+[[nodiscard]] LocomotionState SelectLocomotionState(float horizontal_speed,
+                                                    float walk_threshold = 0.05f,
+                                                    float run_threshold = 2.5f);
 
 // Samples `clip` at `time_seconds` into local-space poses. Returns a pose whose
 // `joints` has one entry per joint of `skeleton` (identity for joints the clip

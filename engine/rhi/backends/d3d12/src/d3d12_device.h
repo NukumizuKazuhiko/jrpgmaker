@@ -44,12 +44,19 @@ public:
     void SetAllocator(ID3D12CommandAllocator* allocator) { allocator_ = allocator; }
 
 private:
+    void ValidateDrawBindings(bool indexed) const;
+
     D3D12Device* owner_ = nullptr;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator_;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> command_list_;
     ID3D12Resource* rendering_target_ = nullptr;
     D3D12_CPU_DESCRIPTOR_HANDLE rendering_rtv_{};
     PipelineHandle bound_pipeline_ = PipelineHandle::kInvalid;
+    bool vertex_buffer_bound_ = false;
+    bool index_buffer_bound_ = false;
+    bool push_constants_set_ = false;
+    bool sampled_texture_set_ = false;
+    bool vertex_uniform_buffer_set_ = false;
 };
 
 class D3D12Device final : public IDevice {
@@ -114,10 +121,13 @@ private:
         std::byte* mapped = nullptr;
         std::uint64_t size_bytes = 0;
         D3D12_GPU_VIRTUAL_ADDRESS gpu_va = 0;
+        BufferUsage usage = BufferUsage::kNone;
     };
 
     struct PipelineEntry {
         Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline;
+        bool has_vertex_input = false;
+        std::uint32_t push_constants_size = 0;
         std::uint32_t sample_slot = 0;
         std::uint32_t vertex_uniform_size = 0;
     };
@@ -136,6 +146,8 @@ private:
     void UnregisterSwapchainBuffer(TextureHandle handle);
     ID3D12Resource* EnsureReadBack(TextureHandle handle);
     ID3D12PipelineState* PipelineState(PipelineHandle handle);
+    bool PipelineHasVertexInput(PipelineHandle handle);
+    std::uint32_t PipelinePushConstantsSize(PipelineHandle handle);
     std::uint32_t PipelineSampleSlot(PipelineHandle handle);
     std::uint32_t PipelineVertexUniformSize(PipelineHandle handle);
     ID3D12RootSignature* RootSignature() { return root_signature_.Get(); }

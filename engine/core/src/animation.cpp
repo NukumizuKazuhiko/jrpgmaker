@@ -1,12 +1,27 @@
 #include "jrpgmaker/core/animation.hpp"
 
 #include <algorithm>
-#include <cassert>
+#include <cmath>
 #include <stdexcept>
 
 #include <glm/gtc/quaternion.hpp>
 
 namespace jrpgmaker::core {
+
+LocomotionState SelectLocomotionState(float horizontal_speed, float walk_threshold,
+                                      float run_threshold) {
+    if (walk_threshold < 0.0f || run_threshold < walk_threshold) {
+        throw std::invalid_argument("core: invalid locomotion thresholds");
+    }
+    const float speed = std::abs(horizontal_speed);
+    if (speed < walk_threshold) {
+        return LocomotionState::kIdle;
+    }
+    if (speed < run_threshold) {
+        return LocomotionState::kWalk;
+    }
+    return LocomotionState::kRun;
+}
 
 namespace {
 
@@ -40,22 +55,26 @@ glm::vec3 SampleVec3(const KeyframeChannel& channel, float t) {
     float fraction = 0.0f;
     const auto [lower, upper] = BracketingKeys(channel.times, t, fraction);
 
-    const std::size_t v0 = lower * per_key;
-    const std::size_t v1 = upper * per_key;
+    const bool is_cubic = channel.interpolation == AnimInterpolation::kCubicSpline;
+    const std::size_t stride = per_key * (is_cubic ? 3u : 1u);
+    const auto value_offset = [&](std::size_t key) {
+        return key * stride + (is_cubic ? per_key : 0u);
+    };
+    const std::size_t v0 = value_offset(lower);
+    const std::size_t v1 = value_offset(upper);
 
     if (channel.interpolation == AnimInterpolation::kStep || lower == upper) {
         return glm::vec3(channel.values[v0], channel.values[v0 + 1u], channel.values[v0 + 2u]);
     }
 
-    if (channel.interpolation == AnimInterpolation::kCubicSpline) {
+    if (is_cubic) {
         // CUBICSPLINE packs per key: tangent-in, value, tangent-out (3 floats
         // each for TRS). Hermite: p(t) = (2t^3-3t^2+1)*p0 + (t^3-2t^2+t)*m0
         // + (-2t^3+3t^2)*p1 + (t^3-t^2)*m1, with tangents scaled by the key
         // delta (glTF requires dt scaling).
-        const std::size_t stride = per_key * 3u;
-        const std::size_t p0 = lower * stride + per_key;      // value of lower key
+        const std::size_t p0 = v0;                            // value of lower key
         const std::size_t m0 = lower * stride + per_key * 2u; // out-tangent of lower key
-        const std::size_t p1 = upper * stride + per_key;      // value of upper key
+        const std::size_t p1 = v1;                            // value of upper key
         const std::size_t m1 = upper * stride;                // in-tangent of upper key
         const float dt = channel.times[upper] - channel.times[lower];
 
@@ -90,17 +109,21 @@ glm::quat SampleQuat(const KeyframeChannel& channel, float t) {
         return glm::quat(channel.values[offset + 3u], channel.values[offset],
                          channel.values[offset + 1u], channel.values[offset + 2u]);
     };
-    const glm::quat q0 = make_quat(lower * per_key);
+    const bool is_cubic = channel.interpolation == AnimInterpolation::kCubicSpline;
+    const std::size_t stride = per_key * (is_cubic ? 3u : 1u);
+    const auto value_offset = [&](std::size_t key) {
+        return key * stride + (is_cubic ? per_key : 0u);
+    };
+    const glm::quat q0 = make_quat(value_offset(lower));
     if (channel.interpolation == AnimInterpolation::kStep || lower == upper) {
-        return q0;
+        return is_cubic ? glm::normalize(q0) : q0;
     }
 
-    if (channel.interpolation == AnimInterpolation::kCubicSpline) {
+    if (is_cubic) {
         // Same Hermite layout as vectors, with 4-float values.
-        const std::size_t stride = per_key * 3u;
-        const std::size_t p0 = lower * stride + per_key;
+        const std::size_t p0 = value_offset(lower);
         const std::size_t m0 = lower * stride + per_key * 2u;
-        const std::size_t p1 = upper * stride + per_key;
+        const std::size_t p1 = value_offset(upper);
         const std::size_t m1 = upper * stride;
         const float dt = channel.times[upper] - channel.times[lower];
 
@@ -125,7 +148,7 @@ glm::quat SampleQuat(const KeyframeChannel& channel, float t) {
         return glm::quat(result.w, result.x, result.y, result.z);
     }
 
-    const glm::quat q1 = make_quat(upper * per_key);
+    const glm::quat q1 = make_quat(value_offset(upper));
     return glm::slerp(q0, q1, fraction);
 }
 
@@ -135,6 +158,25 @@ Skeleton::Skeleton(std::vector<Joint> joints) : joints_(std::move(joints)) {
     if (joints_.size() > kMaxBones) {
         throw std::invalid_argument("core: skeleton exceeds kMaxBones (" +
                                     std::to_string(kMaxBones) + ")");
+    }
+    for (std::size_t i = 0; i < joints_.size(); ++i) {
+        const std::int32_t parent = joints_[i].parent;
+        if (parent < kNullJoint ||
+            (parent != kNullJoint && static_cast<std::size_t>(parent) >= joints_.size())) {
+            throw std::invalid_argument("core: skeleton joint " + std::to_string(i) +
+                                        " has an out-of-range parent");
+        }
+    }
+    for (std::size_t i = 0; i < joints_.size(); ++i) {
+        std::size_t current = i;
+        std::size_t parent_hops = 0u;
+        while (joints_[current].parent != kNullJoint) {
+            current = static_cast<std::size_t>(joints_[current].parent);
+            ++parent_hops;
+            if (parent_hops >= joints_.size()) {
+                throw std::invalid_argument("core: skeleton joint hierarchy contains a cycle");
+            }
+        }
     }
 }
 
@@ -202,8 +244,9 @@ std::vector<glm::mat4> BoneMatrices(const Skeleton& skeleton, const SkeletonPose
     }
     const std::vector<Joint>& joints = skeleton.joints();
 
-    // Local matrices first, then compose along the parent chain (parents have
-    // lower indices by construction, so a single forward pass is enough).
+    // Local matrices first, then compose parent dependencies independently of
+    // the skin's joint-array order. Skeleton construction guarantees that the
+    // parent graph is in range and acyclic.
     std::vector<glm::mat4> world(joints.size());
     for (std::size_t i = 0; i < joints.size(); ++i) {
         const JointLocalPose& local = pose.joints[i];
@@ -212,12 +255,21 @@ std::vector<glm::mat4> BoneMatrices(const Skeleton& skeleton, const SkeletonPose
         local_matrix = glm::scale(local_matrix, local.scale);
         world[i] = local_matrix;
     }
-    for (std::size_t i = 0; i < joints.size(); ++i) {
-        if (joints[i].parent != kNullJoint) {
-            const std::size_t parent = static_cast<std::size_t>(joints[i].parent);
-            assert(parent < i && "joint parent must precede child in the array");
-            world[i] = world[parent] * world[i];
+    std::vector<bool> composed(joints.size(), false);
+    const auto compose_world = [&](const auto& self, std::size_t joint_index) -> void {
+        if (composed[joint_index]) {
+            return;
         }
+        const std::int32_t parent = joints[joint_index].parent;
+        if (parent != kNullJoint) {
+            const std::size_t parent_index = static_cast<std::size_t>(parent);
+            self(self, parent_index);
+            world[joint_index] = world[parent_index] * world[joint_index];
+        }
+        composed[joint_index] = true;
+    };
+    for (std::size_t i = 0; i < joints.size(); ++i) {
+        compose_world(compose_world, i);
     }
 
     std::vector<glm::mat4> bones(joints.size());

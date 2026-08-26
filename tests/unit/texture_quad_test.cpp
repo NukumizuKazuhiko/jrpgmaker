@@ -156,8 +156,9 @@ TEST_CASE("sampled texture quad matches the committed golden reference", "[rhi][
     command_list->Begin();
     command_list->BeginRendering(target, kClearColor);
     command_list->SetPipeline(pipeline);
-    command_list->SetSampledTexture(texture, sampler);
     command_list->SetVertexBuffer(vertex_buffer, kQuadStride);
+    REQUIRE_THROWS_AS(command_list->Draw(6, 1), std::runtime_error);
+    command_list->SetSampledTexture(texture, sampler);
     command_list->Draw(6, 1);
     command_list->EndRendering();
     command_list->End();

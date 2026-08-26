@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "width": 5,
+  "height": 5,
+  "origin": [-2.5, 0.0, -2.5],
+  "cell_size": 1.0,
+  "walkable": [true, true, true, true, true, true, true, false, true, true, true, true, false, true, true, true, true, false, true, true, true, true, true, true, true]
+}

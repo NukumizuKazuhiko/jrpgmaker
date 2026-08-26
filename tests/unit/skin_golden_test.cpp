@@ -211,6 +211,10 @@ void CheckSkinGolden(const char* golden_name, float time, float blend) {
     command_list->Begin();
     command_list->BeginRendering(target, kClearColor);
     command_list->SetPipeline(pipeline);
+    command_list->SetVertexBuffer(uploaded.front().vertex_buffer, kSkinnedStride);
+    command_list->SetIndexBuffer(uploaded.front().index_buffer, true);
+    REQUIRE_THROWS_AS(command_list->DrawIndexed(uploaded.front().index_count, 1),
+                      std::runtime_error);
     command_list->SetVertexUniformBuffer(uniform_buffer,
                                          static_cast<std::uint32_t>(uniform_data.size()));
     for (const UploadedMesh& item : uploaded) {

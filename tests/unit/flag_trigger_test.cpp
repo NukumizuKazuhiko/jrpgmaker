@@ -68,6 +68,7 @@ TEST_CASE("flag trigger rejects empty flag or target event id", "[domain][flag_t
 }
 
 TEST_CASE("flag trigger fires once on a rising edge", "[domain][flag_trigger]") {
+    // Regression coverage for indexed trigger lookup on every supported STL.
     EventBus bus;
     std::vector<std::string> fired;
     const FlagTriggerTable table = MakeTriggers(R"({

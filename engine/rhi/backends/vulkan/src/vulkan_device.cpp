@@ -235,6 +235,7 @@ std::unique_ptr<IDevice> VulkanDevice::Create() {
 
 VulkanDevice::~VulkanDevice() {
     if (device_ != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(device_);
         for (const auto& [key, entry] : pipelines_) {
             vkDestroyPipeline(device_, entry.pipeline, nullptr);
         }
@@ -244,11 +245,11 @@ VulkanDevice::~VulkanDevice() {
         if (pipeline_layout_ != VK_NULL_HANDLE) {
             vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
         }
+        for (const VkDescriptorPool pool : sample_pools_) {
+            vkDestroyDescriptorPool(device_, pool, nullptr);
+        }
         if (sample_set_layout_ != VK_NULL_HANDLE) {
             vkDestroyDescriptorSetLayout(device_, sample_set_layout_, nullptr);
-        }
-        if (sample_pool_ != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(device_, sample_pool_, nullptr);
         }
         for (const auto& [key, entry] : read_backs_) {
             vkFreeMemory(device_, entry.memory, nullptr);
@@ -365,7 +366,7 @@ void VulkanDevice::DestroyTexture(TextureHandle handle) {
     textures_.erase(destroy_it);
 }
 
-VkDescriptorSet VulkanDevice::SampleDescriptorSet() {
+VkDescriptorSetLayout VulkanDevice::SampleDescriptorSetLayout() {
     if (sample_set_layout_ == VK_NULL_HANDLE) {
         // The v0 sampled-texture slot binds two descriptors to the fragment
         // shader: binding 0 = the sampled image (matches register(t0) in the
@@ -404,29 +405,41 @@ VkDescriptorSet VulkanDevice::SampleDescriptorSet() {
         ThrowIfFailed(
             vkCreateDescriptorSetLayout(device_, &layout_info, nullptr, &sample_set_layout_),
             "vkCreateDescriptorSetLayout(sample)");
-
-        const VkDescriptorPoolSize pool_sizes[] = {
-            VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 1},
-            VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1},
-            VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1},
-        };
-        VkDescriptorPoolCreateInfo pool_info{};
-        pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_info.maxSets = 1;
-        pool_info.poolSizeCount = static_cast<std::uint32_t>(std::size(pool_sizes));
-        pool_info.pPoolSizes = pool_sizes;
-        ThrowIfFailed(vkCreateDescriptorPool(device_, &pool_info, nullptr, &sample_pool_),
-                      "vkCreateDescriptorPool(sample)");
-
-        VkDescriptorSetAllocateInfo allocate_info{};
-        allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocate_info.descriptorPool = sample_pool_;
-        allocate_info.descriptorSetCount = 1;
-        allocate_info.pSetLayouts = &sample_set_layout_;
-        ThrowIfFailed(vkAllocateDescriptorSets(device_, &allocate_info, &sample_set_),
-                      "vkAllocateDescriptorSets(sample)");
     }
-    return sample_set_;
+    return sample_set_layout_;
+}
+
+VkDescriptorSet VulkanDevice::AllocateSampleDescriptorSet() {
+    const VkDescriptorPoolSize pool_sizes[] = {
+        VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 1},
+        VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1},
+        VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1},
+    };
+    VkDescriptorPoolCreateInfo pool_info{};
+    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_info.maxSets = 1;
+    pool_info.poolSizeCount = static_cast<std::uint32_t>(std::size(pool_sizes));
+    pool_info.pPoolSizes = pool_sizes;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    ThrowIfFailed(vkCreateDescriptorPool(device_, &pool_info, nullptr, &pool),
+                  "vkCreateDescriptorPool(sample)");
+
+    VkDescriptorSetAllocateInfo allocate_info{};
+    allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocate_info.descriptorPool = pool;
+    allocate_info.descriptorSetCount = 1;
+    const VkDescriptorSetLayout layout = SampleDescriptorSetLayout();
+    allocate_info.pSetLayouts = &layout;
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    try {
+        ThrowIfFailed(vkAllocateDescriptorSets(device_, &allocate_info, &set),
+                      "vkAllocateDescriptorSets(sample)");
+        sample_pools_.push_back(pool);
+    } catch (...) {
+        vkDestroyDescriptorPool(device_, pool, nullptr);
+        throw;
+    }
+    return set;
 }
 
 VkPipelineLayout VulkanDevice::PipelineLayout() {
@@ -436,7 +449,7 @@ VkPipelineLayout VulkanDevice::PipelineLayout() {
         // sampled-texture descriptor set. Shared by all pipelines; those that
         // never sample simply never bind the set, and pipelines that never call
         // SetPushConstants leave the range unused.
-        SampleDescriptorSet();
+        SampleDescriptorSetLayout();
         const VkPushConstantRange push_constant_range{
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
             .offset = 0,
@@ -553,6 +566,10 @@ void VulkanDevice::UploadTexture(TextureHandle handle, const void* data,
 }
 
 PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
+    if (desc.push_constants_size > 64u || desc.push_constants_size % 4u != 0) {
+        throw std::runtime_error("vulkan backend: pipeline push constants must be a multiple of 4 "
+                                 "bytes and at most 64 bytes");
+    }
     struct ShaderModuleGuard {
         VkDevice device;
         VkShaderModule& vs;
@@ -692,6 +709,8 @@ PipelineHandle VulkanDevice::CreatePipeline(const GraphicsPipelineDesc& desc) {
     pipeline_info.layout = PipelineLayout();
 
     PipelineEntry entry{};
+    entry.has_vertex_input = desc.vertex_input.attributes != nullptr;
+    entry.push_constants_size = desc.push_constants_size;
     entry.sample_slot = desc.sample_slot;
     entry.vertex_uniform_size = desc.vertex_uniform_size;
     ThrowIfFailed(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
@@ -732,6 +751,7 @@ BufferHandle VulkanDevice::CreateBuffer(const BufferDesc& desc) {
 
     BufferEntry entry{};
     entry.size = desc.size_bytes;
+    entry.usage = desc.usage;
     VkBufferCreateInfo buffer_info{};
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buffer_info.size = desc.size_bytes;
@@ -798,6 +818,22 @@ VkPipeline VulkanDevice::PipelineState(PipelineHandle handle) {
         throw std::runtime_error("vulkan backend: unknown pipeline handle");
     }
     return it->second.pipeline;
+}
+
+bool VulkanDevice::PipelineHasVertexInput(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it == pipelines_.end()) {
+        throw std::runtime_error("vulkan backend: unknown pipeline handle");
+    }
+    return it->second.has_vertex_input;
+}
+
+std::uint32_t VulkanDevice::PipelinePushConstantsSize(PipelineHandle handle) {
+    const auto it = pipelines_.find(static_cast<std::uint64_t>(handle));
+    if (it == pipelines_.end()) {
+        throw std::runtime_error("vulkan backend: unknown pipeline handle");
+    }
+    return it->second.push_constants_size;
 }
 
 std::uint32_t VulkanDevice::PipelineSampleSlot(PipelineHandle handle) {
@@ -981,10 +1017,20 @@ VulkanCommandList::VulkanCommandList(VulkanDevice* owner)
 }
 
 void VulkanCommandList::Begin() {
+    ThrowIfFailed(vkResetCommandBuffer(command_buffer_, 0), "vkResetCommandBuffer");
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     ThrowIfFailed(vkBeginCommandBuffer(command_buffer_, &begin_info), "vkBeginCommandBuffer");
+    rendering_image_ = VK_NULL_HANDLE;
+    bound_pipeline_ = PipelineHandle::kInvalid;
+    vertex_buffer_bound_ = false;
+    index_buffer_bound_ = false;
+    push_constants_set_ = false;
+    sampled_texture_set_ = false;
+    vertex_uniform_buffer_set_ = false;
+    sampled_descriptor_ready_ = false;
+    uniform_descriptor_ready_ = false;
 }
 
 void VulkanCommandList::End() {
@@ -1116,29 +1162,44 @@ void VulkanCommandList::SetPipeline(PipelineHandle handle) {
     vkCmdBindPipeline(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       owner_->PipelineState(handle));
     bound_pipeline_ = handle;
+    push_constants_set_ = false;
+    sampled_texture_set_ = false;
+    vertex_uniform_buffer_set_ = false;
+    sampled_descriptor_ready_ = false;
+    uniform_descriptor_ready_ = false;
 }
 
 void VulkanCommandList::Draw(std::uint32_t vertex_count, std::uint32_t instance_count) {
+    ValidateDrawBindings(false);
     vkCmdDraw(command_buffer_, vertex_count, instance_count, 0, 0);
 }
 
 void VulkanCommandList::SetVertexBuffer(BufferHandle handle, std::uint32_t stride_bytes) {
     const VulkanDevice::BufferEntry& entry = owner_->BufferResource(handle);
+    if ((entry.usage & BufferUsage::kVertex) == BufferUsage::kNone) {
+        throw std::runtime_error("vulkan backend: vertex binding requires a kVertex buffer");
+    }
     if (stride_bytes == 0 || entry.size < stride_bytes) {
         throw std::runtime_error("vulkan backend: invalid vertex buffer stride");
     }
     const VkBuffer buffers[] = {entry.buffer};
     const VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(command_buffer_, 0, 1, buffers, offsets);
+    vertex_buffer_bound_ = true;
 }
 
 void VulkanCommandList::SetIndexBuffer(BufferHandle handle, bool indices_are_32_bit) {
     const VulkanDevice::BufferEntry& entry = owner_->BufferResource(handle);
+    if ((entry.usage & BufferUsage::kIndex) == BufferUsage::kNone) {
+        throw std::runtime_error("vulkan backend: index binding requires a kIndex buffer");
+    }
     vkCmdBindIndexBuffer(command_buffer_, entry.buffer, 0,
                          indices_are_32_bit ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
+    index_buffer_bound_ = true;
 }
 
 void VulkanCommandList::DrawIndexed(std::uint32_t index_count, std::uint32_t instance_count) {
+    ValidateDrawBindings(true);
     vkCmdDrawIndexed(command_buffer_, index_count, instance_count, 0, 0, 0);
 }
 
@@ -1146,8 +1207,18 @@ void VulkanCommandList::SetPushConstants(const void* data, std::uint32_t size_by
     if (data == nullptr || size_bytes == 0 || size_bytes > 64u) {
         throw std::runtime_error("vulkan backend: invalid push constants (v0: 64 bytes max)");
     }
+    if (bound_pipeline_ == PipelineHandle::kInvalid ||
+        owner_->PipelinePushConstantsSize(bound_pipeline_) == 0) {
+        throw std::runtime_error(
+            "vulkan backend: SetPushConstants requires a pipeline with push constants");
+    }
+    if (size_bytes > owner_->PipelinePushConstantsSize(bound_pipeline_)) {
+        throw std::runtime_error(
+            "vulkan backend: push constants exceed the pipeline's declared size");
+    }
     vkCmdPushConstants(command_buffer_, owner_->PipelineLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0,
                        size_bytes, data);
+    push_constants_set_ = true;
 }
 
 void VulkanCommandList::SetSampledTexture(TextureHandle texture, SamplerHandle sampler) {
@@ -1167,31 +1238,12 @@ void VulkanCommandList::SetSampledTexture(TextureHandle texture, SamplerHandle s
         throw std::runtime_error("vulkan backend: unknown sampler handle");
     }
 
-    VkDescriptorSet set = owner_->SampleDescriptorSet();
-
-    VkDescriptorImageInfo image_info{};
-    image_info.imageView = entry->view;
-    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    VkDescriptorImageInfo sampler_info{};
-    sampler_info.sampler = sampler_it->second.sampler;
-
-    VkWriteDescriptorSet writes[2]{};
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet = set;
-    writes[0].dstBinding = 0;
-    writes[0].descriptorCount = 1;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    writes[0].pImageInfo = &image_info;
-    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet = set;
-    writes[1].dstBinding = 1;
-    writes[1].descriptorCount = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-    writes[1].pImageInfo = &sampler_info;
-    vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
-
-    vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            owner_->PipelineLayout(), 0, 1, &set, 0, nullptr);
+    sampled_image_info_.imageView = entry->view;
+    sampled_image_info_.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    sampler_info_.sampler = sampler_it->second.sampler;
+    sampled_descriptor_ready_ = true;
+    BindSampleDescriptorSet();
+    sampled_texture_set_ = true;
 }
 
 void VulkanCommandList::SetVertexUniformBuffer(BufferHandle handle, std::uint32_t size_bytes) {
@@ -1205,28 +1257,89 @@ void VulkanCommandList::SetVertexUniformBuffer(BufferHandle handle, std::uint32_
                                  "pipeline's declared uniform size");
     }
     const VulkanDevice::BufferEntry& entry = owner_->BufferResource(handle);
+    if ((entry.usage & BufferUsage::kUniform) == BufferUsage::kNone) {
+        throw std::runtime_error("vulkan backend: uniform binding requires a kUniform buffer");
+    }
     if (entry.size < size_bytes) {
         throw std::runtime_error("vulkan backend: SetVertexUniformBuffer exceeds the buffer size");
     }
 
-    VkDescriptorSet set = owner_->SampleDescriptorSet();
+    uniform_buffer_info_.buffer = entry.buffer;
+    uniform_buffer_info_.offset = 0;
+    uniform_buffer_info_.range = size_bytes;
+    uniform_descriptor_ready_ = true;
+    BindSampleDescriptorSet();
+    vertex_uniform_buffer_set_ = true;
+}
 
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = entry.buffer;
-    buffer_info.offset = 0;
-    buffer_info.range = size_bytes;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = set;
-    write.dstBinding = 2;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    write.pBufferInfo = &buffer_info;
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-
+void VulkanCommandList::BindSampleDescriptorSet() {
+    VkDescriptorSet set = owner_->AllocateSampleDescriptorSet();
+    VkWriteDescriptorSet writes[3]{};
+    std::uint32_t write_count = 0;
+    if (sampled_descriptor_ready_) {
+        writes[write_count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[write_count].dstSet = set;
+        writes[write_count].dstBinding = 0;
+        writes[write_count].descriptorCount = 1;
+        writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        writes[write_count].pImageInfo = &sampled_image_info_;
+        ++write_count;
+        writes[write_count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[write_count].dstSet = set;
+        writes[write_count].dstBinding = 1;
+        writes[write_count].descriptorCount = 1;
+        writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+        writes[write_count].pImageInfo = &sampler_info_;
+        ++write_count;
+    }
+    if (uniform_descriptor_ready_) {
+        writes[write_count].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[write_count].dstSet = set;
+        writes[write_count].dstBinding = 2;
+        writes[write_count].descriptorCount = 1;
+        writes[write_count].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[write_count].pBufferInfo = &uniform_buffer_info_;
+        ++write_count;
+    }
+    vkUpdateDescriptorSets(device_, write_count, writes, 0, nullptr);
     vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             owner_->PipelineLayout(), 0, 1, &set, 0, nullptr);
+}
+
+void VulkanCommandList::ValidateDrawBindings(bool indexed) const {
+    const char* draw_name = indexed ? "indexed draw" : "draw";
+    if (bound_pipeline_ == PipelineHandle::kInvalid) {
+        throw std::runtime_error(
+            std::format("vulkan backend: {} requires a bound pipeline", draw_name));
+    }
+    if (rendering_image_ == VK_NULL_HANDLE) {
+        throw std::runtime_error(
+            std::format("vulkan backend: {} requires active rendering", draw_name));
+    }
+    const bool has_vertex_input = owner_->PipelineHasVertexInput(bound_pipeline_);
+    if (has_vertex_input && !vertex_buffer_bound_) {
+        throw std::runtime_error(
+            std::format("vulkan backend: {} requires a bound vertex buffer", draw_name));
+    }
+    if (indexed && !has_vertex_input) {
+        throw std::runtime_error(
+            "vulkan backend: indexed draw requires a pipeline with vertex input");
+    }
+    if (indexed && !index_buffer_bound_) {
+        throw std::runtime_error("vulkan backend: indexed draw requires a bound index buffer");
+    }
+    if (owner_->PipelinePushConstantsSize(bound_pipeline_) > 0 && !push_constants_set_) {
+        throw std::runtime_error(
+            std::format("vulkan backend: {} requires push constants", draw_name));
+    }
+    if (owner_->PipelineSampleSlot(bound_pipeline_) > 0 && !sampled_texture_set_) {
+        throw std::runtime_error(
+            std::format("vulkan backend: {} requires a sampled texture", draw_name));
+    }
+    if (owner_->PipelineVertexUniformSize(bound_pipeline_) > 0 && !vertex_uniform_buffer_set_) {
+        throw std::runtime_error(
+            std::format("vulkan backend: {} requires a vertex uniform buffer", draw_name));
+    }
 }
 
 } // namespace jrpgmaker::rhi::vulkan

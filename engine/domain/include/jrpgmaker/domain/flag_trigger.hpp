@@ -1,8 +1,8 @@
 #pragma once
 
 #include <functional>
+#include <map>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -58,6 +58,9 @@ public:
 
     FlagTriggerSystem(const FlagTriggerTable& table, core::EventBus& bus, TriggerCallback callback)
         : table_(table), bus_(bus), callback_(std::move(callback)) {
+        for (const FlagTrigger& trigger : table_.triggers) {
+            bindings_.emplace(trigger.flag, trigger.target_event_id);
+        }
         bus_.Subscribe<FlagChanged>([this](const FlagChanged& change) { OnFlagChanged(change); });
     }
 
@@ -70,6 +73,8 @@ private:
     const FlagTriggerTable& table_;
     core::EventBus& bus_;
     TriggerCallback callback_;
+    // Immutable lookup index built once from the parsed trigger table.
+    std::map<std::string, std::string> bindings_;
     // Flags currently holding true (rising edge already consumed).
     std::unordered_map<std::string, bool> armed_;
 };

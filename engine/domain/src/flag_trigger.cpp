@@ -64,15 +64,9 @@ FlagTriggerTable ParseFlagTriggers(const nlohmann::json& document) {
 }
 
 void FlagTriggerSystem::OnFlagChanged(const FlagChanged& change) {
-    // Look up a binding for this flag.
-    const FlagTrigger* binding = nullptr;
-    for (const FlagTrigger& trigger : table_.triggers) {
-        if (trigger.flag == change.flag) {
-            binding = &trigger;
-            break;
-        }
-    }
-    if (binding == nullptr) {
+    // Use the prebuilt table index so event delivery does not rescan triggers.
+    const auto binding = bindings_.find(change.flag);
+    if (binding == bindings_.end()) {
         return;
     }
 
@@ -87,7 +81,7 @@ void FlagTriggerSystem::OnFlagChanged(const FlagChanged& change) {
         return;
     }
     armed_[change.flag] = true;
-    callback_(binding->target_event_id);
+    callback_(binding->second);
 }
 
 } // namespace jrpgmaker::domain

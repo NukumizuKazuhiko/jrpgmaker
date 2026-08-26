@@ -1,5 +1,6 @@
 #include "jrpgmaker/domain/lua_binding.hpp"
 
+#include <iostream>
 #include <string>
 #include <utility>
 
@@ -34,7 +35,7 @@ struct LuaScriptEngine::Impl {
         events_api["run"] = [this](const std::string& event_id) { return event_trigger(event_id); };
         lua["events"] = events_api;
 
-        lua["log"] = [](const std::string& message) { (void) message; };
+        lua["log"] = [](const std::string& message) { std::clog << "[lua] " << message << '\n'; };
     }
 };
 

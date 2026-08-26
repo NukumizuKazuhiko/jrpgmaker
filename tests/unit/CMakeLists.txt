@@ -7,7 +7,8 @@ target_sources(
           asset_test.cpp camera_test.cpp async_loader_test.cpp event_bus_test.cpp flag_store_test.cpp
           event_script_test.cpp event_runner_test.cpp event_lint_test.cpp flag_trigger_test.cpp
           text_layout_test.cpp font_shaper_test.cpp lua_binding_test.cpp widget_test.cpp
-          animation_test.cpp)
+          animation_test.cpp character_controller_test.cpp pathfinding_test.cpp camera_rig_test.cpp
+          interaction_test.cpp map_data_test.cpp)
 target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::core jrpgmaker::domain jrpgmaker::rhi
                                                 jrpgmaker::shaders jrpgmaker::assetimport
                                                 jrpgmaker::ui Catch2::Catch2WithMain)

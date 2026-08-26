@@ -5,6 +5,8 @@
 // Usage:
 //   eventlint <file.json> [file2.json ...]
 //   eventlint --check-triggers <events.json> <triggers.json>
+//   eventlint --check-map <navigation.json> <collision.json> <interaction.json>
+//                     <camera.json> <events.json>
 //
 // Exit code:
 //   0  all files clean (schema parses, no lint errors; warnings allowed)
@@ -21,9 +23,11 @@
 
 #include <nlohmann/json.hpp>
 
+#include "jrpgmaker/core/map_data.hpp"
 #include "jrpgmaker/domain/event_lint.hpp"
 #include "jrpgmaker/domain/event_script.hpp"
 #include "jrpgmaker/domain/flag_trigger.hpp"
+#include "jrpgmaker/domain/interaction.hpp"
 
 namespace {
 
@@ -130,6 +134,39 @@ bool CheckTriggerReferences(const std::filesystem::path& events_path,
     return ok;
 }
 
+bool CheckMapReferences(const std::filesystem::path& navigation_path,
+                        const std::filesystem::path& collision_path,
+                        const std::filesystem::path& interaction_path,
+                        const std::filesystem::path& camera_path,
+                        const std::filesystem::path& events_path) {
+    const nlohmann::json navigation_document = LoadJson(navigation_path);
+    const nlohmann::json collision_document = LoadJson(collision_path);
+    const nlohmann::json interaction_document = LoadJson(interaction_path);
+    const nlohmann::json camera_document = LoadJson(camera_path);
+    const nlohmann::json events_document = LoadJson(events_path);
+    if (navigation_document.is_null() || collision_document.is_null() ||
+        interaction_document.is_null() || camera_document.is_null() || events_document.is_null()) {
+        return false;
+    }
+
+    try {
+        const auto navigation = jrpgmaker::core::ParseNavigationGrid(navigation_document);
+        const auto collision = jrpgmaker::core::ParseCollisionAabbs(collision_document);
+        const auto interactions = jrpgmaker::domain::ParseInteractionPoints(interaction_document);
+        const auto camera = jrpgmaker::core::ParseCameraRigData(camera_document);
+        jrpgmaker::domain::EventScript script =
+            jrpgmaker::domain::ParseEventScript(events_document);
+        jrpgmaker::domain::ValidateInteractionTargets(interactions, script);
+        std::cout << "map data clean: " << navigation.width() << "x" << navigation.height() << ", "
+                  << collision.size() << " collision boxes, " << interactions.size()
+                  << " interactions, " << camera.fixed_regions.size() << " camera regions\n";
+        return true;
+    } catch (const std::exception& error) {
+        std::cerr << "map data lint error: " << error.what() << '\n';
+        return false;
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -145,6 +182,15 @@ int main(int argc, char** argv) {
             return 2;
         }
         return CheckTriggerReferences(argv[2], argv[3]) ? 0 : 1;
+    }
+
+    if (std::string(argv[1]) == "--check-map") {
+        if (argc != 7) {
+            std::cerr << "eventlint --check-map requires <navigation.json> <collision.json> "
+                         "<interaction.json> <camera.json> <events.json>\n";
+            return 2;
+        }
+        return CheckMapReferences(argv[2], argv[3], argv[4], argv[5], argv[6]) ? 0 : 1;
     }
 
     bool all_ok = true;

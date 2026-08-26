@@ -36,7 +36,8 @@ glm::vec3 TranslationOf(const glm::mat4& matrix) {
 
 } // namespace
 
-TEST_CASE("gltf skin and animation import produces a skinned mesh", "[assetimport][p4]") {
+TEST_CASE("gltf skin and animation import produces a skinned mesh",
+          "[assetimport][p4][cubic-spline]") {
     const std::filesystem::path path = AssetPath("art/meshes/arm_skinned.gltf");
     REQUIRE(std::filesystem::exists(path));
 
@@ -82,13 +83,18 @@ TEST_CASE("gltf skin and animation import produces a skinned mesh", "[assetimpor
     REQUIRE(skeleton.joints()[0].parent == jrpgmaker::core::kNullJoint);
     REQUIRE(skeleton.joints()[1].parent == 0);
 
-    // Animations: idle + wave clips bound to the elbow joint.
-    REQUIRE(load->animations.size() == 2u);
+    // Animations: idle + wave + cubic clips bound to the elbow joint.
+    REQUIRE(load->animations.size() == 3u);
     const auto& idle = load->animations[0].clip;
     const auto& wave = load->animations[1].clip;
+    const auto& cubic = load->animations[2].clip;
     REQUIRE(idle.channels.size() == 1u);
     REQUIRE(wave.channels.size() == 1u);
     REQUIRE(wave.duration_seconds > 0.0f);
+    REQUIRE(cubic.channels.size() == 1u);
+    REQUIRE(cubic.channels[0].interpolation == jrpgmaker::core::AnimInterpolation::kCubicSpline);
+    REQUIRE(cubic.channels[0].times.size() == 2u);
+    REQUIRE(cubic.channels[0].values.size() == 24u);
 }
 
 TEST_CASE("gltf scene import builds a parent-child hierarchy", "[core][assetimport]") {

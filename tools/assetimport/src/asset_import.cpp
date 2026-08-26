@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <string>
 
@@ -457,18 +458,21 @@ bool BuildAnimations(const cgltf_data* data, const std::vector<SkeletonAsset>& s
             // CUBICSPLINE 9/12 = 3x per key).
             const bool is_rotation = keyframe.path == core::AnimPath::kRotation;
             const cgltf_size per_key_values = is_rotation ? 4u : 3u;
-            const cgltf_size expected =
-                sampler.output->count *
-                (sampler.interpolation == cgltf_interpolation_type_cubic_spline
-                     ? per_key_values * 3u
-                     : per_key_values);
+            const cgltf_size output_elements_per_key =
+                sampler.interpolation == cgltf_interpolation_type_cubic_spline ? 3u : 1u;
+            const bool output_count_matches =
+                sampler.output->count % output_elements_per_key == 0u &&
+                sampler.output->count / output_elements_per_key == sampler.input->count;
+            const bool output_float_count_fits =
+                sampler.output->count <= std::numeric_limits<cgltf_size>::max() / per_key_values;
             if (sampler.output->type != (is_rotation ? cgltf_type_vec4 : cgltf_type_vec3) ||
                 sampler.output->component_type != cgltf_component_type_r_32f ||
-                sampler.output->count * (is_rotation ? 4u : 3u) != expected) {
+                !output_count_matches || !output_float_count_fits) {
                 message = "animation " + std::to_string(a) +
                           " sampler has invalid output accessor layout";
                 return false;
             }
+            const cgltf_size expected = sampler.output->count * per_key_values;
             keyframe.values.resize(expected);
             const cgltf_size written =
                 cgltf_accessor_unpack_floats(sampler.output, keyframe.values.data(),

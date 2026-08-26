@@ -35,6 +35,14 @@ Skeleton TestArm() {
     return Skeleton(joints);
 }
 
+TEST_CASE("locomotion state follows controller horizontal speed", "[animation][locomotion]") {
+    REQUIRE(jrpgmaker::core::SelectLocomotionState(0.0f) ==
+            jrpgmaker::core::LocomotionState::kIdle);
+    REQUIRE(jrpgmaker::core::SelectLocomotionState(1.0f) ==
+            jrpgmaker::core::LocomotionState::kWalk);
+    REQUIRE(jrpgmaker::core::SelectLocomotionState(3.0f) == jrpgmaker::core::LocomotionState::kRun);
+}
+
 // A clip with one LINEAR rotation channel on joint 1: identity at t=0, `quat`
 // at t=1 over [0, duration].
 AnimationClip RotationClip(const char* name, const glm::quat& quat, float duration) {
@@ -59,6 +67,21 @@ TEST_CASE("skeleton rejects more than kMaxBones joints", "[core][animation]") {
     REQUIRE_THROWS_AS(Skeleton(std::move(joints)), std::invalid_argument);
 }
 
+TEST_CASE("skeleton rejects invalid parent chains", "[core][animation][joint-order]") {
+    SECTION("parent index is out of range") {
+        std::vector<Joint> joints(1);
+        joints[0].parent = 1;
+        REQUIRE_THROWS_AS(Skeleton(std::move(joints)), std::invalid_argument);
+    }
+
+    SECTION("parent chain contains a cycle") {
+        std::vector<Joint> joints(2);
+        joints[0].parent = 1;
+        joints[1].parent = 0;
+        REQUIRE_THROWS_AS(Skeleton(std::move(joints)), std::invalid_argument);
+    }
+}
+
 TEST_CASE("bind-pose sampling composes static TRS and cancels inverse binds", "[core][animation]") {
     const Skeleton skeleton = TestArm();
     const AnimationClip idle; // empty clip
@@ -76,6 +99,25 @@ TEST_CASE("bind-pose sampling composes static TRS and cancels inverse binds", "[
             CHECK(bones[1][c][r] == Catch::Approx(expected).margin(1e-5f));
         }
     }
+}
+
+TEST_CASE("bone matrices compose parents that appear later in joint order",
+          "[core][animation][joint-order]") {
+    std::vector<Joint> joints(2);
+    joints[0].name = "child";
+    joints[0].parent = 1;
+    joints[0].bind_translation = glm::vec3(0.0f, 2.0f, 0.0f);
+    joints[1].name = "parent";
+    joints[1].parent = jrpgmaker::core::kNullJoint;
+    joints[1].bind_translation = glm::vec3(3.0f, 0.0f, 0.0f);
+    const Skeleton skeleton(std::move(joints));
+
+    const SkeletonPose pose = SamplePose(skeleton, AnimationClip{}, 0.0f);
+    const std::vector<glm::mat4> bones = BoneMatrices(skeleton, pose);
+
+    CHECK(bones[0][3][0] == Catch::Approx(3.0f));
+    CHECK(bones[0][3][1] == Catch::Approx(2.0f));
+    CHECK(bones[1][3][0] == Catch::Approx(3.0f));
 }
 
 TEST_CASE("clip sampling interpolates rotations linearly", "[core][animation]") {
@@ -120,6 +162,48 @@ TEST_CASE("step interpolation holds the previous key", "[core][animation]") {
     const SkeletonPose at_end = SamplePose(skeleton, step_clip, 1.0f);
     CHECK(at_end.joints[1].translation.x == Catch::Approx(1.0f));
     CHECK(at_end.joints[1].translation.y == Catch::Approx(2.0f));
+}
+
+TEST_CASE("cubic spline sampling returns key values at clip endpoints",
+          "[core][animation][cubic-spline]") {
+    const Skeleton skeleton = TestArm();
+    AnimationClip cubic_clip;
+    cubic_clip.name = "cubic";
+    cubic_clip.duration_seconds = 1.0f;
+
+    KeyframeChannel translation;
+    translation.joint_index = 1;
+    translation.path = AnimPath::kTranslation;
+    translation.interpolation = AnimInterpolation::kCubicSpline;
+    translation.times = {0.0f, 1.0f};
+    // Per key: input tangent, value, output tangent. Deliberately use
+    // distinctive tangents so an incorrect endpoint offset cannot pass.
+    translation.values = {
+        10.0f, 11.0f, 12.0f, 1.0f, 2.0f, 3.0f, 20.0f, 21.0f, 22.0f,
+        30.0f, 31.0f, 32.0f, 4.0f, 5.0f, 6.0f, 40.0f, 41.0f, 42.0f,
+    };
+    cubic_clip.channels.push_back(translation);
+
+    KeyframeChannel rotation;
+    rotation.joint_index = 1;
+    rotation.path = AnimPath::kRotation;
+    rotation.interpolation = AnimInterpolation::kCubicSpline;
+    rotation.times = {0.0f, 1.0f};
+    rotation.values = {
+        0.1f, 0.2f, 0.3f, 0.4f, 0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 0.6f, 0.7f, 0.8f,
+        0.9f, 1.0f, 1.1f, 1.2f, 0.0f, 0.0f, 1.0f, 0.0f, 1.3f, 1.4f, 1.5f, 1.6f,
+    };
+    cubic_clip.channels.push_back(rotation);
+
+    const SkeletonPose start = SamplePose(skeleton, cubic_clip, 0.0f);
+    CHECK(start.joints[1].translation == glm::vec3(1.0f, 2.0f, 3.0f));
+    CHECK(start.joints[1].rotation.w == Catch::Approx(1.0f));
+    CHECK(start.joints[1].rotation.z == Catch::Approx(0.0f));
+
+    const SkeletonPose end = SamplePose(skeleton, cubic_clip, 1.0f);
+    CHECK(end.joints[1].translation == glm::vec3(4.0f, 5.0f, 6.0f));
+    CHECK(end.joints[1].rotation.w == Catch::Approx(0.0f).margin(1e-5f));
+    CHECK(end.joints[1].rotation.z == Catch::Approx(1.0f).margin(1e-5f));
 }
 
 TEST_CASE("blend mixes two poses by weight", "[core][animation]") {

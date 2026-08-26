@@ -134,7 +134,9 @@ TEST_CASE("triangle renders match the committed golden reference", "[rhi][golden
     command_list->Begin();
     command_list->BeginRendering(target, kClearColor);
     command_list->SetPipeline(pipeline);
+    REQUIRE_THROWS_AS(command_list->DrawIndexed(3, 1), std::runtime_error);
     command_list->SetVertexBuffer(vertex_buffer, kTriangleStride);
+    REQUIRE_THROWS_AS(command_list->DrawIndexed(3, 1), std::runtime_error);
     command_list->SetIndexBuffer(index_buffer, true);
     command_list->DrawIndexed(3, 1);
     command_list->EndRendering();

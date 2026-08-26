@@ -94,6 +94,9 @@ public:
     // True while a dialog/choice awaits host acknowledgement.
     bool IsDialogPending() const { return dialog_pending_; }
 
+    // The current choice options, or an empty vector for a plain dialog.
+    const std::vector<DialogOption>& pending_options() const { return pending_options_; }
+
     // True between Start() and event completion (an active, unfinished event).
     bool IsActive() const { return active_.has_value() && !finished_; }
 

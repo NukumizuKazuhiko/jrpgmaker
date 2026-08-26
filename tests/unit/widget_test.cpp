@@ -205,3 +205,19 @@ TEST_CASE("text block with no text collapses to zero size", "[ui][widget][textbl
     REQUIRE(NearlyEqual(area.width, 0.0f));
     REQUIRE(NearlyEqual(area.height, 0.0f));
 }
+
+TEST_CASE("text block with unusable font metrics collapses to zero size",
+          "[ui][widget][textblock]") {
+    Font font;
+    TextBlock unloaded(1u, &font, 24u);
+    unloaded.SetText("text");
+    const Rect unloaded_area = unloaded.Layout(Rect{4.0f, 8.0f, 200.0f, 40.0f});
+    REQUIRE(NearlyEqual(unloaded_area.width, 0.0f));
+    REQUIRE(NearlyEqual(unloaded_area.height, 0.0f));
+
+    TextBlock zero_height(2u, &font, 0u);
+    zero_height.SetText("text");
+    const Rect zero_height_area = zero_height.Layout(Rect{4.0f, 8.0f, 200.0f, 40.0f});
+    REQUIRE(NearlyEqual(zero_height_area.width, 0.0f));
+    REQUIRE(NearlyEqual(zero_height_area.height, 0.0f));
+}

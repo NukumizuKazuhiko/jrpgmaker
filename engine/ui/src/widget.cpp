@@ -71,7 +71,7 @@ void TextBlock::SetText(std::string text) {
 }
 
 Rect TextBlock::Layout(const Rect& available) {
-    if (font_ == nullptr || text_.empty()) {
+    if (font_ == nullptr || text_.empty() || pixel_height_ == 0 || font_->units_per_em() == 0) {
         const Rect empty{available.x, available.y, 0.0f, 0.0f};
         set_rect(empty);
         return empty;

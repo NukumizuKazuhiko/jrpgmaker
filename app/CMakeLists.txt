@@ -4,7 +4,8 @@ add_executable(jrpgmaker_app src/main.cpp)
 
 target_link_libraries(
   jrpgmaker_app
-  PRIVATE jrpgmaker::core jrpgmaker::rhi jrpgmaker::shaders SDL3::SDL3)
+  PRIVATE jrpgmaker::core jrpgmaker::domain jrpgmaker::assetimport jrpgmaker::rhi
+          jrpgmaker::shaders SDL3::SDL3)
 
 if(WIN32)
   target_link_libraries(jrpgmaker_app PRIVATE jrpgmaker::rhi_d3d12)

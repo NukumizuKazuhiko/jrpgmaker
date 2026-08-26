@@ -173,6 +173,11 @@ TEST_CASE("gltf scene renders through a camera against the golden reference",
     command_list->BeginRendering(target, kClearColor);
     command_list->SetPipeline(pipeline);
 
+    command_list->SetVertexBuffer(uploaded.front().vertex_buffer, kTriangleStride);
+    command_list->SetIndexBuffer(uploaded.front().index_buffer, true);
+    REQUIRE_THROWS_AS(command_list->DrawIndexed(uploaded.front().index_count, 1),
+                      std::runtime_error);
+
     // Column-major view-projection, 16 floats = 64 bytes (matches the shader).
     const glm::mat4 view_projection = camera.ViewProjection();
     command_list->SetPushConstants(&view_projection, 64);
