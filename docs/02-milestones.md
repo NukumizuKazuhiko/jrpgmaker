@@ -175,7 +175,7 @@
 - **最终停止条件**：两个插件替换实验成立；全局门禁全部通过；文档回写真实命令、测试数量、插件替换 diff 和端到端证据。
 - **建议提交**：`docs(p5): record plugin acceptance evidence`。
 
-**当前平台裁决（2026-08-27）**：Windows/D3D12 与 Linux/Vulkan/lavapipe 当前源码全量 CTest 均通过，Windows/Linux 各 **209/209**；macOS Debug/Release CI build+test、五组项目数据 lint、私有头审计和 format 均通过。Linux 复验期间 GCC `-Werror` 暴露测试聚合初始化缺字段，已补齐显式初始化后重新构建通过。仓库全部 137 个 C++ 源文件已用 clang-format 22.1.3 dry-run 通过。CI run `33052747956` 的 Linux Debug、golden-sync、shader-sync 未进入项目编译/比对：均在 vcpkg 安装 `libmount` 时遭遇上游镜像 502、SSL connect error 或 timeout；因此代码侧平台证据已齐，但全局门禁仍受外部依赖下载故障阻断，不能宣称三平台全局门禁完全关闭。
+**当前平台裁决（2026-08-27）**：Windows/D3D12 与 Linux/Vulkan/lavapipe 当前源码全量 CTest 均通过，Windows/Linux 各 **209/209**；macOS Debug/Release CI build+test、五组项目数据 lint、私有头审计、format、golden-sync 和 shader-sync 均通过。Linux 复验期间 GCC `-Werror` 暴露测试聚合初始化缺字段，已补齐显式初始化后重新构建通过。仓库全部 137 个 C++ 源文件已用 clang-format 22.1.3 dry-run 通过。CI run `33058546267` attempt 2 的 **11/11 jobs 全部成功**；其中首轮仅因 vcpkg 上游镜像下载波动失败的 Linux Release/data-lint 在缓存生效后重跑通过，UI DXIL 漂移也已用 CI 权威字节码修复。P5/P6 的三平台构建、测试、数据、格式、私有头、golden 和 shader 专项门禁已闭合。
 
 ## P6 渲染风格插件与演出
 
@@ -203,21 +203,21 @@
 - **已补齐**：`IRenderStyleAdapter::ValidateMaterial` 将材质 schema 解释权交给插件；两个参考插件分别校验 `base_color[4]` 与 `accent[4]`。app 已从项目清单创建 style adapter 并消费其 RenderPlan 清屏输出。
 - **已补齐**：app 的 `RenderPlanExecutor` resolver 在录制前调用当前 style adapter 的材质 validator；项目 manifest 通过安全相对路径选择材质实例，app 同时注册并按 `RenderPass.pipeline` 解析 `unlit`/`accent` 两套管线。app 将项目材质 parameters 编码为 opaque CBOR，两个 style adapter 分别解码自己的 schema 并将颜色消费到 RenderPass，同时保留参数字节到 draw；实际 glTF 纹理采样材质 pipeline 仍留待后续纹理渲染任务。
 
-### P6-3/P6-4 风格 Adapter（Windows/Linux 闭环，macOS CI build/test 已通过，2026-08-26）
+### P6-3/P6-4 风格 Adapter（Windows/Linux/macOS CI 闭环，2026-08-26）
 
 - **已落地**：`plugins/sample_unlit` 与 `plugins/sample_style` 两个真实 Adapter，均通过 `IRenderStyleAdapter` 与通用 `PluginRegistry` 创建；两者消费同一 `SceneSnapshot`，输出相同 draw 数据但不同 pass ID/clear color，证明 seam 未被单一画风字段塑形。
 - **测试证据**：`render_style_adapters_test.cpp` 验证两个 Adapter 的 descriptor、可替换 plan 和差异化输出；Windows/Linux 全量回归各 **183/183** 通过。
 - **已补齐**：app 读取 `project_demo.json`，通过集中注册入口和 registry 按 `render_style` 创建 adapter；`RenderPlanExecutor` 统一录制 pass、pipeline、mesh 和 draw，goldenimage 的两个 style 也经该 executor 进入 D3D12 离屏 RHI；两个 adapter 声明不同 pipeline key，golden 使用不同 pixel shader，生成两套基准图。
 - **已补齐**：`assets/data/render_resources_demo.json` 提供 schema 1 的 pipeline/mesh 目录，app 在录制前校验所有 plan 引用；项目清单、材质实例和资源目录共同完成 demo/accent 装配。
-- **剩余设计风险**：目录到 GPU handle 的最终加载器仍由 app 负责，尚未抽成独立资源服务；macOS 的 build/test 已由 CI run `33052747956` 验证，golden/shader 专项 job 因 vcpkg 上游依赖下载失败未执行到比对。
+- **剩余设计风险**：目录到 GPU handle 的最终加载器仍由 app 负责，尚未抽成独立资源服务；CI run `33058546267` attempt 2 已验证 macOS build/test、golden 和 shader 专项门禁。
 
-### P6-5/P6-6 演出合同与风格 golden（Windows/Linux 闭环，macOS CI build/test 已通过，2026-08-26）
+### P6-5/P6-6 演出合同与风格 golden（Windows/Linux/macOS CI 闭环，2026-08-26）
 
 - **已补齐**：`core::CutsceneTimeline/CutscenePlayer` 提供 schema 1、唯一 cue、确定性排序、时间窗口和一次性 event 触发；app 在 `kDomainSim` 将触发事件排入 EventRunner 队列；`audio::MixerBus` 提供有界 PCM voice、增益混合和完成回收，app 通过 SDL3 `SDL_AudioStream` 以有界队列消费混音并在事件启动时播放提示音；`ui::Theme` 提供 schema 1 数据解析、颜色/字号范围校验与 presentation-only spring 动效，app 启动加载主题文件；新增 clip-space colored-quad UI pass，主题 accent 经 UI 顶点数据进入 RHI，overlay 使用 load-op 保留场景内容。新增 `shaders/ui.hlsl` 及双后端生成物，新增 3 个合同测试。
 - **golden 门禁**：两个 `compare-style` CTest 已接入，Windows/D3D12 基准图已生成并用于本地比较。
 - **Windows 证据（2026-08-26）**：MSVC Debug 构建通过，`ctest --preset win-debug --output-on-failure` **183/183** 通过；音频设备不可用时 adapter 降级为日志并不阻断渲染主循环。项目清单新增安全相对路径 `material_document`，demo 与 accent 项目可分别装配对应材质实例。
 - **Linux 证据（2026-08-26）**：`cmake --build --preset linux-debug --parallel 2` 与 `ctest --preset linux-debug --output-on-failure` 均通过，Vulkan/lavapipe 全量 **183/183** 通过。
-- **未完成**：实际纹理材质 pipeline 和独立资源加载服务仍待补；macOS build/test 已通过，但 golden/shader 专项 job 因 vcpkg 上游依赖下载失败未执行到比对，因此 P6 的全局专项门禁仍未关闭。
+- **未完成**：实际 glTF 纹理采样材质 pipeline 和独立资源加载服务仍待补；它们不阻断本轮已闭合的插件材质参数消费和三平台专项门禁，另由 DEBT-029 跟踪。
 
 ## P7 工具链与竖切组装
 
