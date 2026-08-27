@@ -409,6 +409,44 @@ bool DecodeImage(const cgltf_image& image, const std::filesystem::path& source_p
     return true;
 }
 
+std::optional<TextureAsset> LoadTextureFileImpl(const std::filesystem::path& path,
+                                                GltfLoadError* error) {
+    const auto fail = [&](std::string message) -> std::optional<TextureAsset> {
+        if (error != nullptr) {
+            error->message = std::move(message);
+        }
+        return std::nullopt;
+    };
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    if (stbi_info(path.string().c_str(), &width, &height, &channels) == 0) {
+        return fail("texture file is missing or invalid");
+    }
+    if (width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
+        static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) >
+            16ull * 1024ull * 1024ull) {
+        return fail("texture file is too large or has invalid dimensions");
+    }
+    int decoded_width = 0;
+    int decoded_height = 0;
+    int decoded_channels = 0;
+    stbi_uc* pixels =
+        stbi_load(path.string().c_str(), &decoded_width, &decoded_height, &decoded_channels, 4);
+    if (pixels == nullptr) {
+        return fail("texture file failed to decode");
+    }
+    TextureAsset texture{.name = path.stem().string(),
+                         .source_uri = path.generic_string(),
+                         .width = static_cast<std::uint32_t>(decoded_width),
+                         .height = static_cast<std::uint32_t>(decoded_height),
+                         .rgba8 = {}};
+    texture.rgba8.assign(pixels, pixels + static_cast<std::size_t>(decoded_width) *
+                                              static_cast<std::size_t>(decoded_height) * 4u);
+    stbi_image_free(pixels);
+    return texture;
+}
+
 bool BuildMaterialPool(const cgltf_data* data, std::vector<TextureAsset>& textures,
                        const std::filesystem::path& source_path,
                        std::vector<MaterialAsset>& materials,
@@ -703,6 +741,11 @@ bool BuildAnimations(const cgltf_data* data, const std::vector<SkeletonAsset>& s
 }
 
 } // namespace
+
+std::optional<TextureAsset> LoadTextureFile(const std::filesystem::path& path,
+                                            GltfLoadError* error) {
+    return LoadTextureFileImpl(path, error);
+}
 
 std::optional<core::MeshData> LoadGltfMesh(const std::filesystem::path& path,
                                            GltfLoadError* error) {

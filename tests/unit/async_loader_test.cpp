@@ -50,7 +50,7 @@ TEST_CASE("async loader parses a glTF mesh in the background", "[core][assetimpo
     AsyncLoader loader;
     std::optional<MeshData> received;
     bool callback_called = false;
-    loader.Submit(path, [&](std::filesystem::path, std::optional<MeshData> mesh) {
+    (void) loader.Submit(path, [&](std::filesystem::path, std::optional<MeshData> mesh) {
         callback_called = true;
         received = std::move(mesh);
     });
@@ -69,11 +69,11 @@ TEST_CASE("async loader reports a missing file via a nullopt callback",
     AsyncLoader loader;
     std::optional<MeshData> received;
     bool callback_called = false;
-    loader.Submit(AssetPath("art/meshes/does_not_exist.gltf"),
-                  [&](std::filesystem::path, std::optional<MeshData> mesh) {
-                      callback_called = true;
-                      received = std::move(mesh);
-                  });
+    (void) loader.Submit(AssetPath("art/meshes/does_not_exist.gltf"),
+                         [&](std::filesystem::path, std::optional<MeshData> mesh) {
+                             callback_called = true;
+                             received = std::move(mesh);
+                         });
 
     Drain(loader);
     REQUIRE(callback_called);
@@ -86,10 +86,10 @@ TEST_CASE("async loader dispatches callbacks in submission order", "[core][asset
 
     AsyncLoader loader;
     std::vector<std::string> order;
-    loader.Submit(triangle, [&](std::filesystem::path, std::optional<MeshData>) {
+    (void) loader.Submit(triangle, [&](std::filesystem::path, std::optional<MeshData>) {
         order.push_back("first");
     });
-    loader.Submit(
+    (void) loader.Submit(
         scene, [&](std::filesystem::path, std::optional<MeshData>) { order.push_back("second"); });
 
     Drain(loader);
@@ -104,7 +104,7 @@ TEST_CASE("async loader results register into the asset registry", "[core][asset
     AsyncLoader loader;
     AssetRegistry registry;
     AssetHandle registered = AssetHandle::kInvalid;
-    loader.Submit(path, [&](std::filesystem::path, std::optional<MeshData> mesh) {
+    (void) loader.Submit(path, [&](std::filesystem::path, std::optional<MeshData> mesh) {
         if (mesh.has_value()) {
             registered = registry.RegisterMesh(*mesh);
         }
@@ -115,4 +115,47 @@ TEST_CASE("async loader results register into the asset registry", "[core][asset
     REQUIRE(registry.live_count() == 1);
     REQUIRE(registry.FindMesh(registered) != nullptr);
     REQUIRE(registry.FindMesh(registered)->vertex_count() == 3);
+}
+
+TEST_CASE("async loader decodes a texture with bounded CPU work", "[core][assetimport][async]") {
+    AsyncLoader loader;
+    std::optional<jrpgmaker::assetimport::TextureAsset> received;
+    std::string error;
+    REQUIRE(loader.SubmitTexture(
+        AssetPath("art/meshes/triangle_albedo.ppm"),
+        [&](std::filesystem::path, jrpgmaker::assetimport::TextureLoadResult result) {
+            received = std::move(result.texture);
+            error = std::move(result.error);
+        }));
+
+    Drain(loader);
+    REQUIRE(received.has_value());
+    REQUIRE(received->width > 0);
+    REQUIRE(received->height > 0);
+    REQUIRE(received->rgba8.size() ==
+            static_cast<std::size_t>(received->width) * received->height * 4u);
+    REQUIRE(error.empty());
+}
+
+TEST_CASE("async loader reports texture decode errors", "[core][assetimport][async]") {
+    AsyncLoader loader;
+    jrpgmaker::assetimport::TextureLoadResult received;
+    REQUIRE(loader.SubmitTexture(
+        AssetPath("art/meshes/does_not_exist.ppm"),
+        [&](std::filesystem::path, jrpgmaker::assetimport::TextureLoadResult result) {
+            received = std::move(result);
+        }));
+
+    Drain(loader);
+    REQUIRE_FALSE(received.texture.has_value());
+    REQUIRE_FALSE(received.error.empty());
+}
+
+TEST_CASE("async loader applies a finite pending request bound", "[core][assetimport][async]") {
+    AsyncLoader loader(1);
+    REQUIRE(loader.Submit(AssetPath("art/meshes/triangle.gltf"),
+                          [](std::filesystem::path, std::optional<MeshData>) {}));
+    REQUIRE_FALSE(loader.Submit(AssetPath("art/meshes/scene_hierarchy.gltf"),
+                                [](std::filesystem::path, std::optional<MeshData>) {}));
+    Drain(loader);
 }

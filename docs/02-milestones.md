@@ -276,6 +276,14 @@
 - **Linux 证据**：WSL2 原生 Vulkan/lavapipe 全新配置、构建与全量 CTest **214/214** 通过，覆盖同一资源服务合同及既有 sampled/skinned texture 回归。
 - **CI 证据**：P8-2 代码 commit `908e86a` 的 CI run `33073849126` attempt 2 已成功通过 Windows/Linux/macOS Debug/Release、`format`、`private-headers`、`data-lint`、`golden-sync` 和 `shader-sync` 共 11 个 job；后续 commit `bd71867` 为 CI job 增加 30 分钟超时保护。文件解码后台调度、取消、压缩格式和更复杂的缓存淘汰策略不属于本子任务。
 
+### P8-3 运行时纹理异步装配（Windows 优先，2026-08-27）
+
+- **已落地**：`assetimport::LoadTextureFile` 只在 CPU 解码独立纹理文件为有界 RGBA8；`AsyncLoader` 增加纹理解码任务、错误诊断和有限容量（默认 64 个请求），容量统计包含排队、执行中及待 `Poll()` 结果，避免结果无人消费时无界增长。旧 mesh 回调合同保持可用。
+- **阶段接线**：app 在 `kDomainSim` Poll 解码结果并调用 `TextureResourceService::QueueUpload`；`kRenderSubmit` 每帧以有限批次 `PumpUploads`，资源未就绪或失败时只提交清帧，不让 RenderPlan 消费无效 sampled handle。GPU 纹理/采样器仍只由 `TextureResourceService` 创建和销毁。
+- **生命周期与诊断**：运行时对角色 glTF 外部纹理使用稳定资源 ID，ready 后 `Acquire`，退出时 GPU idle 后 `Release`/`Unload`；解码失败、队列耗尽和预算拒绝都通过 `TextureResourceStatus` 与 app 诊断队列可见。嵌入式/data URI 纹理直接形成 upload packet，不绕过资源服务。
+- **测试证据**：Windows MSVC 开发者环境下 `jrpgmaker_unit_tests` 和 `jrpgmaker_app` 构建通过；`ctest --preset win-debug --output-on-failure` **218/218** 通过，新增纹理解码成功/失败、有限队列、失败状态保留测试。WSL 当前返回 `E_ACCESSDENIED`，Linux/Vulkan 验收待后续环境恢复；macOS CI、golden/data-lint 和文档债务门禁待提交后由 CI 补验。
+- **明确范围外**：本子任务不实现取消 token、优先级调度、压缩纹理格式、热度淘汰、完整热重载，也不把 PBR 或渲染风格语义移入引擎；`LoadGltfScene` 的 glTF 场景解析合同仍保持同步，外部纹理运行时装配走异步文件解码。
+
 ---
 
 ## 风险清单

@@ -53,6 +53,12 @@ struct TextureAsset {
     [[nodiscard]] bool decoded() const { return !rgba8.empty(); }
 };
 
+// Decodes a standalone image file into tightly packed RGBA8 pixels. The
+// decoder is CPU-only and imposes the same bounded dimensions as glTF image
+// import; callers may hand the result to a GPU-owning upload service.
+std::optional<TextureAsset> LoadTextureFile(const std::filesystem::path& path,
+                                            GltfLoadError* error = nullptr);
+
 struct MaterialAsset {
     std::string name;
     glm::vec4 base_color_factor{1.0f};

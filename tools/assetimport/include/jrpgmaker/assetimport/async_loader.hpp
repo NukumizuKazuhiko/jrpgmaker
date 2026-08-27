@@ -1,6 +1,7 @@
 #pragma once
 
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
@@ -9,8 +10,10 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <variant>
 #include <vector>
 
+#include "jrpgmaker/assetimport/asset_import.hpp"
 #include "jrpgmaker/core/asset.hpp"
 #include "jrpgmaker/core/mesh.hpp"
 
@@ -21,6 +24,14 @@ namespace jrpgmaker::assetimport {
 // the only path that dispatches callbacks and is called from one thread.
 using MeshLoadedCallback =
     std::function<void(std::filesystem::path path, std::optional<core::MeshData> mesh)>;
+
+struct TextureLoadResult {
+    std::optional<TextureAsset> texture;
+    std::string error;
+};
+
+using TextureLoadedCallback =
+    std::function<void(std::filesystem::path path, TextureLoadResult result)>;
 
 // Background mesh loader (P2 async asset system). The worker thread only parses
 // glTF (LoadGltfMesh is a pure function); results are handed back to the
@@ -36,14 +47,17 @@ using MeshLoadedCallback =
 // caller can surface the error; the loader never throws.
 class AsyncLoader {
 public:
-    AsyncLoader();
+    explicit AsyncLoader(std::size_t max_pending = 64);
     ~AsyncLoader();
 
     AsyncLoader(const AsyncLoader&) = delete;
     AsyncLoader& operator=(const AsyncLoader&) = delete;
 
     // Queues a mesh load. `callback` is invoked from Poll on completion.
-    void Submit(const std::filesystem::path& path, MeshLoadedCallback callback);
+    [[nodiscard]] bool Submit(const std::filesystem::path& path, MeshLoadedCallback callback);
+
+    [[nodiscard]] bool SubmitTexture(const std::filesystem::path& path,
+                                     TextureLoadedCallback callback);
 
     // Runs all finished callbacks (submission order) on the calling thread.
     // Returns the number of callbacks dispatched.
@@ -55,13 +69,13 @@ public:
 private:
     struct Request {
         std::filesystem::path path;
-        MeshLoadedCallback callback;
+        std::variant<MeshLoadedCallback, TextureLoadedCallback> callback;
     };
 
     struct Finished {
         std::filesystem::path path;
-        std::optional<core::MeshData> mesh;
-        MeshLoadedCallback callback;
+        std::variant<std::optional<core::MeshData>, TextureLoadResult> result;
+        std::variant<MeshLoadedCallback, TextureLoadedCallback> callback;
     };
 
     void WorkerLoop();
@@ -72,6 +86,7 @@ private:
     std::deque<Finished> finished_;
     bool stop_ = false;
     bool worker_busy_ = false;
+    std::size_t max_pending_ = 64;
     std::unique_ptr<std::thread> worker_;
 };
 

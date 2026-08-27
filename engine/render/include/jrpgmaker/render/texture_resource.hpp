@@ -84,6 +84,11 @@ public:
     // must run on the thread that owns the RHI device.
     [[nodiscard]] TextureResourceQueueResult QueueUpload(TextureResourceUpload upload);
 
+    // Records a CPU-side decode or I/O failure without creating a GPU object.
+    // This keeps loading diagnostics observable through Status while retaining
+    // TextureResourceService as the sole resource owner.
+    [[nodiscard]] TextureResourceQueueResult RecordFailure(std::string id, std::string error);
+
     // Commits at most max_uploads queued uploads on the calling (GPU-owning)
     // thread. A zero limit means no work; callers must use an explicit finite
     // limit to preserve frame-time backpressure.

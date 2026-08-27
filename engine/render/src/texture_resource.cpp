@@ -143,6 +143,26 @@ TextureResourceQueueResult TextureResourceService::QueueUpload(TextureResourceUp
     return {.accepted = true, .merged = false, .error = {}};
 }
 
+TextureResourceQueueResult TextureResourceService::RecordFailure(std::string id,
+                                                                 std::string error) {
+    if (id.empty()) {
+        return {
+            .accepted = false, .merged = false, .error = "texture resource id must not be empty"};
+    }
+    if (error.empty()) {
+        error = "texture resource failed without a diagnostic";
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    Resource& resource = resources_[std::move(id)];
+    if (resource.state == TextureResourceState::kReady) {
+        return {
+            .accepted = false, .merged = false, .error = "cannot fail a ready texture resource"};
+    }
+    resource.state = TextureResourceState::kFailed;
+    resource.error = std::move(error);
+    return {.accepted = true, .merged = false, .error = {}};
+}
+
 std::size_t TextureResourceService::PumpUploads(std::size_t max_uploads) {
     std::size_t uploaded = 0;
     while (uploaded < max_uploads) {

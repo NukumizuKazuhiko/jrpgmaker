@@ -121,6 +121,26 @@ TEST_CASE("texture resource service queues, merges and unloads bounded uploads",
     device->WaitForGpuIdle();
 }
 
+TEST_CASE("texture resource service preserves decode failures as structured status",
+          "[render][p8]") {
+    const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
+    REQUIRE(device != nullptr);
+    jrpgmaker::render::TextureResourceService resources(*device);
+
+    const auto failed = resources.RecordFailure("missing.albedo", "texture file is missing");
+    REQUIRE(failed);
+    const auto status = resources.Status("missing.albedo");
+    REQUIRE(status.has_value());
+    REQUIRE(status->state == jrpgmaker::render::TextureResourceState::kFailed);
+    REQUIRE(status->error == "texture file is missing");
+    REQUIRE_FALSE(resources.Find("missing.albedo").has_value());
+    REQUIRE_FALSE(resources.Acquire("missing.albedo"));
+    REQUIRE(resources.Unload("missing.albedo"));
+    REQUIRE(resources.Status("missing.albedo")->state ==
+            jrpgmaker::render::TextureResourceState::kUnloaded);
+    device->WaitForGpuIdle();
+}
+
 constexpr std::uint32_t kQuadTextureSize = 2;
 constexpr std::uint32_t kQuadStride = 5u * sizeof(float);
 constexpr VertexAttribute kQuadAttributes[] = {

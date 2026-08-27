@@ -17,6 +17,7 @@
 #include <nlohmann/json.hpp>
 
 #include "jrpgmaker/assetimport/asset_import.hpp"
+#include "jrpgmaker/assetimport/async_loader.hpp"
 #include "jrpgmaker/audio/audio.hpp"
 #include "jrpgmaker/core/animation.hpp"
 #include "jrpgmaker/core/calendar.hpp"
@@ -316,23 +317,65 @@ auto main() -> int {
             throw std::runtime_error("failed to load animated character asset");
         }
         auto& character = *character_load;
+        // The service owns all GPU objects. The loader is declared after it so
+        // its worker is joined before the service is destroyed.
         jrpgmaker::render::TextureResourceService texture_resources(*device);
+        jrpgmaker::assetimport::AsyncLoader texture_loader;
+        std::vector<std::string> character_texture_ids;
+        std::vector<bool> character_texture_acquired;
+        std::deque<std::string> texture_errors;
+        const std::filesystem::path character_asset_path = "assets/art/meshes/arm_skinned.gltf";
         for (const auto& texture : character.textures) {
             const std::string resource_id =
                 !texture.name.empty() ? texture.name : texture.source_uri;
-            if (resource_id.empty() || !texture.decoded()) {
-                throw std::runtime_error("character texture has no stable id or decoded pixels");
+            if (resource_id.empty()) {
+                throw std::runtime_error("character texture has no stable id");
             }
-            const auto registered = texture_resources.Register(
-                {.id = resource_id,
-                 .width = texture.width,
-                 .height = texture.height,
-                 .rgba8 = texture.rgba8,
-                 .sampler = {.filter = jrpgmaker::rhi::SamplerFilter::kLinear,
-                             .address = jrpgmaker::rhi::SamplerAddress::kRepeat}});
-            if (!registered) {
-                throw std::runtime_error("failed to register character texture " + resource_id +
-                                         ": " + registered.error);
+            character_texture_ids.push_back(resource_id);
+            character_texture_acquired.push_back(false);
+            const auto sampler =
+                jrpgmaker::rhi::SamplerDesc{.filter = jrpgmaker::rhi::SamplerFilter::kLinear,
+                                            .address = jrpgmaker::rhi::SamplerAddress::kRepeat};
+            if (texture.source_uri.empty() || texture.source_uri.starts_with("data:")) {
+                const auto queued = texture_resources.QueueUpload({.id = resource_id,
+                                                                   .width = texture.width,
+                                                                   .height = texture.height,
+                                                                   .rgba8 = texture.rgba8,
+                                                                   .sampler = sampler});
+                if (!queued) {
+                    (void) texture_resources.RecordFailure(resource_id, queued.error);
+                }
+                continue;
+            }
+            const std::filesystem::path source_path =
+                character_asset_path.parent_path() / std::filesystem::path(texture.source_uri);
+            const bool submitted = texture_loader.SubmitTexture(
+                source_path,
+                [&texture_resources, &texture_errors, resource_id,
+                 sampler](std::filesystem::path, jrpgmaker::assetimport::TextureLoadResult result) {
+                    if (!result.texture.has_value()) {
+                        const std::string error =
+                            result.error.empty() ? "texture decode failed" : result.error;
+                        (void) texture_resources.RecordFailure(resource_id, error);
+                        texture_errors.push_back(resource_id + ": " + error);
+                        return;
+                    }
+                    const auto& texture = *result.texture;
+                    const auto queued =
+                        texture_resources.QueueUpload({.id = resource_id,
+                                                       .width = texture.width,
+                                                       .height = texture.height,
+                                                       .rgba8 = std::move(result.texture->rgba8),
+                                                       .sampler = sampler});
+                    if (!queued) {
+                        (void) texture_resources.RecordFailure(resource_id, queued.error);
+                        texture_errors.push_back(resource_id + ": " + queued.error);
+                    }
+                });
+            if (!submitted) {
+                (void) texture_resources.RecordFailure(resource_id,
+                                                       "texture decode request queue exhausted");
+                texture_errors.push_back(resource_id + ": texture decode request queue exhausted");
             }
         }
 
@@ -686,7 +729,9 @@ auto main() -> int {
             [&controller, &input, &obstacles, &interaction_system, &encounter_system, &event_runner,
              &character, &battle_plugin, &plugin_registry, &battle_session, &battle_result_events,
              character_entity, &pending_events, &cutscene_player, &game_clock, &schedule_system,
-             &pending_encounters, &flags, project_result](double delta) {
+             &pending_encounters, &flags, project_result, &texture_loader,
+             &texture_errors](double delta) {
+                texture_loader.Poll();
                 const bool in_battle = battle_session != nullptr;
                 controller.Move(in_battle ? glm::vec3(0.0f) : input.movement * 3.0f,
                                 static_cast<float>(delta), obstacles);
@@ -812,24 +857,27 @@ auto main() -> int {
                 }
                 input.confirm_requested = false;
             });
-        stages.RegisterSystem(jrpgmaker::core::Stage::kPresentationSync,
-                              {jrpgmaker::core::Stage::kPresentationSync, 0},
-                              [&prompt_projection, &dialog_projection](double) {
-                                  static std::string last_prompt;
-                                  static std::string last_dialog;
-                                  if (prompt_projection != last_prompt) {
-                                      std::cout
-                                          << (prompt_projection.empty()
-                                                  ? "prompt hidden\n"
-                                                  : "prompt shown: " + prompt_projection + "\n");
-                                      last_prompt = prompt_projection;
-                                  }
-                                  if (dialog_projection != last_dialog) {
-                                      std::cout << "dialog requested: " << dialog_projection
-                                                << '\n';
-                                      last_dialog = dialog_projection;
-                                  }
-                              });
+        stages.RegisterSystem(
+            jrpgmaker::core::Stage::kPresentationSync,
+            {jrpgmaker::core::Stage::kPresentationSync, 0},
+            [&prompt_projection, &dialog_projection, &texture_errors](double) {
+                static std::string last_prompt;
+                static std::string last_dialog;
+                while (!texture_errors.empty()) {
+                    std::cerr << "texture load failed: " << texture_errors.front() << '\n';
+                    texture_errors.pop_front();
+                }
+                if (prompt_projection != last_prompt) {
+                    std::cout << (prompt_projection.empty()
+                                      ? "prompt hidden\n"
+                                      : "prompt shown: " + prompt_projection + "\n");
+                    last_prompt = prompt_projection;
+                }
+                if (dialog_projection != last_dialog) {
+                    std::cout << "dialog requested: " << dialog_projection << '\n';
+                    last_dialog = dialog_projection;
+                }
+            });
         stages.RegisterSystem(
             jrpgmaker::core::Stage::kAnimation, {jrpgmaker::core::Stage::kAnimation, 0},
             [&controller, &camera_rig, &camera_data, &locomotion, &animation_time](double delta) {
@@ -851,7 +899,31 @@ auto main() -> int {
              ui_pipeline, ui_vertex_buffer, ui_index_buffer, &character, character_entity,
              character_skin_ref, character_mesh, &camera_rig, &animation_time, &locomotion,
              style = style_adapter, material_document, material_parameters, resource_catalog,
-             &texture_resources](double) mutable {
+             &texture_resources, &character_texture_ids,
+             &character_texture_acquired](double) mutable {
+                texture_resources.PumpUploads(2);
+                for (std::size_t i = 0; i < character_texture_ids.size(); ++i) {
+                    if (!character_texture_acquired[i] &&
+                        texture_resources.Acquire(character_texture_ids[i])) {
+                        character_texture_acquired[i] = true;
+                    }
+                }
+                const bool textures_ready = std::all_of(
+                    character_texture_ids.begin(), character_texture_ids.end(),
+                    [&texture_resources](const std::string& id) {
+                        const auto status = texture_resources.Status(id);
+                        return status.has_value() &&
+                               status->state == jrpgmaker::render::TextureResourceState::kReady;
+                    });
+                if (!textures_ready) {
+                    const jrpgmaker::rhi::TextureHandle back_buffer = swapchain->AcquireTexture();
+                    (void) back_buffer;
+                    command_list->Begin();
+                    command_list->End();
+                    device->Submit(*command_list);
+                    swapchain->Present();
+                    return;
+                }
                 const auto& skeleton =
                     character.skeletons[character_skin_ref.skeleton_index].skeleton;
                 const std::size_t clip_index =
@@ -1012,6 +1084,15 @@ auto main() -> int {
         // the last submitted command list and the shared allocator must not be
         // touched while the GPU may still reference them.
         device->WaitForGpuIdle();
+        texture_loader.Poll();
+        texture_resources.PumpUploads(character_texture_ids.size());
+        for (std::size_t i = 0; i < character_texture_ids.size(); ++i) {
+            if (character_texture_acquired[i]) {
+                (void) texture_resources.Release(character_texture_ids[i]);
+                character_texture_acquired[i] = false;
+            }
+            (void) texture_resources.Unload(character_texture_ids[i]);
+        }
         device->DestroyCommandList(command_list);
         device->DestroyBuffer(vertex_buffer);
         device->DestroyBuffer(index_buffer);
