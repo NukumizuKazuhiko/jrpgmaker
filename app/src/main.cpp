@@ -729,8 +729,7 @@ auto main() -> int {
             [&controller, &input, &obstacles, &interaction_system, &encounter_system, &event_runner,
              &character, &battle_plugin, &plugin_registry, &battle_session, &battle_result_events,
              character_entity, &pending_events, &cutscene_player, &game_clock, &schedule_system,
-             &pending_encounters, &flags, project_result, &texture_loader,
-             &texture_errors](double delta) {
+             &pending_encounters, &flags, project_result, &texture_loader](double delta) {
                 texture_loader.Poll();
                 const bool in_battle = battle_session != nullptr;
                 controller.Move(in_battle ? glm::vec3(0.0f) : input.movement * 3.0f,
