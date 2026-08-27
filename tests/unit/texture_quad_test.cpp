@@ -72,6 +72,55 @@ TEST_CASE("texture resource service validates and registers RGBA8 resources", "[
     device->WaitForGpuIdle();
 }
 
+TEST_CASE("texture resource service queues, merges and unloads bounded uploads", "[render][p8]") {
+    const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
+    REQUIRE(device != nullptr);
+    jrpgmaker::render::TextureResourceService resources(
+        *device, jrpgmaker::render::TextureResourceBudget{.max_resident_bytes = 4u});
+
+    const auto queued = resources.QueueUpload({.id = "queued.albedo",
+                                               .width = 1,
+                                               .height = 1,
+                                               .rgba8 = {65u, 66u, 67u, 255u},
+                                               .sampler = {}});
+    REQUIRE(queued);
+    REQUIRE_FALSE(queued.merged);
+    REQUIRE(resources.pending_count() == 1u);
+    REQUIRE(resources.Status("queued.albedo")->state ==
+            jrpgmaker::render::TextureResourceState::kLoading);
+
+    const auto merged = resources.QueueUpload({.id = "queued.albedo",
+                                               .width = 1,
+                                               .height = 1,
+                                               .rgba8 = {65u, 66u, 67u, 255u},
+                                               .sampler = {}});
+    REQUIRE(merged);
+    REQUIRE(merged.merged);
+    REQUIRE(resources.pending_count() == 1u);
+    REQUIRE(resources.PumpUploads(1u) == 1u);
+    REQUIRE(resources.Status("queued.albedo")->state ==
+            jrpgmaker::render::TextureResourceState::kReady);
+    REQUIRE(resources.resident_bytes() == 4u);
+    REQUIRE(resources.Acquire("queued.albedo"));
+    REQUIRE_FALSE(resources.Unload("queued.albedo"));
+    REQUIRE(resources.Release("queued.albedo"));
+    REQUIRE(resources.Unload("queued.albedo"));
+    REQUIRE_FALSE(resources.Find("queued.albedo").has_value());
+    REQUIRE(resources.Status("queued.albedo")->state ==
+            jrpgmaker::render::TextureResourceState::kUnloaded);
+    REQUIRE(resources.resident_bytes() == 0u);
+
+    const auto over_budget =
+        resources.QueueUpload({.id = "too-large.albedo",
+                               .width = 2,
+                               .height = 1,
+                               .rgba8 = {65u, 66u, 67u, 255u, 65u, 66u, 67u, 255u},
+                               .sampler = {}});
+    REQUIRE_FALSE(over_budget);
+    REQUIRE(over_budget.error.find("budget") != std::string::npos);
+    device->WaitForGpuIdle();
+}
+
 constexpr std::uint32_t kQuadTextureSize = 2;
 constexpr std::uint32_t kQuadStride = 5u * sizeof(float);
 constexpr VertexAttribute kQuadAttributes[] = {
