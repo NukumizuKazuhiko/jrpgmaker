@@ -14,6 +14,8 @@
 
 根目录 [AGENTS.md](../AGENTS.md) 为项目宪法适配层，独立维护，不入本索引编号序列。
 
+根目录 [LICENSE](../LICENSE) 声明本项目默认采用 GNU AGPL v3.0 或更高版本（SPDX：`AGPL-3.0-or-later`）。第三方依赖和素材仍以其各自许可证为准。
+
 ## 归档
 
 （空）
