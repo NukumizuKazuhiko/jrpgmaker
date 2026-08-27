@@ -23,7 +23,7 @@
 | `docs/README.md` | 真源索引：所有当前有效文档的唯一登记处 |
 | `docs/00-product.md` | 产品定义、目标游戏形态、边界、成功标准 |
 | `docs/01-architecture.md` | 分层 owner 与边界合同、技术栈锁定、目录结构 |
-| `docs/02-milestones.md` | P0–P7 里程碑、每阶段验收门禁与停止条件、风险清单 |
+| `docs/02-milestones.md` | P0–P12 里程碑、每阶段验收门禁与停止条件、风险清单 |
 | `docs/03-engine-survey.md` | 四引擎架构调研、对象模型重评证据、采纳/拒绝清单 |
 | `docs/04-debt-register.md` | 全部开放债务、设计风险与已接受噪音的唯一登记处 |
 
