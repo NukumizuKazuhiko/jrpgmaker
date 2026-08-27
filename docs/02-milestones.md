@@ -274,7 +274,7 @@
 - **已落地**：`TextureResourceService` 增加显式资源状态、线程安全 CPU 上传队列、重复请求合并、有限 resident byte budget、结构化失败诊断，以及 `Acquire/Release/Unload` 引用生命周期；后台生产者不触碰 RHI，`PumpUploads` 由 GPU-owning 线程执行。
 - **Windows 证据**：P8-2 定向纹理资源测试 **2/2** 通过，覆盖队列、合并、预算、引用保护和卸载；随后补入的 `size()`/`resident_bytes()` 读锁尚未在本机重编译，因当前 WinGet Ninja 链接为 0 字节且执行被拒绝，最终 Windows 构建留待 CI。
 - **Linux 证据**：WSL2 原生 Vulkan/lavapipe 全新配置、构建与全量 CTest **214/214** 通过，覆盖同一资源服务合同及既有 sampled/skinned texture 回归。
-- **剩余门禁**：P8-2 代码提交后的 CI 三平台 build/test、format、private-headers、data-lint、golden-sync 和 shader-sync 仍需在推送后闭合；文件解码后台调度、取消、压缩格式和更复杂的缓存淘汰策略不属于本子任务。
+- **CI 证据**：P8-2 代码 commit `908e86a` 的 CI run `33073849126` attempt 2 已成功通过 Windows/Linux/macOS Debug/Release、`format`、`private-headers`、`data-lint`、`golden-sync` 和 `shader-sync` 共 11 个 job；后续 commit `bd71867` 为 CI job 增加 30 分钟超时保护。文件解码后台调度、取消、压缩格式和更复杂的缓存淘汰策略不属于本子任务。
 
 ---
 
