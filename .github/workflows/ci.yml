@@ -7,6 +7,7 @@ on:
 
 jobs:
   build-test:
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -68,6 +69,7 @@ jobs:
           testPreset: '${{ matrix.preset }}'
 
   format:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -78,6 +80,7 @@ jobs:
           git ls-files '*.cpp' '*.hpp' '*.h' | xargs -r clang-format --dry-run --Werror
 
   shader-sync:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
@@ -129,6 +132,7 @@ jobs:
           path: shaders/generated/
 
   golden-sync:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
@@ -186,6 +190,7 @@ jobs:
             tests/golden/skin_blend_64x64.ppm
 
   private-headers:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -197,6 +202,7 @@ jobs:
         run: pwsh ./tools/ci/selftest_private_headers.ps1
 
   data-lint:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
