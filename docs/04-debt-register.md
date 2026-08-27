@@ -30,7 +30,7 @@
 | DEBT-026 | 2026-08-24 | `StageRunner::Tick` 每帧对全表 `std::sort`；注册时即可维护有序性 | 可记录债务 | 系统数小（v0 空占位），每帧排序成本可忽略 | Stage 成熟时改为注册期排序或按序插入 | 开放 |
 | DEBT-027 | 2026-08-24 | `EnabledInstanceExtensions` 对必需扩展（`VK_KHR_surface` 等）不支持时静默跳过而非硬失败，问题推迟到 CreateSwapchain 才暴露 | 可记录债务 | 离屏测试环境（lavapipe）可能缺 surface 扩展但无需 swapchain；静默跳过让离屏可用 | CreateSwapchain 已对 swapchain_supported_ 检查；若需更早失败可在 instance 创建时校验 surface 必需扩展 | 开放 |
 | DEBT-028 | 2026-08-24 | `vkAcquireNextImageKHR` 用 `VK_NULL_HANDLE` semaphore/fence：单线程+FIFO present 可用但非规范用法，无帧内同步信号量 | 可记录债务 | 当前单命令列表顺序执行、Present 前有 WaitForGpuIdle 间接同步；未暴露竞争 | 多帧 in-flight 或双缓冲流水线落地时引入 acquire semaphore + present wait semaphore | 开放 |
-| DEBT-029 | 2026-08-24 | 材质/纹理兼容输入曾未完整落地：cgltf 材质元数据、纹理解码及向渲染风格插件的交接需要独立 owner，不能由 engine/domain 解释 | 可记录债务 | P2 聚焦网格/变换/相机；RHI 采样能力先独立落地，避免引擎提前绑定固定材质模型 | P8-1 已完成 `stb_image` 解码、`SceneLoad` 保留 glTF material/texture 引用、独立 `TextureResourceService`、插件拥有的材质 schema/validator 及 sampled draw；后续仅保留异步流式加载、压缩格式和多材质批处理 | 部分关闭（Windows/D3D12 与 Linux/Vulkan 已完成实际 glTF textured draw、213/213 全量 CTest；**剩余：macOS CI 与 P8 专属 CI golden/data-lint/私有头门禁证据**） |
+| DEBT-029 | 2026-08-24 | 材质/纹理兼容输入曾未完整落地：cgltf 材质元数据、纹理解码及向渲染风格插件的交接需要独立 owner，不能由 engine/domain 解释 | 可记录债务 | P2 聚焦网格/变换/相机；RHI 采样能力先独立落地，避免引擎提前绑定固定材质模型 | P8-1 已完成 `stb_image` 解码、`SceneLoad` 保留 glTF material/texture 引用、独立 `TextureResourceService`、插件拥有的材质 schema/validator 及 sampled draw；后续仅保留异步流式加载、压缩格式和多材质批处理 | 已关闭（Windows/D3D12 与 Linux/Vulkan 本地全量 CTest 各 213/213；CI run `33070203706` 的三平台 Debug/Release、golden-sync、shader-sync、data-lint、私有头审计和 format 全部通过） |
 
 ## 已关闭
 

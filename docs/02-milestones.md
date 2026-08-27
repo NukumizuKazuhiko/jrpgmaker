@@ -267,7 +267,7 @@
 - **当前进度（2026-08-27，Windows 优先）**：已落地通用 `RenderDraw.sampled_texture` 资源 ID、schema 1 catalog 的 `textures` 列表、`TextureResourceService`（RGBA8 尺寸/字节数/重复 ID 校验、GPU texture/sampler 生命周期）和 RenderPlan sampled resolver；两个参考 style adapter 按各自 pipeline 选择消费该通用绑定；glTF importer 已导入 `TEXCOORD_0`，arm fixture 通过独立 UV buffer 保持 P4 骨骼 golden 字节不变，并绑定真实外部 PPM 纹理。
 - **Windows 已验证**：`cmake --build --preset win-debug`（MSVC 开发者环境）通过；`ctest --preset win-debug --output-on-failure` **213/213** 通过，新增 skinned glTF → UV → TextureResourceService → `skinned_textured.hlsl` → D3D12 采样测试通过，P4 三组 skin golden 与原 triangle golden 均通过；shader 生成脚本成功产出新增 DXIL/SPIR-V，`git diff --check` 通过。
 - **Linux 证据**：WSL2 原生 Vulkan/lavapipe 全新配置、构建与 CTest 通过，包含 P8 纹理资源服务、sampled quad 和 skinned glTF 实际采样用例；全量 **213/213** 通过。
-- **剩余平台门禁**：macOS CI，以及当前提交触发的 P8 专属 golden-sync/data-lint/私有头审计和 shader-sync 运行证据待补齐；这些是平台/发布门禁，不改变已闭合的 P8-1 代码主链。
+- **CI 证据**：run `33070203706` 的 Linux/Windows Debug+Release、macOS Debug+Release、golden-sync、shader-sync、data-lint、format 和 private-headers 共 11 个 job 全部成功；P8-1 的平台与专项门禁已闭合。
 
 ---
 
