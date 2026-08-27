@@ -227,7 +227,7 @@
 - **验收命令与证据**：存读档一致性自动化测试；竖切 demo 可玩全程零硬编码剧情的审计清单；docs/00 成功标准逐条勾稽。
 - **停止条件**：[00-product.md](00-product.md) 的 7 条成功标准全部有真实证据；完整第一可玩闭环达成（含自定义日期/日程与存档读档一致性）。
 
-### P7-1 可配置日历与游戏时钟（Windows 主线已完成，2026-08-27）
+### P7-1 可配置日历与游戏时钟（三平台已验收，2026-08-27）
 
 - **已落地**：`engine/core` 新增 `CalendarDefinition`、`GameDate` 与 `GameClock`。日历由 schema 1 JSON 提供月份长度和每周天数；时钟以绝对分钟推进，并确定性转换为年月日和日内分钟。
 - **数据 fixture**：`assets/data/calendar_demo.json` 是当前 demo 日历，不包含剧情或项目规则硬编码。
@@ -235,7 +235,7 @@
 - **边界修复**：`GameClock` 对极大年份在乘法前拒绝，避免绝对分钟计算溢出。
 - **测试证据**：Windows/D3D12 全量 ctest **197/197** 通过。
 
-### P7-2 版本化存档与迁移（Windows 主线已完成，2026-08-27）
+### P7-2 版本化存档与迁移（三平台已验收，2026-08-27）
 
 - **已落地**：`domain::SaveState` 保存日历 ID、日期、日内分钟和排序后的 true flags；`SerializeSave`/`ParseSave` 使用 schema 1 并拒绝缺字段、非法范围和重复 flag。
 - **迁移合同**：`MigrateAndParseSave` 只执行调用方显式提供的逐版本迁移函数；迁移未推进版本、缺步骤或目标版本更新时均失败，不静默改写存档语义。
@@ -243,7 +243,7 @@
 - **文件边界**：`ReadSaveFile` 限制输入为 4 MiB，拒绝负 schema；读写失败返回结构化错误，不静默恢复。
 - **测试证据**：`tests/unit/save_test.cpp` 覆盖存读一致性、显式 v0→v1 迁移、缺迁移步骤、负 schema、文件 I/O 和日历不匹配拒绝；Windows/D3D12 全量 ctest **197/197** 通过。
 
-### P7-3 日期/日程触发（Windows 主线已完成，2026-08-27）
+### P7-3 日期/日程触发（三平台已验收，2026-08-27）
 
 - **已落地**：`domain::ScheduleTable` 由 schema 1 JSON 驱动，按日历月份/日期/日内分钟声明目标事件；`ScheduleSystem` 只在跨过触发时刻时发出事件 ID，按触发时间和稳定 ID 排序，并拒绝回退时钟或不匹配日历。
 - **引用校验**：`ValidateScheduleTargets` 在数据边界拒绝悬空事件引用；运行时不把未知目标静默转为空操作。
@@ -251,7 +251,7 @@
 - **测试证据**：`tests/unit/schedule_test.cpp` 覆盖日期范围、事件引用、跨时刻稳定排序、重复轮询、回退时钟、超大轮询范围和完整日历不匹配；Windows/D3D12 全量 ctest **197/197** 通过。
 - **已接线**：app 在固定 `kDomainSim` tick 推进 `GameClock`，将 `ScheduleSystem` 输出加入既有待处理事件队列；`eventlint --check-schedule` 统一校验日历、日程和事件三方引用。
 
-### P7-4 竖切与存档接线（Windows 主线已完成，2026-08-27）
+### P7-4 竖切与存档接线（三平台已验收，2026-08-27）
 
 - **已落地**：app 已加载 `calendar_demo.json`/`schedule_demo.json`，日程目标经过事件引用校验；F5 写入 `save_slot_0.json`，F9 经迁移感知 reader 读取并恢复时钟与 flags；事件仍统一从 pending queue 在 EventRunner 边界启动。
 - **一致性边界**：由于 schema 1 尚未持久化 EventRunner 程序计数器和待处理事件队列，app 只允许在 EventRunner 空闲且 pending queue 为空时 F5/F9，避免恢复出分叉的半执行事件。
@@ -259,7 +259,7 @@
 - **内容预算合同**：`vertical_slice_demo.json` 以 6 个数据 beat 声明 1800 秒内容，`ParseVerticalSliceDefinition` 在解析期拒绝短内容、重复 beat 和非法时长；`eventlint --check-vertical-slice` 校验全部 beat 的事件引用。
 - **端到端证据**：`p7_vertical_slice_test.cpp` 覆盖日程触发 → EventRunner → 对话阻塞/确认 → flag 变更 → SaveState 恢复；Windows/D3D12 全量 ctest **197/197** 通过；`eventlint` 的 events、map、schedule、cutscene 检查均 exit 0。
 - **Windows 证据**：从仓库根目录启动同一构建出的 app，进程保持响应并成功完成资源/日历/日程/竖切数据初始化；GUI 自动化工具未能枚举 SDL 窗口，因此按可复现的进程存活、数据 lint 和 domain 端到端证据记录，不伪造按键操作证据。
-- **剩余平台边界**：Linux/macOS 构建与 macOS 门禁仍待后续平台验收；Windows P7 主线的代码、数据和自动化验收已闭合。
+- **三平台 CI 证据**：CI run `33058546267` attempt 2 的 Windows D3D12、Linux Vulkan、macOS build/test 全部通过；全量 ctest 209/209、data-lint、golden-sync、shader-sync、format 和私有头审计均通过。该矩阵覆盖 P7 的日历、存档、日程、竖切与对话恢复测试，因此 P7 的平台验收已闭合。
 
 ---
 
