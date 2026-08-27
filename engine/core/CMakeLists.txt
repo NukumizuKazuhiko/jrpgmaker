@@ -9,7 +9,7 @@ target_sources(
   jrpgmaker_core
   PRIVATE src/version.cpp src/stage.cpp src/scene.cpp src/asset.cpp src/camera.cpp
           src/animation.cpp src/character_controller.cpp src/pathfinding.cpp src/camera_rig.cpp
-          src/map_data.cpp
+          src/map_data.cpp src/calendar.cpp
   PUBLIC FILE_SET HEADERS BASE_DIRS include
                 FILES include/jrpgmaker/core/version.hpp include/jrpgmaker/core/stage.hpp
                      include/jrpgmaker/core/mesh.hpp include/jrpgmaker/core/scene.hpp
@@ -17,7 +17,8 @@ target_sources(
                      include/jrpgmaker/core/event_bus.hpp include/jrpgmaker/core/animation.hpp
                      include/jrpgmaker/core/character_controller.hpp
                      include/jrpgmaker/core/pathfinding.hpp include/jrpgmaker/core/camera_rig.hpp
-                     include/jrpgmaker/core/map_data.hpp)
+                     include/jrpgmaker/core/map_data.hpp include/jrpgmaker/core/cutscene.hpp
+                     include/jrpgmaker/core/calendar.hpp)
 
 target_include_directories(jrpgmaker_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

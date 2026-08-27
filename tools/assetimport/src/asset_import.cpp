@@ -7,6 +7,11 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <string_view>
+#include <vector>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -189,6 +194,7 @@ void ImportNode(const cgltf_node& gltf_node, core::Scene& scene, core::AssetRegi
                 std::vector<core::Entity>& node_entities, std::size_t node_index,
                 core::Entity parent,
                 const std::map<const cgltf_mesh*, core::AssetHandle>& mesh_pool,
+                const std::map<const cgltf_mesh*, std::size_t>& material_pool,
                 const std::map<const cgltf_node*, std::size_t>& node_indices,
                 const std::map<const cgltf_skin*, std::size_t>& skin_indices, std::string& message,
                 bool& ok) {
@@ -210,6 +216,10 @@ void ImportNode(const cgltf_node& gltf_node, core::Scene& scene, core::AssetRegi
         const auto it = mesh_pool.find(gltf_node.mesh);
         if (it != mesh_pool.end()) {
             scene.Registry().emplace<MeshRef>(entity, MeshRef{it->second});
+            const auto material_it = material_pool.find(gltf_node.mesh);
+            if (material_it != material_pool.end()) {
+                scene.Registry().emplace<MaterialRef>(entity, MaterialRef{material_it->second});
+            }
         }
     }
     // P4: nodes referencing a skin (glTF node.skin) attach a SkinRef so the
@@ -230,7 +240,7 @@ void ImportNode(const cgltf_node& gltf_node, core::Scene& scene, core::AssetRegi
         const auto child_it = node_indices.find(gltf_node.children[i]);
         const std::size_t child_index = child_it != node_indices.end() ? child_it->second : 0;
         ImportNode(*gltf_node.children[i], scene, assets, node_entities, child_index, entity,
-                   mesh_pool, node_indices, skin_indices, message, ok);
+                   mesh_pool, material_pool, node_indices, skin_indices, message, ok);
         if (!ok) {
             return;
         }
@@ -254,6 +264,189 @@ bool BuildMeshPool(const cgltf_data* data, core::AssetRegistry& assets,
             return false;
         }
         mesh_pool.emplace(&mesh, assets.RegisterMesh(mesh_data));
+    }
+    return true;
+}
+
+bool DecodeImage(const cgltf_image& image, const std::filesystem::path& source_path,
+                 TextureAsset& texture, std::string& message) {
+    std::vector<std::uint8_t> embedded;
+    const std::uint8_t* encoded_data = nullptr;
+    std::size_t encoded_size = 0;
+    const bool has_data_uri =
+        image.uri != nullptr && std::string_view(image.uri).starts_with("data:");
+    if (has_data_uri) {
+        const std::string_view uri(image.uri);
+        const std::size_t comma = uri.find(',');
+        if (comma == std::string_view::npos ||
+            uri.substr(0, comma).find(";base64") == std::string_view::npos) {
+            message = "embedded image must use base64 data URI";
+            return false;
+        }
+        const std::string_view encoded = uri.substr(comma + 1u);
+        auto decode = [](char value) -> int {
+            if (value >= 'A' && value <= 'Z')
+                return value - 'A';
+            if (value >= 'a' && value <= 'z')
+                return value - 'a' + 26;
+            if (value >= '0' && value <= '9')
+                return value - '0' + 52;
+            if (value == '+')
+                return 62;
+            if (value == '/')
+                return 63;
+            return -1;
+        };
+        int accumulator = 0;
+        int bits = -8;
+        for (const char value : encoded) {
+            if (value == '=')
+                break;
+            const int digit = decode(value);
+            if (digit < 0) {
+                message = "embedded image contains invalid base64";
+                return false;
+            }
+            accumulator = (accumulator << 6) | digit;
+            bits += 6;
+            if (bits >= 0) {
+                embedded.push_back(static_cast<std::uint8_t>((accumulator >> bits) & 0xff));
+                bits -= 8;
+            }
+        }
+        encoded_data = embedded.data();
+        encoded_size = embedded.size();
+    } else if (image.buffer_view != nullptr) {
+        const cgltf_buffer_view* view = image.buffer_view;
+        const auto* data = cgltf_buffer_view_data(view);
+        if (data == nullptr || view->size == 0) {
+            message = "embedded image bufferView is empty";
+            return false;
+        }
+        encoded_data = data;
+        encoded_size = static_cast<std::size_t>(view->size);
+    } else if (image.uri != nullptr && image.uri[0] != '\0') {
+        const std::filesystem::path image_path = source_path.parent_path() / image.uri;
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        if (stbi_info(image_path.string().c_str(), &width, &height, &channels) == 0) {
+            message = "external image is missing or invalid";
+            return false;
+        }
+        encoded_data = nullptr;
+        encoded_size = 0;
+        int decoded_width = 0;
+        int decoded_height = 0;
+        int decoded_channels = 0;
+        stbi_uc* pixels = stbi_load(image_path.string().c_str(), &decoded_width, &decoded_height,
+                                    &decoded_channels, 4);
+        if (pixels == nullptr) {
+            message = "external image failed to decode";
+            return false;
+        }
+        if (decoded_width > 4096 || decoded_height > 4096 ||
+            static_cast<std::uint64_t>(decoded_width) * static_cast<std::uint64_t>(decoded_height) >
+                16ull * 1024ull * 1024ull) {
+            stbi_image_free(pixels);
+            message = "external image is too large";
+            return false;
+        }
+        texture.width = static_cast<std::uint32_t>(decoded_width);
+        texture.height = static_cast<std::uint32_t>(decoded_height);
+        texture.rgba8.assign(pixels, pixels + static_cast<std::size_t>(decoded_width) *
+                                                  static_cast<std::size_t>(decoded_height) * 4u);
+        stbi_image_free(pixels);
+        return true;
+    } else {
+        return true;
+    }
+
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    if (encoded_size > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+        stbi_info_from_memory(encoded_data, static_cast<int>(encoded_size), &width, &height,
+                              &channels) == 0 ||
+        width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
+        static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) >
+            16ull * 1024ull * 1024ull) {
+        message = "embedded image is missing, invalid, or too large";
+        return false;
+    }
+    int decoded_width = 0;
+    int decoded_height = 0;
+    int decoded_channels = 0;
+    stbi_uc* pixels = stbi_load_from_memory(encoded_data, static_cast<int>(encoded_size),
+                                            &decoded_width, &decoded_height, &decoded_channels, 4);
+    if (pixels == nullptr) {
+        message = "embedded image failed to decode";
+        return false;
+    }
+    texture.width = static_cast<std::uint32_t>(decoded_width);
+    texture.height = static_cast<std::uint32_t>(decoded_height);
+    texture.rgba8.assign(pixels, pixels + static_cast<std::size_t>(decoded_width) *
+                                              static_cast<std::size_t>(decoded_height) * 4u);
+    stbi_image_free(pixels);
+    return true;
+}
+
+bool BuildMaterialPool(const cgltf_data* data, std::vector<TextureAsset>& textures,
+                       const std::filesystem::path& source_path,
+                       std::vector<MaterialAsset>& materials,
+                       std::map<const cgltf_mesh*, std::size_t>& material_pool,
+                       std::string& message) {
+    std::map<const cgltf_image*, std::size_t> texture_indices;
+    for (cgltf_size i = 0; i < data->images_count; ++i) {
+        const cgltf_image& image = data->images[i];
+        texture_indices.emplace(&image, textures.size());
+        TextureAsset texture{.name = image.name != nullptr ? image.name : "",
+                             .source_uri = image.uri != nullptr ? image.uri : "",
+                             .width = 0,
+                             .height = 0,
+                             .rgba8 = {}};
+        if (!DecodeImage(image, source_path, texture, message)) {
+            message = "texture " + std::to_string(i) + ": " + message;
+            return false;
+        }
+        textures.push_back(std::move(texture));
+    }
+
+    std::map<const cgltf_material*, std::size_t> material_indices;
+    for (cgltf_size i = 0; i < data->materials_count; ++i) {
+        const cgltf_material& material = data->materials[i];
+        MaterialAsset asset{.name = material.name != nullptr ? material.name : ""};
+        if (material.has_pbr_metallic_roughness) {
+            const auto& pbr = material.pbr_metallic_roughness;
+            asset.base_color_factor = glm::vec4(pbr.base_color_factor[0], pbr.base_color_factor[1],
+                                                pbr.base_color_factor[2], pbr.base_color_factor[3]);
+            asset.metallic_factor = pbr.metallic_factor;
+            asset.roughness_factor = pbr.roughness_factor;
+            if (pbr.base_color_texture.texture != nullptr &&
+                pbr.base_color_texture.texture->image != nullptr) {
+                const auto image_it = texture_indices.find(pbr.base_color_texture.texture->image);
+                if (image_it == texture_indices.end()) {
+                    message = "material " + std::to_string(i) + " references an unknown image";
+                    return false;
+                }
+                asset.base_color_texture = image_it->second;
+            }
+        }
+        material_indices.emplace(&material, materials.size());
+        materials.push_back(std::move(asset));
+    }
+
+    for (cgltf_size i = 0; i < data->meshes_count; ++i) {
+        const cgltf_mesh& mesh = data->meshes[i];
+        if (mesh.primitives_count == 0 || mesh.primitives[0].material == nullptr) {
+            continue;
+        }
+        const auto material_it = material_indices.find(mesh.primitives[0].material);
+        if (material_it == material_indices.end()) {
+            message = "mesh " + std::to_string(i) + " references an unknown material";
+            return false;
+        }
+        material_pool.emplace(&mesh, material_it->second);
     }
     return true;
 }
@@ -563,6 +756,11 @@ std::optional<SceneLoad> LoadGltfScene(const std::filesystem::path& path, GltfLo
         cgltf_free(data);
         return fail(std::move(message));
     }
+    std::map<const cgltf_mesh*, std::size_t> material_pool;
+    if (!BuildMaterialPool(data, result.textures, path, result.materials, material_pool, message)) {
+        cgltf_free(data);
+        return fail(std::move(message));
+    }
 
     // Skeletons and animations (P4): imported before node traversal so nodes can
     // attach a SkinRef. Animations bind to the first skin's joint ordering.
@@ -595,8 +793,8 @@ std::optional<SceneLoad> LoadGltfScene(const std::filesystem::path& path, GltfLo
             const auto it = node_indices.find(data->scene->nodes[i]);
             const std::size_t node_index = it != node_indices.end() ? it->second : 0;
             ImportNode(*data->scene->nodes[i], result.scene, result.assets, result.node_entities,
-                       node_index, core::kNullEntity, mesh_pool, node_indices, skin_indices,
-                       message, ok);
+                       node_index, core::kNullEntity, mesh_pool, material_pool, node_indices,
+                       skin_indices, message, ok);
             if (!ok) {
                 cgltf_free(data);
                 return fail(std::move(message));
@@ -606,8 +804,8 @@ std::optional<SceneLoad> LoadGltfScene(const std::filesystem::path& path, GltfLo
         for (cgltf_size i = 0; i < data->nodes_count; ++i) {
             if (data->nodes[i].parent == nullptr) {
                 ImportNode(data->nodes[i], result.scene, result.assets, result.node_entities,
-                           static_cast<std::size_t>(i), core::kNullEntity, mesh_pool, node_indices,
-                           skin_indices, message, ok);
+                           static_cast<std::size_t>(i), core::kNullEntity, mesh_pool, material_pool,
+                           node_indices, skin_indices, message, ok);
                 if (!ok) {
                     cgltf_free(data);
                     return fail(std::move(message));

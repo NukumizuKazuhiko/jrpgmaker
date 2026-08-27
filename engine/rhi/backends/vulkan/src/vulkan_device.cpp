@@ -1037,7 +1037,8 @@ void VulkanCommandList::End() {
     ThrowIfFailed(vkEndCommandBuffer(command_buffer_), "vkEndCommandBuffer");
 }
 
-void VulkanCommandList::BeginRendering(TextureHandle color_target, const ClearColor& clear_color) {
+void VulkanCommandList::BeginRendering(TextureHandle color_target, const ClearColor& clear_color,
+                                       bool clear_target) {
     const VulkanDevice::TextureEntry* entry = owner_->LookupTexture(color_target);
     rendering_image_ = entry->image;
 
@@ -1055,9 +1056,10 @@ void VulkanCommandList::BeginRendering(TextureHandle color_target, const ClearCo
 
     VkImageMemoryBarrier to_attachment{};
     to_attachment.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    to_attachment.srcAccessMask = 0;
+    to_attachment.srcAccessMask = clear_target ? 0 : VK_ACCESS_TRANSFER_READ_BIT;
     to_attachment.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    to_attachment.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    to_attachment.oldLayout =
+        clear_target ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     to_attachment.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     to_attachment.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     to_attachment.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -1065,7 +1067,9 @@ void VulkanCommandList::BeginRendering(TextureHandle color_target, const ClearCo
     to_attachment.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     to_attachment.subresourceRange.levelCount = 1;
     to_attachment.subresourceRange.layerCount = 1;
-    vkCmdPipelineBarrier(command_buffer_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+    vkCmdPipelineBarrier(command_buffer_,
+                         clear_target ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                                      : VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr,
                          1, &to_attachment);
 
@@ -1073,7 +1077,7 @@ void VulkanCommandList::BeginRendering(TextureHandle color_target, const ClearCo
     attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     attachment.imageView = entry->view;
     attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachment.loadOp = clear_target ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
     attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     attachment.clearValue.color = {{clear_color.r, clear_color.g, clear_color.b, clear_color.a}};
 

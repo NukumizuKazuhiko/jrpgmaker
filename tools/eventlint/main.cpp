@@ -24,10 +24,13 @@
 #include <nlohmann/json.hpp>
 
 #include "jrpgmaker/core/map_data.hpp"
+#include "jrpgmaker/domain/encounter.hpp"
 #include "jrpgmaker/domain/event_lint.hpp"
 #include "jrpgmaker/domain/event_script.hpp"
 #include "jrpgmaker/domain/flag_trigger.hpp"
 #include "jrpgmaker/domain/interaction.hpp"
+#include "jrpgmaker/domain/schedule.hpp"
+#include "jrpgmaker/domain/vertical_slice.hpp"
 
 namespace {
 
@@ -49,22 +52,9 @@ nlohmann::json LoadJson(const std::filesystem::path& path) {
     }
 }
 
-// Lints a single file. Returns false if the file fails to parse or has at
-// least one lint error. Warnings are printed but do not fail the file.
-bool LintFile(const std::filesystem::path& path) {
-    const nlohmann::json document = LoadJson(path);
-    if (document.is_null()) {
-        return false;
-    }
-
-    jrpgmaker::domain::EventScript script;
-    try {
-        script = jrpgmaker::domain::ParseEventScript(document);
-    } catch (const std::invalid_argument& error) {
-        std::cerr << path.string() << ": " << error.what() << '\n';
-        return false;
-    }
-
+// Lints a parsed script. Warnings are printed but do not fail the file.
+bool LintParsedScript(const std::filesystem::path& path,
+                      const jrpgmaker::domain::EventScript& script) {
     const std::vector<jrpgmaker::domain::LintIssue> issues =
         jrpgmaker::domain::LintEventScript(script);
     if (issues.empty()) {
@@ -85,6 +75,22 @@ bool LintFile(const std::filesystem::path& path) {
     return ok;
 }
 
+// Lints a single file. Returns false if the file fails to parse or has at
+// least one lint error.
+bool LintFile(const std::filesystem::path& path) {
+    const nlohmann::json document = LoadJson(path);
+    if (document.is_null()) {
+        return false;
+    }
+
+    try {
+        return LintParsedScript(path, jrpgmaker::domain::ParseEventScript(document));
+    } catch (const std::invalid_argument& error) {
+        std::cerr << path.string() << ": " << error.what() << '\n';
+        return false;
+    }
+}
+
 // Cross-checks a trigger table against an event script: every trigger's target
 // event id must exist in the script, otherwise firing the trigger silently
 // no-ops (EventRunner::Start returns false). Returns false on any failure.
@@ -97,6 +103,8 @@ bool CheckTriggerReferences(const std::filesystem::path& events_path,
     jrpgmaker::domain::EventScript script;
     try {
         script = jrpgmaker::domain::ParseEventScript(events_document);
+        if (!LintParsedScript(events_path, script))
+            return false;
     } catch (const std::invalid_argument& error) {
         std::cerr << events_path.string() << ": " << error.what() << '\n';
         return false;
@@ -156,6 +164,8 @@ bool CheckMapReferences(const std::filesystem::path& navigation_path,
         const auto camera = jrpgmaker::core::ParseCameraRigData(camera_document);
         jrpgmaker::domain::EventScript script =
             jrpgmaker::domain::ParseEventScript(events_document);
+        if (!LintParsedScript(events_path, script))
+            return false;
         jrpgmaker::domain::ValidateInteractionTargets(interactions, script);
         std::cout << "map data clean: " << navigation.width() << "x" << navigation.height() << ", "
                   << collision.size() << " collision boxes, " << interactions.size()
@@ -167,12 +177,107 @@ bool CheckMapReferences(const std::filesystem::path& navigation_path,
     }
 }
 
+bool CheckScheduleReferences(const std::filesystem::path& calendar_path,
+                             const std::filesystem::path& schedule_path,
+                             const std::filesystem::path& events_path) {
+    const nlohmann::json calendar_document = LoadJson(calendar_path);
+    const nlohmann::json schedule_document = LoadJson(schedule_path);
+    const nlohmann::json events_document = LoadJson(events_path);
+    if (calendar_document.is_null() || schedule_document.is_null() || events_document.is_null()) {
+        return false;
+    }
+    try {
+        const auto calendar_result = jrpgmaker::core::ParseCalendarDefinition(calendar_document);
+        if (!calendar_result.ok) {
+            throw std::invalid_argument(calendar_result.error);
+        }
+        const auto schedule =
+            jrpgmaker::domain::ParseScheduleTable(schedule_document, calendar_result.calendar);
+        const auto script = jrpgmaker::domain::ParseEventScript(events_document);
+        if (!LintParsedScript(events_path, script))
+            return false;
+        jrpgmaker::domain::ValidateScheduleTargets(schedule, script);
+        std::cout << "schedule data clean: " << schedule.entries.size() << " entries for "
+                  << calendar_result.calendar.id << '\n';
+        return true;
+    } catch (const std::exception& error) {
+        std::cerr << "schedule data lint error: " << error.what() << '\n';
+        return false;
+    }
+}
+
+bool CheckCutsceneReferences(const std::filesystem::path& cutscene_path,
+                             const std::filesystem::path& events_path) {
+    const nlohmann::json cutscene_document = LoadJson(cutscene_path);
+    const nlohmann::json events_document = LoadJson(events_path);
+    if (cutscene_document.is_null() || events_document.is_null())
+        return false;
+    try {
+        const auto timeline = jrpgmaker::core::ParseCutsceneTimeline(cutscene_document);
+        const auto script = jrpgmaker::domain::ParseEventScript(events_document);
+        if (!LintParsedScript(events_path, script))
+            return false;
+        jrpgmaker::domain::ValidateCutsceneTargets(timeline, script);
+        std::cout << "cutscene data clean: " << timeline.cues.size() << " cues\n";
+        return true;
+    } catch (const std::exception& error) {
+        std::cerr << "cutscene data lint error: " << error.what() << '\n';
+        return false;
+    }
+}
+
+bool CheckVerticalSliceReferences(const std::filesystem::path& slice_path,
+                                  const std::filesystem::path& events_path) {
+    const nlohmann::json slice_document = LoadJson(slice_path);
+    const nlohmann::json events_document = LoadJson(events_path);
+    if (slice_document.is_null() || events_document.is_null())
+        return false;
+    try {
+        const auto slice = jrpgmaker::domain::ParseVerticalSliceDefinition(slice_document);
+        const auto script = jrpgmaker::domain::ParseEventScript(events_document);
+        if (!LintParsedScript(events_path, script))
+            return false;
+        jrpgmaker::domain::ValidateVerticalSliceTargets(slice, script);
+        std::cout << "vertical slice data clean: " << slice.beats.size() << " beats, "
+                  << slice.total_duration_seconds << " seconds\n";
+        return true;
+    } catch (const std::exception& error) {
+        std::cerr << "vertical slice data lint error: " << error.what() << '\n';
+        return false;
+    }
+}
+
+bool CheckEncounterReferences(const std::filesystem::path& encounter_path,
+                              const std::filesystem::path& events_path) {
+    const nlohmann::json encounter_document = LoadJson(encounter_path);
+    const nlohmann::json events_document = LoadJson(events_path);
+    if (encounter_document.is_null() || events_document.is_null())
+        return false;
+    try {
+        const auto encounters = jrpgmaker::domain::ParseEncounterPoints(encounter_document);
+        const auto script = jrpgmaker::domain::ParseEventScript(events_document);
+        if (!LintParsedScript(events_path, script))
+            return false;
+        jrpgmaker::domain::ValidateEncounterTargets(encounters, script);
+        std::cout << "encounter data clean: " << encounters.size() << " points\n";
+        return true;
+    } catch (const std::exception& error) {
+        std::cerr << "encounter data lint error: " << error.what() << '\n';
+        return false;
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::cerr << "usage: eventlint <file.json> [file2.json ...]\n"
-                  << "       eventlint --check-triggers <events.json> <triggers.json>\n";
+        std::cerr
+            << "usage: eventlint <file.json> [file2.json ...]\n"
+            << "       eventlint --check-triggers <events.json> <triggers.json>\n"
+            << "       eventlint --check-schedule <calendar.json> <schedule.json> <events.json>\n"
+            << "       eventlint --check-cutscene <cutscene.json> <events.json>\n"
+            << "       eventlint --check-encounter <encounter.json> <events.json>\n"
+            << "       eventlint --check-vertical-slice <slice.json> <events.json>\n";
         return 2;
     }
 
@@ -182,6 +287,39 @@ int main(int argc, char** argv) {
             return 2;
         }
         return CheckTriggerReferences(argv[2], argv[3]) ? 0 : 1;
+    }
+
+    if (std::string(argv[1]) == "--check-schedule") {
+        if (argc != 5) {
+            std::cerr << "eventlint --check-schedule requires <calendar.json> <schedule.json> "
+                         "<events.json>\n";
+            return 2;
+        }
+        return CheckScheduleReferences(argv[2], argv[3], argv[4]) ? 0 : 1;
+    }
+
+    if (std::string(argv[1]) == "--check-cutscene") {
+        if (argc != 4) {
+            std::cerr << "eventlint --check-cutscene requires <cutscene.json> <events.json>\n";
+            return 2;
+        }
+        return CheckCutsceneReferences(argv[2], argv[3]) ? 0 : 1;
+    }
+
+    if (std::string(argv[1]) == "--check-vertical-slice") {
+        if (argc != 4) {
+            std::cerr << "eventlint --check-vertical-slice requires <slice.json> <events.json>\n";
+            return 2;
+        }
+        return CheckVerticalSliceReferences(argv[2], argv[3]) ? 0 : 1;
+    }
+
+    if (std::string(argv[1]) == "--check-encounter") {
+        if (argc != 4) {
+            std::cerr << "eventlint --check-encounter requires <encounter.json> <events.json>\n";
+            return 2;
+        }
+        return CheckEncounterReferences(argv[2], argv[3]) ? 0 : 1;
     }
 
     if (std::string(argv[1]) == "--check-map") {

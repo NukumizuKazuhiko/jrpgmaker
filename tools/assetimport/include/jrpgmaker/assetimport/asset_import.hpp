@@ -1,9 +1,12 @@
 #pragma once
 
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include <glm/vec4.hpp>
 
 #include "jrpgmaker/core/animation.hpp"
 #include "jrpgmaker/core/asset.hpp"
@@ -34,6 +37,30 @@ struct SkinRef {
     std::size_t skeleton_index = 0;
 };
 
+// Generic glTF material association. The render-style adapter decides how to
+// interpret the imported material values; assetimport does not select a style.
+struct MaterialRef {
+    std::size_t material_index = 0;
+};
+
+struct TextureAsset {
+    std::string name;
+    std::string source_uri;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::vector<std::uint8_t> rgba8;
+
+    [[nodiscard]] bool decoded() const { return !rgba8.empty(); }
+};
+
+struct MaterialAsset {
+    std::string name;
+    glm::vec4 base_color_factor{1.0f};
+    float metallic_factor = 1.0f;
+    float roughness_factor = 1.0f;
+    std::size_t base_color_texture = std::numeric_limits<std::size_t>::max();
+};
+
 // Skeleton data imported from a glTF skin: the joint hierarchy (with names and
 // parents) plus per-joint inverse-bind matrices. `joint_nodes` maps joint index
 // -> glTF node index, for callers that need node correspondence.
@@ -57,6 +84,8 @@ struct SceneLoad {
     core::AssetRegistry assets;
     std::vector<SkeletonAsset> skeletons;
     std::vector<AnimationAsset> animations;
+    std::vector<TextureAsset> textures;
+    std::vector<MaterialAsset> materials;
 
     // Maps glTF node index -> scene entity, for callers that need to keep the
     // correspondence (e.g. naming or traversal). Empty if the file has no nodes.

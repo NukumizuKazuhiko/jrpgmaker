@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "id": "demo.calendar",
+  "month_lengths": [30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+  "days_per_week": 7
+}

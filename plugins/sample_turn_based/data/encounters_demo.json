@@ -1,0 +1,6 @@
+{
+    "schema": 1,
+    "encounters": [
+        { "id": "demo.encounter", "required_actions": 2 }
+    ]
+}

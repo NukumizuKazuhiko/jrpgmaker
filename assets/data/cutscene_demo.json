@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "cues": [
+    {"id": "opening", "start": 0.0, "duration": 0.1, "event_id": "intro"}
+  ]
+}

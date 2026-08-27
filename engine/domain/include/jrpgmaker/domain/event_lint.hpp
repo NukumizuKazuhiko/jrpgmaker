@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "jrpgmaker/core/cutscene.hpp"
 #include "jrpgmaker/domain/event_script.hpp"
 
 namespace jrpgmaker::domain {
@@ -37,5 +38,10 @@ inline constexpr const char* ToString(LintSeverity severity) {
 // Reference resolution against i18n text tables is out of scope for v1
 // (docs/01: the text table schema lands with the i18n subtask).
 std::vector<LintIssue> LintEventScript(const EventScript& script);
+
+// Validates cutscene cue event IDs against the domain event script at the data
+// boundary; core owns cue timing, domain owns event identity.
+void ValidateCutsceneTargets(const core::CutsceneTimeline& timeline,
+                             const EventScript& event_script);
 
 } // namespace jrpgmaker::domain

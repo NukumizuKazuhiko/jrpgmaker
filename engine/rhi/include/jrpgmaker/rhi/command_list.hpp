@@ -19,7 +19,8 @@ public:
     virtual void Begin() = 0;
     virtual void End() = 0;
 
-    virtual void BeginRendering(TextureHandle color_target, const ClearColor& clear_color) = 0;
+    virtual void BeginRendering(TextureHandle color_target, const ClearColor& clear_color,
+                                bool clear_target = true) = 0;
     virtual void EndRendering() = 0;
 
     virtual void SetPipeline(PipelineHandle handle) = 0;

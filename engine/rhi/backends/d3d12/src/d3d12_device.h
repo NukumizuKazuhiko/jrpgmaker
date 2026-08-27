@@ -25,7 +25,8 @@ public:
 
     void Begin() override;
     void End() override;
-    void BeginRendering(TextureHandle color_target, const ClearColor& clear_color) override;
+    void BeginRendering(TextureHandle color_target, const ClearColor& clear_color,
+                        bool clear_target) override;
     void EndRendering() override;
     void SetPipeline(PipelineHandle handle) override;
     void Draw(std::uint32_t vertex_count, std::uint32_t instance_count) override;

@@ -18,18 +18,26 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <nlohmann/json.hpp>
 
 #include <jrpgmaker/assetimport/asset_import.hpp>
 #include <jrpgmaker/core/camera.hpp>
 #include <jrpgmaker/core/scene.hpp>
+#include <jrpgmaker/plugin/plugin.hpp>
+#include <jrpgmaker/plugins/register.hpp>
+#include <jrpgmaker/plugins/sample_style/style.hpp>
+#include <jrpgmaker/plugins/sample_unlit/unlit.hpp>
+#include <jrpgmaker/render/style.hpp>
 #include <jrpgmaker/rhi/command_list.hpp>
 #include <jrpgmaker/rhi/device.hpp>
 #include <jrpgmaker/rhi/device_factory.hpp>
@@ -65,6 +73,10 @@ constexpr VertexAttribute kTriangleAttributes[] = {
 
 #ifndef JRPGMAKER_ASSET_DIR
 #error "JRPGMAKER_ASSET_DIR must be defined by the build"
+#endif
+
+#ifndef JRPGMAKER_SOURCE_DIR
+#error "JRPGMAKER_SOURCE_DIR must be defined by the build"
 #endif
 
 // Reads the committed shader bytecode for the current platform.
@@ -109,7 +121,9 @@ std::vector<float> BakeWorldPositions(const std::vector<float>& positions, const
 bool RenderInto(
     std::vector<std::uint8_t>& rgba,
     const std::vector<std::pair<std::vector<float>, std::vector<std::uint32_t>>>& meshes_to_draw,
-    const GraphicsPipelineDesc& pipeline_desc, const std::vector<float>* push_constants = nullptr) {
+    const GraphicsPipelineDesc& pipeline_desc, const std::vector<float>* push_constants = nullptr,
+    ClearColor clear_color = kClearColor,
+    const jrpgmaker::render::RenderPlan* render_plan = nullptr) {
     const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
     if (device == nullptr) {
         std::cerr << "failed to create device\n";
@@ -177,19 +191,54 @@ bool RenderInto(
             ok = false;
         } else {
             command_list->Begin();
-            command_list->BeginRendering(target, kClearColor);
-            command_list->SetPipeline(pipeline);
-            if (push_constants != nullptr && !push_constants->empty()) {
-                command_list->SetPushConstants(
-                    push_constants->data(),
-                    static_cast<std::uint32_t>(push_constants->size() * sizeof(float)));
+            if (render_plan != nullptr) {
+                const jrpgmaker::render::RenderPlanResolver resolver{
+                    .resolve_pipeline = [pipeline](const auto&) { return std::optional{pipeline}; },
+                    .resolve_mesh =
+                        [&uploaded](const auto&) {
+                            if (uploaded.empty()) {
+                                return std::optional<jrpgmaker::render::RenderMeshBinding>{};
+                            }
+                            const auto& mesh = uploaded.front();
+                            return std::optional{jrpgmaker::render::RenderMeshBinding{
+                                .vertex_buffer = mesh.vertex_buffer,
+                                .index_buffer = mesh.index_buffer,
+                                .stride_bytes = kTriangleStride,
+                                .index_count = mesh.index_count,
+                                .indices_are_32_bit = true}};
+                        },
+                    .validate_material = {},
+                    .bind_draw_resources =
+                        [push_constants](ICommandList& list, const auto&, const auto&) {
+                            if (push_constants != nullptr && !push_constants->empty()) {
+                                list.SetPushConstants(push_constants->data(),
+                                                      static_cast<std::uint32_t>(
+                                                          push_constants->size() * sizeof(float)));
+                            }
+                            return jrpgmaker::render::RenderPlanValidation{};
+                        }};
+                const auto recorded = jrpgmaker::render::RenderPlanExecutor::Record(
+                    *render_plan, target, *command_list, resolver,
+                    jrpgmaker::render::RenderResourceBudget{});
+                if (!recorded.ok) {
+                    std::cerr << "failed to record render plan: " << recorded.error << '\n';
+                    ok = false;
+                }
+            } else {
+                command_list->BeginRendering(target, clear_color);
+                command_list->SetPipeline(pipeline);
+                if (push_constants != nullptr && !push_constants->empty()) {
+                    command_list->SetPushConstants(
+                        push_constants->data(),
+                        static_cast<std::uint32_t>(push_constants->size() * sizeof(float)));
+                }
+                for (const UploadedMesh& mesh : uploaded) {
+                    command_list->SetVertexBuffer(mesh.vertex_buffer, kTriangleStride);
+                    command_list->SetIndexBuffer(mesh.index_buffer, true);
+                    command_list->DrawIndexed(mesh.index_count, 1);
+                }
+                command_list->EndRendering();
             }
-            for (const UploadedMesh& mesh : uploaded) {
-                command_list->SetVertexBuffer(mesh.vertex_buffer, kTriangleStride);
-                command_list->SetIndexBuffer(mesh.index_buffer, true);
-                command_list->DrawIndexed(mesh.index_count, 1);
-            }
-            command_list->EndRendering();
             command_list->End();
             device->Submit(*command_list);
             device->WaitForGpuIdle();
@@ -238,6 +287,86 @@ bool RenderTriangle(std::vector<std::uint8_t>& rgba, const std::filesystem::path
         return false;
     }
     return RenderInto(rgba, {{mesh->positions, mesh->indices}}, MakeTrianglePipelineDesc());
+}
+
+bool RenderProjectStyledTriangle(std::vector<std::uint8_t>& rgba,
+                                 const std::filesystem::path& gltf_path,
+                                 const std::filesystem::path& project_path) {
+    const std::optional<jrpgmaker::core::MeshData> mesh =
+        jrpgmaker::assetimport::LoadGltfMesh(gltf_path);
+    if (!mesh.has_value()) {
+        return false;
+    }
+    jrpgmaker::render::SceneSnapshot snapshot;
+    snapshot.renderables.push_back({.mesh = "triangle",
+                                    .material = "triangle",
+                                    .world = glm::mat4(1.0f),
+                                    .material_parameters = {}});
+    std::ifstream project_file(project_path);
+    if (!project_file) {
+        std::cerr << "failed to open project manifest: " << project_path.string() << '\n';
+        return false;
+    }
+    const auto project_result =
+        jrpgmaker::plugin::ParseProjectManifest(nlohmann::json::parse(project_file));
+    if (!project_result) {
+        std::cerr << "invalid project manifest: " << project_result.error->message << '\n';
+        return false;
+    }
+    const std::filesystem::path project_root =
+        project_path.parent_path().parent_path().parent_path();
+    const auto read_manifest = [&project_root](const char* id) {
+        std::ifstream file(project_root / "plugins" / id / "plugin.json");
+        if (!file) {
+            throw std::runtime_error("failed to open sample plugin manifest");
+        }
+        const auto result = jrpgmaker::plugin::ParseManifest(nlohmann::json::parse(file));
+        if (!result) {
+            throw std::runtime_error(std::string("invalid sample plugin manifest: ") +
+                                     result.error->message);
+        }
+        return *result.manifest;
+    };
+    jrpgmaker::plugin::PluginRegistry registry;
+    const auto registration_error = jrpgmaker::plugins::RegisterSamplePlugins(
+        registry, read_manifest("sample_unlit"), read_manifest("sample_style"));
+    if (registration_error.has_value()) {
+        std::cerr << "failed to register sample plugins: " << registration_error->message << '\n';
+        return false;
+    }
+    const auto style_result =
+        jrpgmaker::plugin::CreateProjectRenderStyle(*project_result.manifest, registry);
+    if (!style_result) {
+        std::cerr << "failed to create project render style: " << style_result.error->message
+                  << '\n';
+        return false;
+    }
+    auto* style =
+        dynamic_cast<jrpgmaker::render::IRenderStyleAdapter*>(style_result.instance.get());
+    if (style == nullptr) {
+        return false;
+    }
+    const auto plan = style->BuildPlan(snapshot);
+    const auto validation = jrpgmaker::render::ValidateRenderPlan(plan, style->Descriptor().budget);
+    if (!validation.ok || plan.passes.empty()) {
+        std::cerr << "invalid style render plan: " << validation.error << '\n';
+        return false;
+    }
+    const auto& clear = plan.passes.front().clear_color;
+    auto pipeline_desc = MakeTrianglePipelineDesc();
+#if defined(_WIN32)
+    if (plan.passes.front().pipeline == "accent") {
+        pipeline_desc.pixel_shader = ShaderBytecode{jrpgmaker::shaders::kCameraPsDxil,
+                                                    jrpgmaker::shaders::kCameraPsDxil_size};
+    }
+#else
+    if (plan.passes.front().pipeline == "accent") {
+        pipeline_desc.pixel_shader =
+            ShaderBytecode{jrpgmaker::shaders::kCameraPsSpv, jrpgmaker::shaders::kCameraPsSpv_size};
+    }
+#endif
+    return RenderInto(rgba, {{mesh->positions, mesh->indices}}, pipeline_desc, nullptr,
+                      ClearColor{clear.r, clear.g, clear.b, clear.a}, &plan);
 }
 
 // Camera scene pipeline: same vertex input, view-proj push constants, and a
@@ -808,19 +937,24 @@ int RunCli(int argc, char** argv) {
     // reference.
     const std::filesystem::path default_gltf =
         std::filesystem::path(JRPGMAKER_ASSET_DIR) / "art" / "meshes" / "triangle.gltf";
+    const std::filesystem::path default_project =
+        std::filesystem::path(JRPGMAKER_ASSET_DIR) / "data" / "project_demo.json";
 
     if (argc < 3) {
-        std::cerr << "usage:\n"
-                  << "  goldenimage generate <out.ppm> [gltf_path]\n"
-                  << "  goldenimage compare <ref.ppm> [tolerance] [gltf_path]\n"
-                  << "  goldenimage generate-scene <out.ppm> <gltf_path>\n"
-                  << "  goldenimage compare-scene <ref.ppm> <gltf_path> [tolerance]\n"
-                  << "  goldenimage generate-camera <out.ppm> <gltf_path>\n"
-                  << "  goldenimage compare-camera <ref.ppm> <gltf_path> [tolerance]\n"
-                  << "  goldenimage generate-texture <out.ppm>\n"
-                  << "  goldenimage compare-texture <ref.ppm> [tolerance]\n"
-                  << "  goldenimage generate-skin <out.ppm> <gltf> [time] [blend]\n"
-                  << "  goldenimage compare-skin <ref.ppm> <gltf> [time] [blend] [tolerance]\n";
+        std::cerr
+            << "usage:\n"
+            << "  goldenimage generate <out.ppm> [gltf_path]\n"
+            << "  goldenimage compare <ref.ppm> [tolerance] [gltf_path]\n"
+            << "  goldenimage generate-scene <out.ppm> <gltf_path>\n"
+            << "  goldenimage compare-scene <ref.ppm> <gltf_path> [tolerance]\n"
+            << "  goldenimage generate-camera <out.ppm> <gltf_path>\n"
+            << "  goldenimage compare-camera <ref.ppm> <gltf_path> [tolerance]\n"
+            << "  goldenimage generate-texture <out.ppm>\n"
+            << "  goldenimage compare-texture <ref.ppm> [tolerance]\n"
+            << "  goldenimage generate-project-style <out.ppm> <project.json> [gltf]\n"
+            << "  goldenimage compare-project-style <ref.ppm> <project.json> [tolerance] [gltf]\n"
+            << "  goldenimage generate-skin <out.ppm> <gltf> [time] [blend]\n"
+            << "  goldenimage compare-skin <ref.ppm> <gltf> [time] [blend] [tolerance]\n";
         return 2;
     }
 
@@ -921,6 +1055,22 @@ int RunCli(int argc, char** argv) {
             return 1;
         }
         return CompareRgba(argv[2], tolerance, rgba);
+    }
+    if (command == "generate-project-style" || command == "compare-project-style") {
+        if (argc < 4) {
+            std::cerr << command << " requires a project manifest\n";
+            return 2;
+        }
+        const bool generate = command == "generate-project-style";
+        const std::filesystem::path project_path = argv[3];
+        const std::filesystem::path gltf_path =
+            generate ? (argc >= 5 ? argv[4] : default_gltf) : (argc >= 6 ? argv[5] : default_gltf);
+        const int tolerance = !generate && argc >= 5 ? std::atoi(argv[4]) : 1;
+        std::vector<std::uint8_t> rgba;
+        if (!RenderProjectStyledTriangle(rgba, gltf_path, project_path)) {
+            return 1;
+        }
+        return generate ? WritePpmFromRgba(argv[2], rgba) : CompareRgba(argv[2], tolerance, rgba);
     }
     // Skinned-mesh golden (P4): renders the scene's skinned entities with bone
     // matrices sampled from the first animation at `time` seconds, optionally

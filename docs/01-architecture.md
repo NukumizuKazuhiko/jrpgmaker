@@ -8,14 +8,17 @@
 
 ```
 adapter   tools/(CLI) · platform/(SDL3) · (远期)editor
-             ↓ 只做接线
-shell     app/ 主循环装配 · demo 宿主
+             ↓ 只做协议映射
+shell     app/ 项目清单装配 · 主循环 · demo 宿主
+             ↓ 注册
+plugins   plugins/* 战斗规则、渲染风格及其 schema/presentation adapter
+             ↓ 只依赖公开 seam，禁止反向进入 engine 私有实现
+host      engine/plugin 通用插件清单 · 注册表 · 生命周期 · validator
              ↓
-domain    engine/domain  ← JRPG 业务真相唯一 owner
-          (event · dialogue · battle · cutscene · save)
+domain    engine/domain 事件 · 对话 · 日期/日程 · 地图触发 · 项目流程
              ↓ 经事件总线发结构化命令/状态 projection
 ui        engine/ui        render     engine/render     audio    engine/audio
-(控件树·动效·CJK排版)      (场景·材质·后处理)      (BGM/SFX·混音总线)
+(控件树·CJK排版)           (场景提交·风格 seam)       (BGM/SFX·混音总线)
              ↓                      ↓                        ↓
 rhi       engine/rhi 图形 API 合同层（d3d12 / vulkan 为 adapter 后端）
              ↓
@@ -27,12 +30,14 @@ core      engine/core 数学 · ECS · 资产句柄 · 事件总线 · 时间 ·
 | 层 | 目录 | 唯一 owner 职责 | 允许依赖 | 禁止事项 |
 |---|---|---|---|---|
 | core | `engine/core` | 数学类型(GLM 封装)、EnTT registry 封装（`Scene`：实体/变换层级/世界矩阵，ADR-001 执行）、句柄式资产管理（`AssetRegistry`：注册/查询/卸载/泄漏计数 + `MeshData` 等 CPU 侧资产数据结构）、事件总线、时钟/时间步、日志、诊断 | 仅标准库 + GLM/EnTT | 任何图形 API、平台 API、JRPG 语义 |
+| plugin host | `engine/plugin` | 版本化插件清单、稳定插件 ID、类型化注册表、构建期工厂、生命周期、能力声明、插件 validator 调度 | core、nlohmann/json | 理解战斗数值、材质字段或任何插件私有 payload；直接加载后端 API |
 | rhi 合同 | `engine/rhi` | 图形 API 语义：设备、swapchain、pipeline、buffer/texture/sampler、command list、同步原语 | core | 出现任何游戏概念；暴露后端类型 |
 | rhi 后端 | `engine/rhi/backends/{d3d12,vulkan}` | 实现 RHI 合同 | rhi 合同 + core | 相互引用；后端头文件泄漏出 `backends/` |
-| render | `engine/render` | 场景渲染器、材质系统、光照、相机投影、后处理栈(bloom/LUT)、toon shading 与描边 | rhi, core | 私造游戏状态；读取战斗/存档数据 |
-| ui | `engine/ui` | 保留式控件树、布局、九宫格、缓动动效、UI shader 效果、FreeType+HarfBuzz CJK 文本排版 | render, core | 决定游戏流程；私造文案 |
+| render | `engine/render` | 场景提交、相机投影、通用 draw/pass 数据、渲染风格插件 seam；把风格插件输出翻译到 RHI | rhi、core、plugin host | 私造游戏状态；拥有固定画风、固定材质 schema、项目 shader 或战斗语义 |
+| ui | `engine/ui` | 保留式控件树、布局、九宫格、通用 draw list、FreeType+HarfBuzz CJK 文本排版 | render, core | 决定游戏流程；私造文案、战斗菜单语义或固定视觉主题 |
 | audio | `engine/audio` | BGM/SFX 播放、混音总线、音频解码(miniaudio) | core | 判断游戏状态 |
-| domain | `engine/domain` | **JRPG 业务真相**：事件指令集+解释器、flag 存储、对话模型、BattleRules 插件合同、QTE 时间轴合同、cutscene 时间轴语义、存档 schema、Lua(sol2) 绑定 | core（对 ui/render/audio 仅经事件总线发结构化命令） | 直接调用 presentation 内部 API 绘制；硬编码剧情/数值 |
+| domain | `engine/domain` | **项目流程真相**：事件指令集+解释器、flag、对话、可配置日期/日程、地图触发、扩展会话调度、cutscene 时间轴语义、存档 schema、Lua(sol2) 绑定 | core、plugin host（对 ui/render/audio 仅经事件总线发结构化命令） | 内置战斗规则/数值 schema；解释插件私有 payload；直接绘制；硬编码剧情/数值 |
+| extensions | `plugins/*` | 插件私有规则、schema、validator、资源和 presentation adapter；战斗插件拥有 actor/skill/buff/AI/QTE/结算，渲染风格插件拥有 shader/材质 schema/光照/后处理 | 对应公开 seam；不得依赖 `engine/*/src` | 修改 RHI 后端；要求 app 为具体插件增加分支；把插件私有语义提升为引擎真相 |
 | platform(adapter) | `engine/platform` | SDL3 窗口/输入接线、文件系统抽象、剪贴板 | core | 游戏语义 |
 | shell(app) | `app/` | 主循环装配、各层初始化顺序、demo/游戏宿主 | 全部下层 | 成为第二业务逻辑 owner |
 | tools(adapter) | `tools/` | CLI：schema lint、资产导入、golden image 对比 | core, domain(schema) | 运行时行为 |
@@ -40,9 +45,11 @@ core      engine/core 数学 · ECS · 资产句柄 · 事件总线 · 时间 ·
 ## 数据流合同（单向）
 
 ```
-输入(SDL3) → shell → domain 解释为游戏状态变化
-domain → 结构化命令/状态 projection（事件总线）→ ui / render / audio 执行呈现
-presentation 层禁止反推业务结论（如"谁赢了""权限够不够"）
+输入(SDL3) → platform/shell 映射为项目 action id → domain 或活动插件消费
+项目数据 → domain；插件私有数据 → 对应插件 validator/会话
+domain/插件 → 结构化命令或 projection → ui / render / audio 执行呈现
+插件完成 → 稳定 result_key + opaque payload → 项目事件决定后续流程
+presentation 层禁止反推业务结论；宿主禁止解释插件私有 payload
 ```
 
 ## 决策记录（ADR）
@@ -50,9 +57,11 @@ presentation 层禁止反推业务结论（如"谁赢了""权限够不够"）
 | 编号 | 决策 | 状态 | 依据 |
 |---|---|---|---|
 | ADR-001 | 运行时唯一对象模型 owner = EnTT ECS；场景树只允许作为远期编辑器的视图投影，禁止进入运行时 | 已决 | [03-engine-survey.md](03-engine-survey.md) §JRPG 需求侧判断 |
-| ADR-002 | 主线 P0–P7 不实现 ACT 物理战斗；ACT 战斗定位为远期 BattleRules 插件植入，P5 建立的插件合同必须保证零引擎核心改动接入 | 已决（用户确认） | [00-product.md](00-product.md) §边界 |
+| ADR-002 | 引擎核心不实现或预设任何战斗规则；回合制、ACT、QTE、卡牌等均由战斗插件定义，P5 只建立插件宿主与战斗会话 seam | 已决（用户确认 2026-08-26） | [00-product.md](00-product.md) §边界 |
 | ADR-003 | 着色语言与编译器 = HLSL 源码 + DXC 单源双目标：DXIL 供 D3D12 后端、SPIR-V（`-spirv`，Khronos 官方维护）供 Vulkan 后端；禁止双语言双编译链 | 已决（用户确认） | golden image 双后端一致性要求 shader 语义同源；GLSL 无 DXIL 原生路径，Slang 工具链成熟度不足（P1-A1 论证） |
 | ADR-004 | glTF 导入库 = cgltf 1.15（纹理解码配 vcpkg `stb`/stb_image）；不选 tinygltf/fastgltf/assimp | 已决（用户确认 2026-08-24） | 零依赖单文件契合"第三方库最小化"纪律（vcpkg manifest 无传递依赖）；glTF 定位是兼容导入输入（docs/00 边界），非美术目标，无需 assimp 格式广度或 fastgltf 性能极致；cgltf 为 Godot/Filament/bgfx 采用、glTF 2.0 全特性覆盖（节点层级/网格/PBR 材质/accessor/缓冲视图，skin/animation 解析留待 P4 使用） |
+| ADR-005 | P5/P6 插件采用源码级、构建期注册；不在当前里程碑承诺跨编译器稳定的 DLL 热加载 ABI | 已决（用户确认 2026-08-26） | C++ ABI、异常、分配器与依赖版本跨工具链不稳定；先用真实双实现证明 seam，再单独评估二进制分发 |
+| ADR-006 | 引擎不绑定固定渲染画风或材质 schema；渲染风格插件拥有 shader、材质 schema、光照和后处理，项目拥有材质实例 | 已决（用户确认 2026-08-26） | [00-product.md](00-product.md) §已否定方向 |
 
 从外部架构模式采纳的合同增强（A1–A6 清单及拒绝项理由见调研文档）：rhi/render/audio 保持 server 式无状态服务形状，三段间接映射为 render(高层渲染语义)→rhi(图形合同)→backend(d3d12/vulkan, driver 角色)（Godot）；显式 Stage 序列与变更检测投影同步（Bevy）；单向 hybrid 红线（Unity/V Rising）；Public/Private 可见性纪律（Unreal）。
 
@@ -92,7 +101,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - **swapchain（P1 落地版）**：`CreateSwapchain(void* native_window_handle, width, height, format)` 创建呈现链。**native_window_handle 语义**：D3D12 后端接收 HWND（app 经 SDL 属性提取）；Vulkan 后端接收 `SDL_Window*`（backend 私有用 `SDL_Vulkan_CreateSurface` 建 surface，SDL3 是 Vulkan backend 的链接依赖）。`AcquireTexture()` 返回当前 back buffer 的 `TextureHandle`，该 handle **注册进 device 的 texture 表**（D3D12 分配 RTV、Vulkan 建 image view），可直接用于 `BeginRendering`；back buffer 生命周期由 swapchain 持有，`DestroyTexture` 对 swapchain 纹理抛错（`is_swapchain` 标记）。`Present()` 提交呈现；`Resize(w,h)` 内部 `WaitForGpuIdle` 后重建。Vulkan 用 FIFO present mode + sRGB 色彩空间，D3D12 用 FLIP_DISCARD。
 - 生命周期约束：`DestroyXxx` 要求调用方保证 GPU 已空闲（即 `Submit` + `WaitForGpuIdle` 之后）；延迟删除是后端后续增强，不属于 v0 合同语义。swapchain back buffer 由 `DestroySwapchain` 统一释放（先 `UnregisterSwapchain*` 反注册再销毁呈现资源）。
 - **Per-object vertex uniform（P4 子任务 1 落地，骨骼矩阵通道）**：`BufferUsage::kUniform`；`GraphicsPipelineDesc.vertex_uniform_size`（VS uniform 块字节数，0=无，>0 则 draw 前 `ICommandList::SetVertexUniformBuffer(buffer, size)` 强制——对齐 sample_slot 的合同模式，双后端校验声明与容量）。D3D12 映射 root CBV（共享 root signature 参数 3，register b1，VS visibility，`SetGraphicsRootConstantBufferView` 直指 UPLOAD heap buffer GPU VA）；Vulkan 映射共享 sample descriptor set 的 binding2 = UNIFORM_BUFFER（VS stage），先 `vkUpdateDescriptorSets` 再 bind set 0。顶点格式扩展：`kUint16x4`（JOINTS_0，R16G16B16A16_UINT 双端一致）与 `kFloat4`（WEIGHTS_0）。v0 限制：单 buffer 绑定单对象（无 ring buffer/多对象偏移），uniform 内容经 `MapWrite` 每帧更新。
-- **纹理采样管线（P3 DEBT-029 落地）**：`SamplerHandle` + `CreateSampler(SamplerDesc{filter(kNearest/kLinear), address(kClamp/kRepeat)})`；`IDevice::UploadTexture(handle, data, row_pitch_bytes)`（host→GPU，后端内部建 staging + barrier + copy + WaitForGpuIdle，与 `MapReadBack` 对称——合同层不暴露 copy 命令）；`ICommandList::SetSampledTexture(texture, sampler)` 绑定 v0 单一采样槽位。`GraphicsPipelineDesc.sample_slot`（1=像素着色器采样 slot 0，0=默认无采样，现有 pipeline 不受影响）。**sample_slot 是强制合同（2026-08-25 审计生效）**：双后端在 pipeline 创建时记录，`SetSampledTexture` 对未声明采样的 pipeline 抛 `std::runtime_error`——绑定采样前必须先创建带 `sample_slot > 0` 的 pipeline。**双后端绑定模型**：D3D12 root signature 增两个 descriptor table（SRV t0 + sampler s0，pixel visibility）+ 独立 shader-visible CBV_SRV_UAV/SAMPLER heap；Vulkan descriptor set（binding 0 = SAMPLED_IMAGE、binding 1 = SAMPLER，fragment stage），与 HLSL `register(t0)/register(s0)` 对齐（textured.hlsl 用 `[[vk::binding]]` 显式钉死，`compile_shaders.ps1` 对 -spirv 注入 `VULKAN_TARGET` 宏）。上传后纹理进入 shader-visible 状态并保持（D3D12 PIXEL_SHADER_RESOURCE / Vulkan SHADER_READ_ONLY_OPTIMAL）。**上传行距语义（2026-08-25 审计修复）**：调用方 `row_pitch_bytes` 声明源行距，D3D12 staging 逐行仅拷 `min(footprint.RowPitch, row_pitch_bytes)`（footprint 对齐行距可大于 tight 源，整拷会越界读），Vulkan 拷 `row_pitch_bytes*height`（tight 布局）。**跨驱动一致性已验证**：textured quad（2×2 四色纹理，nearest/clamp，全屏采样）WARP 与 lavapipe delta=0，`tests/golden/texture_quad_64x64.ppm`（lavapipe 权威生成）。**VertexAttribute 扩展**：新增 `kFloat2` 与 `semantic_name`（D3D12 input-element 语义名，Vulkan 按 location 匹配；多属性时 HLSL 输入声明必须按 location 升序以保持双端对齐）。UI 九宫格/文字位图纹理（P3 UI 控件最小集）消费此管线；**glTF 材质纹理（stb 解码 + material 入 `SceneLoad`）仍不在本轮**，随 P4/P6 PBR 渲染单独做。
+- **纹理采样管线（P3 DEBT-029 落地）**：`SamplerHandle` + `CreateSampler(SamplerDesc{filter(kNearest/kLinear), address(kClamp/kRepeat)})`；`IDevice::UploadTexture(handle, data, row_pitch_bytes)`（host→GPU，后端内部建 staging + barrier + copy + WaitForGpuIdle，与 `MapReadBack` 对称——合同层不暴露 copy 命令）；`ICommandList::SetSampledTexture(texture, sampler)` 绑定 v0 单一采样槽位。`GraphicsPipelineDesc.sample_slot`（1=像素着色器采样 slot 0，0=默认无采样，现有 pipeline 不受影响）。**sample_slot 是强制合同（2026-08-25 审计生效）**：双后端在 pipeline 创建时记录，`SetSampledTexture` 对未声明采样的 pipeline 抛 `std::runtime_error`——绑定采样前必须先创建带 `sample_slot > 0` 的 pipeline。**双后端绑定模型**：D3D12 root signature 增两个 descriptor table（SRV t0 + sampler s0，pixel visibility）+ 独立 shader-visible CBV_SRV_UAV/SAMPLER heap；Vulkan descriptor set（binding 0 = SAMPLED_IMAGE、binding 1 = SAMPLER，fragment stage），与 HLSL `register(t0)/register(s0)` 对齐（textured.hlsl 用 `[[vk::binding]]` 显式钉死，`compile_shaders.ps1` 对 -spirv 注入 `VULKAN_TARGET` 宏）。上传后纹理进入 shader-visible 状态并保持（D3D12 PIXEL_SHADER_RESOURCE / Vulkan SHADER_READ_ONLY_OPTIMAL）。**上传行距语义（2026-08-25 审计修复）**：调用方 `row_pitch_bytes` 声明源行距，D3D12 staging 逐行仅拷 `min(footprint.RowPitch, row_pitch_bytes)`（footprint 对齐行距可大于 tight 源，整拷会越界读），Vulkan 拷 `row_pitch_bytes*height`（tight 布局）。**跨驱动一致性已验证**：textured quad（2×2 四色纹理，nearest/clamp，全屏采样）WARP 与 lavapipe delta=0，`tests/golden/texture_quad_64x64.ppm`（lavapipe 权威生成）。**VertexAttribute 扩展**：新增 `kFloat2` 与 `semantic_name`（D3D12 input-element 语义名，Vulkan 按 location 匹配；多属性时 HLSL 输入声明必须按 location 升序以保持双端对齐）。UI 九宫格/文字位图纹理（P3 UI 控件最小集）消费此管线；**glTF 材质纹理（stb 解码 + material 入 `SceneLoad`）仍不在本轮**，留给 P6 渲染风格插件与材质 schema 委派。
 - v0 裁剪：三角形用例经顶点缓冲 + 单 float3 位置属性（location 0）绘制（P2 起）；几何与 P1 的 `SV_VertexID` 生成三角形完全一致，golden 基准图无需重新标定。顶点输入支持单 interleaved buffer + 可选索引缓冲（uint16/uint32），覆盖 glTF 网格导入需要。
 - **常量传递（P2 子任务 6）**：`ICommandList::SetPushConstants(data, size_bytes)`（需 `SetPipeline` 之后、Draw 之前），`GraphicsPipelineDesc.push_constants_size` 声明 v0 上限 64 字节（一个 float4x4 view-proj）；双后端记录 pipeline 声明，拒绝未声明、超声明大小的写入，并在声明值 >0 时强制 Draw 前完成绑定。D3D12 = root constants（`D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS`，16 DWORD，VS 可见）；Vulkan = push constants（`VkPushConstantRange` 64 字节 VS stage）。**shader 双目标**：SPIR-V 用 `[[vk::push_constant]]` 全局 struct（`compile_shaders.ps1` 对 -spirv 目标注入 `-D VULKAN_PUSH_CONSTANT`），DXIL 用 cbuffer `register(b0)`——同一 HLSL 源按目标条件编译，布局列主序与 GLM 字节对齐。
 
@@ -116,11 +125,35 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - 系统注册声明：任何系统通过 `StageRunner::RegisterSystem(stage, {stage, order}, callback)` 声明所属 Stage 与 within-stage 顺序（升序）。跨 Stage 顺序即枚举顺序，禁止越级依赖。
 - v0 语义：阶段为**空占位**（空回调合法）；before/after 依赖图、系统对象模型随 P3 领域核心落地。delta 秒由主循环传入，固定时间步在 app 主循环实现（60Hz，accumulator 上限 0.25s 防螺旋死亡）。**P1 实机接线**：`kRenderSubmit` 阶段已挂真实渲染提交（app 的 swapchain Acquire→Draw→Submit→Present 回调），其余阶段空占位；渲染路径不再硬编码在主循环。
 
-### BattleRules 插件合同
+### 通用插件宿主合同
 
-- 接口要素：阶段推进(tick)、玩家意图提交、输入钩子注册(QTE 时间轴/输入缓冲)、结算投影(发给 UI 的结构化结果)。
-- 回合制状态机是首个插件实现；引擎发行版不给予任何内置规则特权地位。
-- 完整 ACT 物理战斗不在主线（ADR-002），定位为远期插件植入；因此插件合同的验收标准包含"新规则接入零引擎核心改动"。
+- 插件清单必须声明 `schema`、稳定 `id`、`type`、`version`、`engine_contract`、能力和数据入口；重复 ID、未知类型、合同版本不兼容、缺失工厂或缺失数据文件在装配期报错。
+- P5/P6 采用源码级 CMake target + 构建期注册。`app` 只按项目清单请求类型化工厂，不得按具体插件 ID 分支；插件不得依赖 `engine/*/src` 或任何 D3D12/Vulkan 后端头。
+- 通用 host 只拥有发现、注册、创建、销毁、validator 调度和结构化错误。插件私有 schema 与 payload 对 host 不透明；host 不提供万能字符串回调或无界消息队列。
+- 插件清单和 validator 是作者期真源。插件数据必须先通过该插件 validator，再允许创建运行时会话；项目级 lint 负责跨文件和跨插件 ID 引用。
+- seam 以两个真实 adapter 为成立条件。只有一个实现时不得把其私有字段提升为通用合同。
+
+### 战斗扩展 seam
+
+- 引擎只定义 `IBattlePlugin::CreateSession(ExtensionLaunchContext)` 与会话接口 `Advance(FrameInput) -> FrameOutput`、`Snapshot() -> ExtensionSnapshot`。接口还必须声明输入容量、tick 约束、错误模式与输出生命周期。
+- `FrameInput` 只携带逻辑 delta/tick、项目 action id 及必要的会话控制；不包含 HP/SP、技能、目标或回合等规则假设。
+- `FrameOutput` 只携带运行状态、通用 UI/camera/transition/animation 命令，以及完成时的稳定 `result_key` 和有界 opaque payload。项目事件根据 `result_key` 决定奖励、flag 和后续流程；宿主禁止解读私有 payload。
+- actor、skill、buff、伤害公式、AI、QTE、输入缓冲、目标选择、胜负条件、奖励算法和战斗 UI 语义全部由战斗插件拥有。参考回合制实现放在 `plugins/`，可以从项目中删除，不能获得 app/domain 特殊分支。
+- P5 必须以两个行为不同的真实战斗插件通过同一 seam 完成替换实验；切换只允许修改项目清单和插件数据，`engine/` 零改动。
+
+### 渲染风格扩展 seam
+
+- `engine/render` 拥有场景快照、相机、通用 draw/pass 数据和 RHI 翻译；渲染风格插件拥有 shader、pipeline 组合、材质 schema、光照、描边及后处理。
+- 项目材质实例声明 `style_plugin_id` 与该插件的数据引用。引擎只保存资源引用和不透明参数块；参数结构由插件 schema/validator 解释。
+- 风格插件只能依赖 render/RHI 公开合同，禁止 include 后端头、读取 domain 内部状态或要求 app 为具体画风分支。
+- P6 以基础无光照风格和另一种视觉风格两个真实 adapter 验证替换；替换不得修改 RHI 后端、domain 或地图业务数据。
+
+### 项目数据与可配置日期
+
+- 项目清单是装配真源，声明数据入口、输入映射及所选扩展；日期、对话、触发点、地图、材质实例和插件数据均为项目可编辑文件。
+- 日期运行时由 `engine/domain` 提供通用 `CalendarDefinition + GameClock`：月份/周期名称、每周期天数、一天阶段、起始日期、格式化 text key 和推进规则均来自数据，禁止硬编码公历、七日周或 morning/day/evening/night。
+- 日期触发只向现有事件边界排队，禁止在时钟推进或 EventBus 回调中重入启动事件。NPC 日程、地图切换和对话条件通过稳定日期谓词/flag projection 组合，不把项目日程写进 app。
+- 地图、对话和触发继续使用各自版本化 schema；项目 lint 负责它们与日期、事件、资源和扩展 ID 的交叉引用。
 
 ### 事件指令集（数据先行）
 
@@ -188,6 +221,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 ├── vcpkg.json
 ├── engine/
 │   ├── core/
+│   ├── plugin/                  # 通用 manifest/registry/lifecycle/validator host
 │   ├── rhi/
 │   │   ├── include/jrpgmaker/rhi/  # 合同头文件（唯一对外面）
 │   │   └── backends/d3d12/ · backends/vulkan/
@@ -195,16 +229,21 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 │   ├── ui/
 │   ├── audio/
 │   ├── domain/
-│   │   └── event/ dialogue/ battle/ cutscene/ save/ script/
+│   │   └── event/ dialogue/ calendar/ trigger/ extension/ cutscene/ save/ script/
 │   └── platform/
+├── plugins/                   # 源码级扩展；每个插件自带 manifest/schema/assets/tests
+│   ├── sample_turn_based/     # 可删除的参考战斗插件，不属于 engine
+│   ├── sample_instant/         # 可删除的最小参考战斗插件
+│   ├── sample_unlit/          # P6 参考渲染风格插件
+│   └── sample_style/          # P6 第二风格 adapter
 ├── app/                       # 主循环装配 + demo 宿主
 ├── tools/                     # lint / assetimport / goldenimage CLI（tools/ci 现有私有头审计）
 │   ├── assetimport/           # cgltf 适配器静态库（glTF → core::MeshData，ADR-004 落地）
 │   ├── goldenimage/           # golden image 生成/比对 CLI + 纯算法库
 │   └── ci/                    # 私有头审计、shader 编译等脚本
 ├── assets/
-│   ├── data/                  # 事件/对话/数值表 JSON
-│   ├── schemas/               # JSON schema（生成物与校验的真源）
+│   ├── data/                  # 项目清单、日期、事件、对话、地图、触发和输入映射
+│   ├── schemas/               # 引擎拥有的项目数据 schema；插件 schema 留在插件目录
 │   ├── art/                   # 美术资产（meshes/ 等，P2 起 glTF 兼容输入）
 │   └── fonts/ audio/
 └── tests/

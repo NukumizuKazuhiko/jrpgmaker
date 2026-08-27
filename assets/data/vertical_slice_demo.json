@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "id": "demo.vertical_slice",
+  "beats": [
+    { "id": "opening", "duration_seconds": 300, "target_event_id": "intro" },
+    { "id": "guide_meeting", "duration_seconds": 300, "target_event_id": "meet_alice" },
+    { "id": "help_request", "duration_seconds": 300, "target_event_id": "alice_ask_help" },
+    { "id": "west_chest", "duration_seconds": 300, "target_event_id": "chest_west" },
+    { "id": "reward", "duration_seconds": 300, "target_event_id": "alice_reward" },
+    { "id": "echo", "duration_seconds": 300, "target_event_id": "chest_west_echo" }
+  ]
+}

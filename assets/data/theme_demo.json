@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "id": "theme.demo",
+  "accent": [0.15, 0.75, 0.72, 1.0],
+  "text_pixel_height": 18
+}

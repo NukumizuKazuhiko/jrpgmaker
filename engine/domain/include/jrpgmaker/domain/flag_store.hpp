@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace jrpgmaker::domain {
 
@@ -21,6 +22,12 @@ public:
 
     // Returns the flag's value, or false if unset.
     bool Get(const std::string& name) const;
+
+    // Returns true flag names in deterministic lexical order for persistence.
+    [[nodiscard]] std::vector<std::string> Snapshot() const;
+
+    // Replaces the current set from persisted true flag names.
+    void Restore(const std::vector<std::string>& names);
 
     // Number of distinct flags currently set (true). Diagnostic / leak probe:
     // a well-behaved script returns to the expected count after completing.

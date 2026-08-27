@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "id": "morning_guide",
+      "month": 1,
+      "day": 2,
+      "minute_of_day": 480,
+      "target_event_id": "meet_alice",
+      "repeat_yearly": true
+    }
+  ]
+}

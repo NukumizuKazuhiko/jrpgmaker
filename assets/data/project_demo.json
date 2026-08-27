@@ -1,0 +1,16 @@
+{
+    "schema": 1,
+    "id": "project.demo",
+    "render_style": "sample.unlit",
+    "battle_plugin": "sample.instant",
+    "material_document": "assets/data/material_demo.json",
+    "plugins": [
+        "sample.unlit",
+        "sample.style",
+        "sample.instant",
+        "sample.turn_based"
+    ],
+    "data_roots": [
+        "assets/data"
+    ]
+}

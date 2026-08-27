@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "id": "character",
+  "style_plugin_id": "sample.style",
+  "parameters": {
+    "schema": 1,
+    "accent": [0.95, 0.25, 0.65, 1.0]
+  }
+}

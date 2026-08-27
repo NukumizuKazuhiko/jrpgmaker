@@ -916,7 +916,8 @@ void D3D12CommandList::End() {
     ThrowIfFailed(command_list_->Close(), "CommandListClose");
 }
 
-void D3D12CommandList::BeginRendering(TextureHandle color_target, const ClearColor& clear_color) {
+void D3D12CommandList::BeginRendering(TextureHandle color_target, const ClearColor& clear_color,
+                                      bool clear_target) {
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = owner_->RtvCpuHandle(color_target);
     rendering_target_ = owner_->TextureResource(color_target);
     rendering_rtv_ = rtv;
@@ -940,8 +941,10 @@ void D3D12CommandList::BeginRendering(TextureHandle color_target, const ClearCol
     command_list_->ResourceBarrier(1, &to_render_target);
 
     command_list_->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-    const float color[4] = {clear_color.r, clear_color.g, clear_color.b, clear_color.a};
-    command_list_->ClearRenderTargetView(rtv, color, 0, nullptr);
+    if (clear_target) {
+        const float color[4] = {clear_color.r, clear_color.g, clear_color.b, clear_color.a};
+        command_list_->ClearRenderTargetView(rtv, color, 0, nullptr);
+    }
 }
 
 void D3D12CommandList::EndRendering() {

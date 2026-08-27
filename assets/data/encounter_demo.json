@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "encounters": [
+    {
+      "id": "demo.encounter_point",
+      "position": [0.0, 1.0, 0.0],
+      "radius": 0.75,
+      "encounter_id": "demo.encounter",
+      "results": {
+        "resolved": "alice_reward",
+        "turns_done": "alice_reward",
+        "cancelled": "chest_west_echo"
+      }
+    }
+  ]
+}

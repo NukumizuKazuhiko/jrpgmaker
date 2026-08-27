@@ -1,0 +1,9 @@
+{
+    "schema": 1,
+    "id": "sample.unlit",
+    "type": "render_style",
+    "version": 1,
+    "engine_contract": 1,
+    "data_roots": ["data"],
+    "capabilities": ["render_plan"]
+}

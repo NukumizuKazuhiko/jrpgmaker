@@ -68,7 +68,7 @@
 - **子任务 5（已完成，2026-08-24）**：**事件触发器接线（flag 触发器，数据文件驱动）**。domain 新增 `flag_trigger.hpp`/`flag_trigger.cpp`：`FlagTrigger{flag, target_event_id}` 数据合同 + `ParseFlagTriggers`（触发器表 schema v1：`{schema, triggers:[{flag, target_event_id}]}`，重复 flag 绑定/空字段解析期 `std::invalid_argument`）；`FlagTriggerSystem` 订阅 `FlagChanged`，**边沿触发**（false→true 只触发一次，重复 set true 不重触发，flag 回 false 后重新 true 再触发，false 不触发，未绑定 flag 忽略），回调收到 target_event_id。新增 `assets/data/triggers_demo.json`（`alice.quest.accepted`→`alice_reward`、`chest.west.opened`→`chest_west_echo`）。**接线约束（测试暴露的真实陷阱）**：回调在 `EventRunner::Tick` 内同步触发（`FlagChanged` 广播时源事件仍在完成中，`runner.Start` 会抛 "Start while an event is already active"）——宿主必须排队到下一事件边界启动，端到端测试演示该游戏循环模式。区域/交互触发器依赖 P4 世界交互，明确不在 P3 范围。验证：双端构建零警告、ctest 97/97（新增 flag_trigger 9 例：解析/重复绑定拒绝/空字段拒绝/边沿触发一次/重复 true 不触发/false 不触发/回 false 重触发/未绑定忽略/数据文件解析/端到端接线）、Windows 实机冒烟通过。
 - **子任务 6（已完成，2026-08-24）**：**FreeType+HarfBuzz 文本排版库层（`engine/ui` 首次落地，纯 CPU 无渲染）**。vcpkg 引入 `freetype 2.14.3`（`default-features:false` 裁剪 brotli/bzip2/png，仅 core）+ `harfbuzz 14.3.1`（zlib 源码包经代理手动缓存命中 `madler-zlib-v1.3.2.tar.gz`；vcpkg 代理 SSL 问题按既有 `VCPKG_DOWNLOADS` 缓存规避）。新增 `engine/ui` 模块（owner map 目标形态首次落地）：`jrpgmaker::ui::Font`（FreeType 加载/face_index/字体单位度量/glyph 位图度量）、`TextShaper`（HarfBuzz shape UTF-8→`TextRun`，advance 像素化）、`LineBreaker`（**CJK 禁则换行**：行首禁则=行不以闭括号/悬挂标点/小写假名开头；行尾禁则=行不以开括号结尾；超宽单字强制成行防死循环）。**缺陷修正**：初版 LineBreaker 贪心扫描逻辑在溢出点处理禁则不正确（行尾禁则候选 break 被后续覆盖），重写为"贪心填满→行尾禁则回退→行首禁则悬挂"三阶段；font ascender/descender 初版取 `face->size->metrics`（size 未初始化恒 0），改取 `face->ascender/descender`（字体单位）。**工程适配**：MSVC 对含 UTF-8 字面量的测试源加 `/utf-8`（C4819 会被 /WX 提升）；`TextShaper::Impl` 构造在 GCC 下不能写 `TextShaper::Impl()`（限定名非法，MSVC 宽容），改 `Impl()`。**测试字体策略**：Windows `msgothic.ttc` / macOS `STHeiti` / Linux `fonts-noto-cjk`（CI Linux 已装 + WSL 本地装验证真加载）；无字体环境 font/shaper 测试 SKIP（明确原因），禁则换行测试自包含（手造 glyph 零字体依赖，双端必跑）。验证：双端构建零警告、ctest 107/107（新增 10 例：6 禁则换行 + 4 font/shaper，双端真字体加载 21 断言）、Windows 实机冒烟通过。**范围外（明确记录）**：文字栅格化/纹理化（依赖 DEBT-029 纹理管线），属 UI 渲染子任务。
 - **子任务 7（已完成，2026-08-24）**：**Lua(sol2) 绑定逃生舱（受限 API 表面）**。vcpkg 引入 `lua 5.5` + `sol2 3.5.0`（WSL 侧 lua-5.5.1/sol2-v3.5.0 源码经代理正常下载，Windows 侧同 baseline 已装）。domain 新增 `lua_binding.hpp`/`lua_binding.cpp`：`LuaScriptEngine`（`FlagStore&` + 宿主 `EventTrigger` 回调）。**受限 API**（docs/01 line 120 合同：Lua 只是逃生舱，禁止绕过事件指令集私造流程）：`flags.get/set`（FlagStore 读写）、`events.run(event_id)`（经宿主回调请求启动 EventRunner 事件，宿主决定合法性，返回 bool）、`log(message)`；**不暴露**指令解析/执行/schema/EventRunner 内部。**缺陷修正**：sol2 `state::script` 对语法/运行错误均抛 `sol::error`（不捕获会崩溃、测试断言误判），`Run`/`Call` 改为 try/catch 捕获存入 `last_error()` 返回 false。验证：双端构建零警告、ctest 114/114（新增 lua_binding 7 例：flags 读写/events.run 触发/宿主拒绝返回 false/脚本错误报告/全局函数调用/缺函数报告/逃生舱受限性——`instructions`/`schema`/`event_runner`/`parse` 全局不存在且 flags/events 表只暴露预期函数）、Windows 实机冒烟通过。
-- **子任务 8（已完成，2026-08-24）**：**RHI 纹理采样管线（DEBT-029 前置部分，P3 收尾的 UI 控件/文字栅格化共同地基）**。RHI 合同扩展：`SamplerHandle`/`SamplerDesc{filter,address}`/`CreateSampler`/`DestroySampler`/`IDevice::UploadTexture`/`ICommandList::SetSampledTexture`/`GraphicsPipelineDesc.sample_slot`（0=默认无采样，现有 pipeline 零影响）；`VertexAttribute` 增 `kFloat2` 与 `semantic_name`（D3D12 input-element 语义名，Vulkan 按 location 匹配）。**双后端同步实现（纪律 1）**：D3D12 root signature 增 SRV t0 + sampler s0 两个 pixel descriptor table + 独立 shader-visible CBV_SRV_UAV/SAMPLER heap（slot 池）；Vulkan descriptor set（binding0=SAMPLED_IMAGE、binding1=SAMPLER，fragment）经 `[[vk::binding]]` 与 HLSL `register(t0)/register(s0)` 对齐（`compile_shaders.ps1` 对 -spirv 注入 `VULKAN_TARGET` 宏）。上传路径后端内部 staging+barrier+copy（与 `MapReadBack` 对称），D3D12 上传后 PIXEL_SHADER_RESOURCE、Vulkan SHADER_READ_ONLY_OPTIMAL。**工程适配**：GCC `-Werror=missing-field-initializers` 要求 `VkDescriptorSetLayoutBinding.pImmutableSamplers` 显式置 nullptr；`D3D12CommandList::Native()` 返回基类 `ID3D12CommandList*` 无 copy/barrier 方法，上传逻辑封装为 `CopyBufferToTexture`（与 Vulkan `CopyBufferToTexture` 对称）。新增 `shaders/textured.hlsl`（全屏 quad 采样）与 `texture_quad_test.cpp`；goldenimage CLI 增 `generate-texture`/`compare-texture` 命令。**跨驱动一致性**：2×2 四色纹理（nearest/clamp）全屏采样，WARP 与 lavapipe delta=0（4096 像素），`tests/golden/texture_quad_64x64.ppm` 由 lavapipe 权威生成。验证：双端构建零警告、ctest 117/117（新增 texture_quad golden 1 例 + rhi_contract 3 例）、Windows 实机冒烟通过、私有头审计 OK（70 文件）。**范围外（明确记录）**：glTF 材质纹理（stb 解码 + material 入 `SceneLoad`）随 P4/P6 PBR 渲染轮次（DEBT-029 剩余部分）。
+- **子任务 8（已完成，2026-08-24）**：**RHI 纹理采样管线（DEBT-029 前置部分，P3 收尾的 UI 控件/文字栅格化共同地基）**。RHI 合同扩展：`SamplerHandle`/`SamplerDesc{filter,address}`/`CreateSampler`/`DestroySampler`/`IDevice::UploadTexture`/`ICommandList::SetSampledTexture`/`GraphicsPipelineDesc.sample_slot`（0=默认无采样，现有 pipeline 零影响）；`VertexAttribute` 增 `kFloat2` 与 `semantic_name`（D3D12 input-element 语义名，Vulkan 按 location 匹配）。**双后端同步实现（纪律 1）**：D3D12 root signature 增 SRV t0 + sampler s0 两个 pixel descriptor table + 独立 shader-visible CBV_SRV_UAV/SAMPLER heap（slot 池）；Vulkan descriptor set（binding0=SAMPLED_IMAGE、binding1=SAMPLER，fragment）经 `[[vk::binding]]` 与 HLSL `register(t0)/register(s0)` 对齐（`compile_shaders.ps1` 对 -spirv 注入 `VULKAN_TARGET` 宏）。上传路径后端内部 staging+barrier+copy（与 `MapReadBack` 对称），D3D12 上传后 PIXEL_SHADER_RESOURCE、Vulkan SHADER_READ_ONLY_OPTIMAL。**工程适配**：GCC `-Werror=missing-field-initializers` 要求 `VkDescriptorSetLayoutBinding.pImmutableSamplers` 显式置 nullptr；`D3D12CommandList::Native()` 返回基类 `ID3D12CommandList*` 无 copy/barrier 方法，上传逻辑封装为 `CopyBufferToTexture`（与 Vulkan `CopyBufferToTexture` 对称）。新增 `shaders/textured.hlsl`（全屏 quad 采样）与 `texture_quad_test.cpp`；goldenimage CLI 增 `generate-texture`/`compare-texture` 命令。**跨驱动一致性**：2×2 四色纹理（nearest/clamp）全屏采样，WARP 与 lavapipe delta=0（4096 像素），`tests/golden/texture_quad_64x64.ppm` 由 lavapipe 权威生成。验证：双端构建零警告、ctest 117/117（新增 texture_quad golden 1 例 + rhi_contract 3 例）、Windows 实机冒烟通过、私有头审计 OK（70 文件）。**范围外（明确记录）**：glTF 材质纹理（stb 解码 + material 入 `SceneLoad`）留给 P6 渲染风格插件与材质 schema 委派轮次（DEBT-029 剩余部分）。
 - **子任务 9（已完成，2026-08-24）**：**UI 控件框架最小集（`engine/ui` 纯 CPU 层，九宫格/文本框/列表）**。新增 `jrpgmaker::ui`（`widget.hpp`）：保留式控件树 `Widget`（id/visible/parent/AddChild，owns children，`Layout(available)` 存 widget-local rect 并递归布局）、`Panel`（`NineSlice` 背景 + `Padding` 内容区，子控件布局进 padding 后区域）、`TextBlock`（`Font*` 借用 + TextShaper/LineBreaker，`Layout` 用可用宽度排版，尺寸=排版高度）、`List`（垂直堆叠可见子项按自然高度 + spacing，占满可用宽）；`SliceNine` 纯几何把矩形切 3×3 九宫格（四角保留/边单向拉伸/中心填充），切片内缩超目标时钳制中心归零且不重叠。**范围决策（用户确认）**：render 层仍为空壳（仅 .gitkeep），本轮刻意做纯 CPU 控件框架——九宫格/文本框/列表的布局语义先落地并可单测，**渲染接线（ui→render→rhi 绘制已布局 rect）留 render 层落地时做**，避免与材质工作纠缠、符合"最小一步"。**工程适配**：`Widget` 构造声明后须实现（MSVC LNK2019 暴露未定义构造）。验证：双端构建零警告、ctest 124/124（新增 widget 7 例 52 断言：树父子/九宫格区域与面积守恒/超限钳制/面板 padding 内容区/列表堆叠+隐藏项/TextBlock CJK 排版+空文本归零）、Windows 实机冒烟通过、私有头审计 OK（73 文件）。**P3 范围内项至此全部落地**（事件/对话/投影/触发器/排版/Lua/lint/UI 控件最小集）；P3 验收"CJK 用例 golden image"由排版库 + 事件数据文件执行测试覆盖，golden 渲染一致性由 P1/P2 三角形/场景/相机 golden + 本轮 texture quad golden 共同支撑。
 - **审计修复批 1（2026-08-25，codegraph 复核后）**：**schema 校验严格化 + 对话投影收敛 + demo 数据自洽 + Lua 投影接线**。#3：`set_flag` 缺 `value`、`wait` 缺 `seconds` 由静默默认改为解析期 `std::invalid_argument`（docs/01 合同"缺字段抛错"落地；新增 2 例抛错测试，16 处无 value 测试数据补 `"value": true`）。#4：移除从未发布的 `DialogState` 死结构体，`DialogRequested` 收敛为唯一结构化投影（docs/01 更新）。#6：`events_demo.json` 补 `alice_reward`/`chest_west_echo` 两事件使 `triggers_demo.json` 引用有效，flag_trigger 数据文件测试端到端断言每个 `target_event_id` 在事件表存在（防触发后 `Start` 静默 false）。#8：`LuaScriptEngine` 构造增加 `core::EventBus&`，`flags.set` 发布 `FlagChanged`（与 EventRunner 同源投影，修复 Lua 置位后 flag 触发器静默不触发；新增投影广播测试 1 例）。验证：双端构建零警告、ctest 129/129（+3）、clang-format 合规、Windows 实机冒烟通过。**剩余**：RHI 批（#1 D3D12 UploadTexture 越界读、#7 sample_slot 死字段）与 CI 批（#5 golden-sync/data-lint 漏网）待修。
 - **审计修复批 2（2026-08-25，RHI 层）**：#1 D3D12 `UploadTexture` 越界读——逐行 `memcpy` 用 footprint `RowPitch`（256 对齐）读 tight 源（每行仅 `row_pitch_bytes` 保证），修复为 `copy_bytes = min(pitch, row_pitch_bytes)`；golden 复验 delta=0 证明修复后跨驱动仍一致。#7 `sample_slot` 死字段——双后端 `CreatePipeline` 曾从不读取 `desc.sample_slot`，`SetSampledTexture` 注释"Requires sample_slot>0"无校验：现两端 `PipelineEntry` 记录 `sample_slot`、command list `SetPipeline` 记录 bound pipeline、`SetSampledTexture` 对未声明采样的 pipeline 抛 `std::runtime_error`（合同字段真正生效，Speculative Generality 消除）。验证：双端构建零警告、ctest 130/130（新增"非采样 pipeline 绑定采样抛错"1 例）、clang-format 合规、Windows 实机冒烟通过、私有头审计 OK（73 文件）、texture_quad golden delta=0。**剩余**：CI 批（#5 golden-sync/data-lint 漏网）待修。
@@ -96,29 +96,170 @@
 - 已落地 domain `InteractionSystem`：最近距离/稳定 ID 选择、进入/离开提示 projection、确认边沿检测和事件边界队列；`app` 接入 SDL WASD/E、`kInput → kDomainSim → kAnimation → kPresentationSync → kRenderSubmit`，移动速度驱动 idle/walk/run 状态，事件 runner 保持非重入；确认事件在 runner 忙碌时进入待处理队列，运行时悬空目标显式报错。
 - 测试覆盖角色碰撞角部、寻路结构化失败、相机完整过渡、地图解析、交互到 `DialogRequested` 的端到端链路；Windows/D3D12 全量 `ctest` **162/162** 通过。`eventlint --check-map` 对四类 P4 数据及事件引用实跑通过。`clang-format --dry-run --Werror`、`git diff --check`、私有头审计均通过。Windows/macOS 实机/CI 证据按当前主机能力另行补充，未伪造为本地通过。
 
-## P5 战斗框架（可插拔合同首次实战）
+## P5 插件基础设施与战斗插件验证
 
-- **目的**：BattleRules 插件合同成立并有一个真实实现。
-- **范围内**：数值表 schema(actor 属性/技能/buff/伤害公式管线)、BattleRules 插件接口 + 回合制状态机实现、QTE 时间轴钩子 v0 与输入缓冲合同钩子 v0(各自最小演示)、战斗转场与运镜命令(domain→render 结构化命令)、战斗 UI(HP/SP 条、指令菜单、目标选择)。
-- **范围外**：ACT 物理实现（ADR-002：远期插件）、多规则并存切换 UI。
-- **验收命令与证据**：数据驱动遭遇战闭环：遇敌→战斗→胜负结算→返回探索；成功标准 3 的插件替换实验记录（证明"新规则零核心改动接入"路径成立，为 ADR-002 远期 ACT 插件背书）。
-- **停止条件**：全局门禁全过；战斗闭环达成（[00-product.md](00-product.md) §第一可玩闭环 时点拆分的 P5 子集：移动→遇敌→战斗→胜利返回获得道具，不含存档）。
+- **目的**：建立通用源码级插件宿主，并以两个真实战斗插件证明“规则由开发者自主定义、替换时 `engine/` 零改动”。
+- **范围内**：项目清单、插件 manifest/schema v1、类型化注册表与构建期工厂、validator 调度、战斗会话 seam、数据化输入 action、通用 UI/camera/transition/animation 输出、遭遇会话调度、两个参考战斗插件及替换实验。
+- **范围外**：引擎统一 actor/skill/buff/伤害公式 schema；引擎内置回合制/QTE/ACT 语义；跨编译器 DLL 热加载 ABI；渲染风格插件实现（P6）；多插件并行运行 UI。
+- **开工条件**：P4 的 Windows 与 WSL 验收已完成；按用户决策，P5 开发阶段优先 Windows。P4/P5 的 macOS 与完整 CI 证据可后补，但在全局门禁补齐前不得把 P5 标记为完成。
 
-## P6 风格化渲染与演出
+### P5 子任务与执行顺序
 
-- **目的**：Persona 式视觉形态成型。
-- **范围内**：toon shading + 描边、bloom/LUT 后处理栈、UI 缓动动效系统 + UI shader 效果、cutscene 时间轴播放器语义(镜头轨/字幕轨/BGM/SFX 轨)、audio 混音总线、立绘演出完善。
-- **范围外**：写实光照、阴影级联优化等非 JRPG 必需项。
-- **验收命令与证据**：60 秒 cutscene 时间轴由纯数据驱动播放，双后端 golden image 一致；UI 动效演示。
-- **停止条件**：全局门禁全过。
+#### P5-0 真源与目录合同
+
+- **实现**：回写 `docs/00`、`docs/01`、`docs/02` 与项目宪法；新增 `engine/plugin/` 和 `plugins/` 的目录/依赖约定。根 CMake 只提供统一插件注册入口，具体插件不得由 app 通过 ID 分支选择。
+- **测试/门禁**：文档中不得再把固定画风、回合制、QTE、actor/skill/buff schema 写成引擎真相；私有头规则覆盖 `engine/plugin` 与 `plugins/*` 公私有目录。
+- **停止条件**：owner、seam、错误模式、源码级插件边界和 P5 非目标无歧义。
+- **建议提交**：`docs(p5): redefine project and plugin boundaries`。
+
+#### P5-1 项目清单与通用插件宿主
+
+- **实现**：新增版本化 `project.json` 与插件 `plugin.json`；实现 `PluginId`、`PluginType`、`PluginManifest`、类型化 `PluginRegistry`、构建期 factory 和结构化 `PluginError`。manifest 至少声明 `schema/id/type/version/engine_contract/data_roots/capabilities`。
+- **强制合同**：拒绝重复 ID、未知类型、合同版本不兼容、缺失工厂、目录越界和缺失数据；registry 容量有上界，工厂和会话由宿主显式销毁；插件异常不得穿过宿主边界。
+- **测试**：manifest 正常/缺字段/重复 ID/版本不兼容/工厂缺失/路径越界；同一 registry 注册两个 adapter 并按类型创建。
+- **Windows 验收**：定向单测 + `cmake --build --preset win-debug` + `ctest --preset win-debug --output-on-failure`。
+- **停止条件**：app 能只根据项目清单选择插件，且不存在具体插件 ID 分支。
+- **建议提交**：`feat(plugin): add project manifest and build-time registry`。
+
+**当前进度（2026-08-27）**：已落地项目清单 `project_demo.json` 的插件选择、插件类型/工厂/数据根校验，以及 app 按清单装配 render style 和 battle plugin；registry 仍为构建期源码注册。Windows Debug 构建通过，新增战斗插件/遭遇与材质消费测试后全量 ctest **209/209** 通过。P5-1 的跨平台与统一 validator 调度仍按后续门禁处理。
+
+#### P5-2 插件 validator 与项目数据 lint
+
+- **实现**：定义 validator seam；项目 lint 先验证 manifest/文件边界，再把插件私有数据交给对应插件 validator。宿主只聚合结构化 issue，不解释私有字段。
+- **测试**：未知 validator、插件数据损坏、跨文件悬空引用、同插件多文件错误聚合、warning/error 退出码、单文件和总字节数上界。
+- **数据**：提交最小 `project_demo.json` 和两个战斗插件的数据 fixture；actor/skill/buff 等仅允许出现在插件目录。
+- **停止条件**：错误在作者期可定位到插件 ID、文件和字段路径；`eventlint` 或后继统一 CLI 可一次校验项目与插件数据。
+- **建议提交**：`feat(plugin): add delegated data validation`。
+
+#### P5-3 战斗会话 seam
+
+- **实现**：定义 `IBattlePlugin::CreateSession(ExtensionLaunchContext)`、`IBattleSession::Advance(FrameInput)` 与 `Snapshot()`；`FrameInput` 只包含逻辑 tick/delta、项目 action id 和宿主控制，`FrameOutput` 只包含运行状态、通用 presentation 命令、`result_key` 与有界 opaque payload。
+- **强制合同**：宿主不得出现 HP/SP、技能、回合、目标、QTE、胜负等字段；每帧输入数量、输出命令数和 payload 字节数有上界；非法状态转换、插件错误和超预算返回结构化失败。
+- **测试**：生命周期、重复启动、空闲 tick、完成后调用、错误传播、输入/输出上界、确定性重放。
+- **停止条件**：测试中的两个行为不同 adapter 可通过相同 seam 运行，删除其中任一个不影响 engine 构建。
+- **建议提交**：`feat(plugin): add battle session seam`。
+
+**当前进度（2026-08-27）**：`engine/plugin/battle.hpp` 提供有界 `BattleLaunchContext`、`BattleFrameInput`、`BattleFrameOutput`、`BattleSnapshot` 与结构化校验；`sample_instant` 和 `sample_turn_based` 均通过同一 seam，app 不解释插件规则。Windows 定向与全量 ctest **209/209** 通过。
+
+#### P5-4 输入与 presentation 通用合同
+
+- **实现**：新增数据化 `input_actions.json`，SDL 只映射稳定 action id；定义通用 UI draw/view model、相机、转场和动画请求。战斗插件可提供 presentation adapter，但不得直接访问 D3D12/Vulkan 或 domain 私有状态。
+- **测试**：按下/释放边沿、逻辑 tick、缓冲容量、未知 action、UI 命令生命周期、相机/转场命令顺序和预算超限。
+- **停止条件**：app 无具体战斗按键、菜单或结果分支；同一输入/presentation seam 可被两个插件消费。
+- **建议提交**：`feat(plugin): add extension input and presentation contracts`。
+
+#### P5-5 遭遇与项目事件闭环
+
+- **实现**：新增数据驱动遭遇点/区域，进入时只排队 `ExtensionRequested`；在事件边界创建战斗会话，运行期间暂停探索控制但保留场景状态。插件完成后把 `result_key + payload` 交给项目事件映射，由事件决定 flag、奖励、对话或返回探索。
+- **强制合同**：不得在 EventBus 回调内重入启动插件；同一遭遇不能重复结算；未知插件/结果映射由 lint 和运行时共同阻断；引擎不硬编码 victory/defeat/reward。
+- **测试**：进入/离开、忙碌排队、非重入、插件失败、重复结算、结果事件映射、返回原探索位置。
+- **停止条件**：`移动→遭遇→插件→结果事件→返回探索` 的 domain 端到端测试通过。
+- **建议提交**：`feat(p5): connect encounters to extension sessions`。
+
+**当前进度（2026-08-27）**：`domain::EncounterSystem` 从 schema 1 数据选择最近遭遇点并只在进入时发布请求；app 在事件边界排队创建 battle session，探索移动冻结，完成后按 `result_key` 排队项目事件。新增端到端测试验证“遭遇→插件确认→结果事件→EventRunner 对话”且不在 EventBus 回调内重入；`eventlint --check-encounter` 已校验遭遇结果到事件的引用。Windows 主线已闭合，跨平台门禁仍待补。
+
+#### P5-6 两个参考战斗插件
+
+- **实现**：在 `plugins/` 提供 `sample_turn_based` 与 `sample_instant_result`。前者自行拥有 actor/skill/buff/行动/QTE/菜单/AI/结算 schema 和 validator；后者使用完全不同的最小规则，证明 seam 没有回合制偏置。
+- **约束**：参考插件可以依赖公开 domain/ui/render/plugin 合同，但不能进入 `engine/domain`，不能要求 app 增加插件 ID 分支。
+- **测试**：两个插件各自的规则测试、数据 lint、确定性重放；同一遭遇只改 `project.json` 的插件 ID 后均能完成。
+- **停止条件**：保存 `git diff -- engine app` 的替换实验记录，证明切换插件时引擎与 app 零改动。
+- **建议提交**：`feat(plugins): add replaceable battle examples`。
+
+**当前进度（2026-08-27）**：已提供 `plugins/sample_instant` 与 `plugins/sample_turn_based`，各自携带 manifest 与 data fixture；app 通过 manifest/registry 选择，公共确认 action 为 `extension.confirm`，规则实现不进入 engine/domain。Windows 替换 seam 测试已通过。
+
+#### P5-7 Windows 竖切与里程碑关闭
+
+- **Windows 优先验收**：完整 win-debug 构建/ctest、项目 lint、私有头审计、clang-format、`git diff --check`、D3D12 实机日志或录屏；固定路径为 `移动→遭遇→战斗插件→结果事件→返回探索`。
+- **延后平台验收**：WSL/Linux Vulkan 全量构建测试与 macOS CI 可在开发结束后统一补；未补齐时状态只能是“Windows 开发闭环完成”，不能写“P5 完成”。
+- **最终停止条件**：两个插件替换实验成立；全局门禁全部通过；文档回写真实命令、测试数量、插件替换 diff 和端到端证据。
+- **建议提交**：`docs(p5): record plugin acceptance evidence`。
+
+**当前平台裁决（2026-08-27）**：Windows/D3D12 构建、Linux/Vulkan/lavapipe 构建及当前源码全量 CTest 均通过，Windows/Linux 各 **209/209**；五组项目数据 lint、私有头审计均通过。Linux 复验期间 GCC `-Werror` 暴露测试聚合初始化缺字段，已补齐显式初始化后重新构建通过。仓库全部 137 个 C++ 源文件已用 clang-format 22.1.3 dry-run 通过；macOS CI 仍待远端 runner 验收，不能把 P5/P6 标记为三平台完全关闭。
+
+## P6 渲染风格插件与演出
+
+- **目的**：建立渲染风格 seam，使项目可以选择或编写自己的画风，而不修改 RHI 后端和 domain。
+- **范围内**：渲染风格 manifest/factory、材质 schema/validator、通用场景快照与 draw/pass 输出、基础无光照参考插件、第二个差异化风格插件、UI 主题/动效 adapter、cutscene 时间轴播放器语义、audio 混音总线。
+- **范围外**：把任何特定画风设为引擎默认真相；在 engine 内硬编码 toon/描边/bloom/LUT/PBR 组合；插件直接访问 D3D12/Vulkan 后端；跨编译器 DLL 热加载 ABI。
+- **执行顺序**：P6-1 render seam 与资源预算 → P6-2 材质 schema 委派与 glTF material 数据保留 → P6-3 基础无光照插件 → P6-4 第二风格插件 → P6-5 cutscene/UI/audio adapter → P6-6 双插件 golden 替换实验与三平台门禁。
+- **验收命令与证据**：同一场景只改项目清单中的 `render_style` 插件 ID 即产生两种明确不同的合法画面；`engine/rhi/backends`、domain 和地图数据零改动；两个插件各自 golden image 一致。
+- **停止条件**：全局门禁全过；渲染风格替换实验、材质 schema 委派和资源预算证据齐全。
+
+### P6-1 渲染风格 seam 与资源预算（Windows/Linux 闭环，2026-08-26）
+
+- **已落地**：新增 `engine/render` Module。`IRenderStyleAdapter` 是外部 Seam；输入为只读值语义的 `SceneSnapshot`，输出为通用 `RenderPlan`。`Renderable`/`RenderDraw` 只保存 mesh/material 引用、世界矩阵和不透明材质参数字节，render 核心不解释画风或材质字段。
+- **资源合同**：`RenderStyleDescriptor` 为 Adapter 声明版本和 `RenderResourceBudget` 的入口；`ValidateRenderPlan` 对 pass、draw 和材质参数总字节数设上界，并拒绝无名 pass；预算累计使用溢出安全检查。RHI `BeginRendering` 支持显式 clear/load，overlay pass 可保留前一 pass 内容。
+- **测试证据**：`tests/unit/render_style_test.cpp` 覆盖快照到计划的数据保留、预算拒绝和非法 pass；Windows/D3D12 与 Linux/Vulkan/lavapipe 全量 ctest 各 **183/183** 通过。
+- **边界**：具体画风 Adapter、glTF material 解释和 app 实际录制由后续 P6 子任务实现；P5 `engine/plugin` host 已落为构建期 `PluginRegistry`，P6 复用集中注册入口，不复制宿主。
+- **停止条件**：已完成双平台编译与测试验证；macOS 门禁仍按平台策略后补。
+
+### P6-2 材质 schema 委派与 glTF 材质数据保留（Windows/Linux 闭环，2026-08-26）
+
+- **已落地**：`assetimport::TextureAsset` 保留纹理名称与 source URI；`assetimport::MaterialAsset` 保留名称、glTF PBR 基础色/金属度/粗糙度及基础色纹理索引；场景节点通过 `MaterialRef` 关联导入材质。
+- **边界**：这些是通用 glTF 导入资料，不是引擎材质 schema；render/style Adapter 可以解释或忽略它们，项目材质实例仍可通过 `OpaqueMaterialParameters` 自定义。
+- **测试证据**：`triangle.gltf` fixture 覆盖 material + texture source，`asset_import_test.cpp` 验证字段与节点关联；stb 将 1×1 P6 纹理解码为 RGBA8，Windows 材质导入定向测试通过。
+- **资源安全**：外部与嵌入式纹理均限制最大 4096×4096 与 16M 像素，解码失败/缺失/超限均返回导入错误；嵌入式 data URI 与 bufferView 均转为 RGBA8。
+- **已补齐**：`IRenderStyleAdapter::ValidateMaterial` 将材质 schema 解释权交给插件；两个参考插件分别校验 `base_color[4]` 与 `accent[4]`。app 已从项目清单创建 style adapter 并消费其 RenderPlan 清屏输出。
+- **已补齐**：app 的 `RenderPlanExecutor` resolver 在录制前调用当前 style adapter 的材质 validator；项目 manifest 通过安全相对路径选择材质实例，app 同时注册并按 `RenderPass.pipeline` 解析 `unlit`/`accent` 两套管线。app 将项目材质 parameters 编码为 opaque CBOR，两个 style adapter 分别解码自己的 schema 并将颜色消费到 RenderPass，同时保留参数字节到 draw；实际 glTF 纹理采样材质 pipeline 仍留待后续纹理渲染任务。
+
+### P6-3/P6-4 风格 Adapter（Windows/Linux 闭环，macOS 验收待补，2026-08-26）
+
+- **已落地**：`plugins/sample_unlit` 与 `plugins/sample_style` 两个真实 Adapter，均通过 `IRenderStyleAdapter` 与通用 `PluginRegistry` 创建；两者消费同一 `SceneSnapshot`，输出相同 draw 数据但不同 pass ID/clear color，证明 seam 未被单一画风字段塑形。
+- **测试证据**：`render_style_adapters_test.cpp` 验证两个 Adapter 的 descriptor、可替换 plan 和差异化输出；Windows/Linux 全量回归各 **183/183** 通过。
+- **已补齐**：app 读取 `project_demo.json`，通过集中注册入口和 registry 按 `render_style` 创建 adapter；`RenderPlanExecutor` 统一录制 pass、pipeline、mesh 和 draw，goldenimage 的两个 style 也经该 executor 进入 D3D12 离屏 RHI；两个 adapter 声明不同 pipeline key，golden 使用不同 pixel shader，生成两套基准图。
+- **已补齐**：`assets/data/render_resources_demo.json` 提供 schema 1 的 pipeline/mesh 目录，app 在录制前校验所有 plan 引用；项目清单、材质实例和资源目录共同完成 demo/accent 装配。
+- **剩余设计风险**：目录到 GPU handle 的最终加载器仍由 app 负责，尚未抽成独立资源服务；macOS 验收待补。
+
+### P6-5/P6-6 演出合同与风格 golden（Windows/Linux 闭环，macOS 验收待补，2026-08-26）
+
+- **已补齐**：`core::CutsceneTimeline/CutscenePlayer` 提供 schema 1、唯一 cue、确定性排序、时间窗口和一次性 event 触发；app 在 `kDomainSim` 将触发事件排入 EventRunner 队列；`audio::MixerBus` 提供有界 PCM voice、增益混合和完成回收，app 通过 SDL3 `SDL_AudioStream` 以有界队列消费混音并在事件启动时播放提示音；`ui::Theme` 提供 schema 1 数据解析、颜色/字号范围校验与 presentation-only spring 动效，app 启动加载主题文件；新增 clip-space colored-quad UI pass，主题 accent 经 UI 顶点数据进入 RHI，overlay 使用 load-op 保留场景内容。新增 `shaders/ui.hlsl` 及双后端生成物，新增 3 个合同测试。
+- **golden 门禁**：两个 `compare-style` CTest 已接入，Windows/D3D12 基准图已生成并用于本地比较。
+- **Windows 证据（2026-08-26）**：MSVC Debug 构建通过，`ctest --preset win-debug --output-on-failure` **183/183** 通过；音频设备不可用时 adapter 降级为日志并不阻断渲染主循环。项目清单新增安全相对路径 `material_document`，demo 与 accent 项目可分别装配对应材质实例。
+- **Linux 证据（2026-08-26）**：`cmake --build --preset linux-debug --parallel 2` 与 `ctest --preset linux-debug --output-on-failure` 均通过，Vulkan/lavapipe 全量 **183/183** 通过。
+- **未完成**：macOS 门禁、实际纹理材质 pipeline 和独立资源加载服务仍待补；按当前平台策略不阻断 Windows/Linux P6 主线，但在 macOS 门禁完成前 P6 三平台状态不能关闭。
 
 ## P7 工具链与竖切组装
 
 - **目的**：交付第一可玩闭环的产品形态。
-- **范围内**：版本化存档+迁移函数表、地图数据格式 v2、lint 增强(事件引用的立绘/技能/文本键完整性审计)、30 分钟竖切 demo 组装(纯数据文件)。
+- **范围内**：版本化存档+迁移函数表、可配置 `CalendarDefinition + GameClock`、日期/日程触发、地图数据格式 v2、lint 增强（日期/事件/文本/资源/扩展 ID 完整性审计）、30 分钟竖切 demo 组装（纯数据文件）。插件私有技能或材质引用由对应插件 validator 审计，不进入引擎统一 schema。
 - **范围外**：GUI 编辑器（另行立项）。
 - **验收命令与证据**：存读档一致性自动化测试；竖切 demo 可玩全程零硬编码剧情的审计清单；docs/00 成功标准逐条勾稽。
-- **停止条件**：成功标准 5 条全部有真实证据；完整第一可玩闭环达成（[00-product.md](00-product.md) 完整定义，含存档读档一致性）。
+- **停止条件**：[00-product.md](00-product.md) 的 7 条成功标准全部有真实证据；完整第一可玩闭环达成（含自定义日期/日程与存档读档一致性）。
+
+### P7-1 可配置日历与游戏时钟（Windows 主线已完成，2026-08-27）
+
+- **已落地**：`engine/core` 新增 `CalendarDefinition`、`GameDate` 与 `GameClock`。日历由 schema 1 JSON 提供月份长度和每周天数；时钟以绝对分钟推进，并确定性转换为年月日和日内分钟。
+- **数据 fixture**：`assets/data/calendar_demo.json` 是当前 demo 日历，不包含剧情或项目规则硬编码。
+- **测试证据**：`tests/unit/calendar_test.cpp` 覆盖 schema/范围校验、跨月推进、非法日期和倒退时间；Windows/D3D12 全量 ctest **186/186** 通过。
+- **边界修复**：`GameClock` 对极大年份在乘法前拒绝，避免绝对分钟计算溢出。
+- **测试证据**：Windows/D3D12 全量 ctest **197/197** 通过。
+
+### P7-2 版本化存档与迁移（Windows 主线已完成，2026-08-27）
+
+- **已落地**：`domain::SaveState` 保存日历 ID、日期、日内分钟和排序后的 true flags；`SerializeSave`/`ParseSave` 使用 schema 1 并拒绝缺字段、非法范围和重复 flag。
+- **迁移合同**：`MigrateAndParseSave` 只执行调用方显式提供的逐版本迁移函数；迁移未推进版本、缺步骤或目标版本更新时均失败，不静默改写存档语义。
+- **恢复边界**：`FlagStore::Snapshot/Restore` 提供持久化所需的确定性值接口；`RestoreSave` 校验运行时日历 ID 后才修改时钟和 flags。
+- **文件边界**：`ReadSaveFile` 限制输入为 4 MiB，拒绝负 schema；读写失败返回结构化错误，不静默恢复。
+- **测试证据**：`tests/unit/save_test.cpp` 覆盖存读一致性、显式 v0→v1 迁移、缺迁移步骤、负 schema、文件 I/O 和日历不匹配拒绝；Windows/D3D12 全量 ctest **197/197** 通过。
+
+### P7-3 日期/日程触发（Windows 主线已完成，2026-08-27）
+
+- **已落地**：`domain::ScheduleTable` 由 schema 1 JSON 驱动，按日历月份/日期/日内分钟声明目标事件；`ScheduleSystem` 只在跨过触发时刻时发出事件 ID，按触发时间和稳定 ID 排序，并拒绝回退时钟或不匹配日历。
+- **引用校验**：`ValidateScheduleTargets` 在数据边界拒绝悬空事件引用；运行时不把未知目标静默转为空操作。
+- **数据 fixture**：`assets/data/schedule_demo.json` 登记 demo 日程。
+- **测试证据**：`tests/unit/schedule_test.cpp` 覆盖日期范围、事件引用、跨时刻稳定排序、重复轮询、回退时钟、超大轮询范围和完整日历不匹配；Windows/D3D12 全量 ctest **197/197** 通过。
+- **已接线**：app 在固定 `kDomainSim` tick 推进 `GameClock`，将 `ScheduleSystem` 输出加入既有待处理事件队列；`eventlint --check-schedule` 统一校验日历、日程和事件三方引用。
+
+### P7-4 竖切与存档接线（Windows 主线已完成，2026-08-27）
+
+- **已落地**：app 已加载 `calendar_demo.json`/`schedule_demo.json`，日程目标经过事件引用校验；F5 写入 `save_slot_0.json`，F9 经迁移感知 reader 读取并恢复时钟与 flags；事件仍统一从 pending queue 在 EventRunner 边界启动。
+- **一致性边界**：由于 schema 1 尚未持久化 EventRunner 程序计数器和待处理事件队列，app 只允许在 EventRunner 空闲且 pending queue 为空时 F5/F9，避免恢复出分叉的半执行事件。
+- **引用完整性**：app 和 `eventlint --check-cutscene` 均校验 cutscene cue → event；demo 数据包含可启动的 `intro` 事件，避免启动期悬空引用。
+- **内容预算合同**：`vertical_slice_demo.json` 以 6 个数据 beat 声明 1800 秒内容，`ParseVerticalSliceDefinition` 在解析期拒绝短内容、重复 beat 和非法时长；`eventlint --check-vertical-slice` 校验全部 beat 的事件引用。
+- **端到端证据**：`p7_vertical_slice_test.cpp` 覆盖日程触发 → EventRunner → 对话阻塞/确认 → flag 变更 → SaveState 恢复；Windows/D3D12 全量 ctest **197/197** 通过；`eventlint` 的 events、map、schedule、cutscene 检查均 exit 0。
+- **Windows 证据**：从仓库根目录启动同一构建出的 app，进程保持响应并成功完成资源/日历/日程/竖切数据初始化；GUI 自动化工具未能枚举 SDL 窗口，因此按可复现的进程存活、数据 lint 和 domain 端到端证据记录，不伪造按键操作证据。
+- **剩余平台边界**：Linux/macOS 构建与 macOS 门禁仍待后续平台验收；Windows P7 主线的代码、数据和自动化验收已闭合。
 
 ---
 
@@ -128,9 +269,11 @@
 |---|---|---|---|
 | 1 | RHI 双后端行为漂移 | 高 | 合同测试套件 + 同一提交强制同步（纪律 1）；P1 即建立 golden image 流水线 |
 | 2 | MoltenVK 兼容性坑 | 中 | P1 起三平台 CI 全程在跑，不留到最后才发现 |
-| 3 | Persona 风 UI shader 需求膨胀 | 中 | P6 开始前先做一次 UI 技术预览 spike，锁定效果清单再排期 |
+| 3 | 渲染风格 seam 被某个参考插件反向塑形 | 高 | P6 必须用两个差异明显的真实风格 adapter 验收；材质私有字段不得进入 engine 合同 |
 | 4 | CJK 排版复杂度被低估 | 中 | P3 引入 HarfBuzz 当周即跑日文禁则 golden image |
-| 5 | 战斗 ACT 化范围蔓延 | 高 | QTE 只做时间轴合同钩子；完整 ACT 物理不在 P0–P7，需用户显式修订 @@BOUNDARY@@ 后立项 |
+| 5 | 战斗 seam 被回合制或 ACT 私有语义污染 | 高 | 引擎会话只保留生命周期/输入/输出/result_key；用回合制与即时结果两个插件做删除/替换测试 |
+| 6 | 源码插件需求滑向跨编译器热加载 ABI | 高 | P5/P6 固定构建期注册；DLL ABI、热重载、沙箱和二进制分发另立里程碑 |
+| 7 | 插件私有数据绕过作者期校验 | 高 | 插件必须随包提供 validator；项目 lint 统一调度并对文件数、大小和错误数量设上界 |
 ### A5 审计修复：Vulkan descriptor 绑定快照
 
 - 修复 Vulkan 复用并原地更新单一 descriptor set 导致的跨 draw 状态污染与生命周期违规；每次资源绑定使用独立 descriptor set，双端 144/144 验收。

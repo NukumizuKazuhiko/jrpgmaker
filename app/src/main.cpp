@@ -1,8 +1,13 @@
 #include <SDL3/SDL.h>
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -12,22 +17,99 @@
 #include <nlohmann/json.hpp>
 
 #include "jrpgmaker/assetimport/asset_import.hpp"
+#include "jrpgmaker/audio/audio.hpp"
 #include "jrpgmaker/core/animation.hpp"
+#include "jrpgmaker/core/calendar.hpp"
 #include "jrpgmaker/core/camera_rig.hpp"
 #include "jrpgmaker/core/character_controller.hpp"
+#include "jrpgmaker/core/cutscene.hpp"
 #include "jrpgmaker/core/map_data.hpp"
 #include "jrpgmaker/core/stage.hpp"
 #include "jrpgmaker/core/version.hpp"
+#include "jrpgmaker/domain/encounter.hpp"
+#include "jrpgmaker/domain/event_lint.hpp"
 #include "jrpgmaker/domain/event_runner.hpp"
 #include "jrpgmaker/domain/event_script.hpp"
 #include "jrpgmaker/domain/interaction.hpp"
+#include "jrpgmaker/domain/save.hpp"
+#include "jrpgmaker/domain/schedule.hpp"
+#include "jrpgmaker/domain/vertical_slice.hpp"
+#include "jrpgmaker/plugin/battle.hpp"
+#include "jrpgmaker/plugin/plugin.hpp"
+#include "jrpgmaker/plugins/register.hpp"
+#include "jrpgmaker/render/style.hpp"
 #include "jrpgmaker/rhi/command_list.hpp"
 #include "jrpgmaker/rhi/device.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
 #include "jrpgmaker/rhi/swapchain.hpp"
+#include "jrpgmaker/ui/theme.hpp"
 #include "shaders_generated.hpp"
 
 namespace {
+
+class SdlAudioOutput {
+public:
+    explicit SdlAudioOutput(jrpgmaker::audio::MixerBus& mixer) : mixer_(mixer) {
+        const SDL_AudioSpec spec{SDL_AUDIO_F32, 1, 48000};
+        stream_ =
+            SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
+        if (stream_ == nullptr) {
+            SDL_Log("audio output unavailable: %s", SDL_GetError());
+            return;
+        }
+        if (!SDL_ResumeAudioStreamDevice(stream_)) {
+            SDL_Log("audio output could not resume: %s", SDL_GetError());
+            SDL_DestroyAudioStream(stream_);
+            stream_ = nullptr;
+        }
+    }
+
+    SdlAudioOutput(const SdlAudioOutput&) = delete;
+    SdlAudioOutput& operator=(const SdlAudioOutput&) = delete;
+
+    ~SdlAudioOutput() {
+        if (stream_ != nullptr) {
+            SDL_DestroyAudioStream(stream_);
+        }
+    }
+
+    void Tick() {
+        if (stream_ == nullptr) {
+            return;
+        }
+
+        constexpr int kFramesPerChunk = 480;
+        constexpr int kBytesPerFrame = sizeof(float);
+        constexpr int kMaxQueuedBytes = kFramesPerChunk * kBytesPerFrame * 4;
+        if (SDL_GetAudioStreamQueued(stream_) > kMaxQueuedBytes) {
+            return;
+        }
+
+        std::array<float, kFramesPerChunk> frames{};
+        mixer_.Mix(frames);
+        if (!SDL_PutAudioStreamData(stream_, frames.data(),
+                                    static_cast<int>(frames.size() * sizeof(float)))) {
+            SDL_Log("audio output rejected PCM buffer: %s", SDL_GetError());
+        }
+    }
+
+private:
+    jrpgmaker::audio::MixerBus& mixer_;
+    SDL_AudioStream* stream_ = nullptr;
+};
+
+std::vector<float> MakeEventCue() {
+    constexpr int kSampleRate = 48000;
+    constexpr int kFrames = kSampleRate / 20;
+    constexpr float kPi = 3.14159265358979323846f;
+    std::vector<float> samples(kFrames);
+    for (int frame = 0; frame < kFrames; ++frame) {
+        const float envelope = 1.0f - static_cast<float>(frame) / kFrames;
+        samples[frame] = 0.08f * envelope *
+                         std::sin(2.0f * kPi * 660.0f * static_cast<float>(frame) / kSampleRate);
+    }
+    return samples;
+}
 
 constexpr std::uint32_t kWindowWidth = 800;
 constexpr std::uint32_t kWindowHeight = 600;
@@ -57,6 +139,8 @@ struct InputState {
     bool backward = false;
     bool left = false;
     bool right = false;
+    bool save_requested = false;
+    bool load_requested = false;
 
     void UpdateMovement() {
         glm::vec2 axes{static_cast<float>(right) - static_cast<float>(left),
@@ -73,6 +157,39 @@ struct SkinnedVertex {
     std::uint16_t joints[4];
     float weights[4];
 };
+
+struct UiVertex {
+    float position[3];
+    float color[4];
+};
+
+nlohmann::json ReadJsonFile(const std::filesystem::path& path) {
+    std::ifstream file(path);
+    if (!file) {
+        throw std::runtime_error("failed to open " + path.string());
+    }
+    return nlohmann::json::parse(file);
+}
+
+jrpgmaker::render::OpaqueMaterialParameters
+EncodeMaterialParameters(const nlohmann::json& parameters) {
+    const std::vector<std::uint8_t> encoded = nlohmann::json::to_cbor(parameters);
+    jrpgmaker::render::OpaqueMaterialParameters result;
+    result.reserve(encoded.size());
+    for (const std::uint8_t byte : encoded) {
+        result.push_back(static_cast<std::byte>(byte));
+    }
+    return result;
+}
+
+jrpgmaker::plugin::PluginManifest ReadPluginManifest(const std::filesystem::path& path) {
+    const auto result = jrpgmaker::plugin::ParseManifest(ReadJsonFile(path));
+    if (!result) {
+        throw std::runtime_error("invalid plugin manifest " + path.string() + ": " +
+                                 result.error->message);
+    }
+    return *result.manifest;
+}
 
 std::vector<SkinnedVertex> BuildSkinnedVertices(const jrpgmaker::core::MeshData& mesh) {
     if (!mesh.skinned()) {
@@ -93,7 +210,7 @@ std::vector<SkinnedVertex> BuildSkinnedVertices(const jrpgmaker::core::MeshData&
 }
 
 void RunMainLoop(jrpgmaker::rhi::ISwapchain* swapchain, jrpgmaker::core::StageRunner& stages,
-                 InputState& input) {
+                 InputState& input, SdlAudioOutput& audio_output) {
     constexpr double kFixedDelta = 1.0 / 60.0;
     double accumulator = 0.0;
     std::uint64_t last_counter = SDL_GetPerformanceCounter();
@@ -128,6 +245,14 @@ void RunMainLoop(jrpgmaker::rhi::ISwapchain* swapchain, jrpgmaker::core::StageRu
                         input.confirm_requested = true;
                     }
                     break;
+                case SDLK_F5:
+                    if (is_down && !event.key.repeat)
+                        input.save_requested = true;
+                    break;
+                case SDLK_F9:
+                    if (is_down && !event.key.repeat)
+                        input.load_requested = true;
+                    break;
                 default:
                     break;
                 }
@@ -149,6 +274,7 @@ void RunMainLoop(jrpgmaker::rhi::ISwapchain* swapchain, jrpgmaker::core::StageRu
         }
         while (accumulator >= kFixedDelta) {
             stages.Tick(kFixedDelta);
+            audio_output.Tick();
             accumulator -= kFixedDelta;
         }
     }
@@ -158,9 +284,11 @@ void RunMainLoop(jrpgmaker::rhi::ISwapchain* swapchain, jrpgmaker::core::StageRu
 
 auto main() -> int {
     try {
-        if (!SDL_Init(SDL_INIT_VIDEO)) {
+        if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
             throw std::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
         }
+        jrpgmaker::audio::MixerBus mixer;
+        SdlAudioOutput audio_output(mixer);
 
         SDL_Window* window = SDL_CreateWindow("jrpgmaker", kWindowWidth, kWindowHeight, 0);
         if (window == nullptr) {
@@ -181,6 +309,78 @@ auto main() -> int {
             throw std::runtime_error("failed to load animated character asset");
         }
         auto& character = *character_load;
+
+        const auto project_result =
+            jrpgmaker::plugin::ParseProjectManifest(ReadJsonFile("assets/data/project_demo.json"));
+        if (!project_result) {
+            throw std::runtime_error("invalid project manifest: " + project_result.error->message);
+        }
+        jrpgmaker::plugin::PluginRegistry plugin_registry;
+        const auto registration_error = jrpgmaker::plugins::RegisterSamplePlugins(
+            plugin_registry, ReadPluginManifest("plugins/sample_unlit/plugin.json"),
+            ReadPluginManifest("plugins/sample_style/plugin.json"));
+        if (registration_error.has_value()) {
+            throw std::runtime_error("failed to register plugins: " + registration_error->message);
+        }
+        const auto battle_registration_error = jrpgmaker::plugins::RegisterSampleBattlePlugins(
+            plugin_registry, ReadPluginManifest("plugins/sample_instant/plugin.json"),
+            ReadPluginManifest("plugins/sample_turn_based/plugin.json"));
+        if (battle_registration_error.has_value()) {
+            throw std::runtime_error("failed to register battle plugins: " +
+                                     battle_registration_error->message);
+        }
+        if (const auto error = jrpgmaker::plugin::ValidateProjectPlugins(*project_result.manifest,
+                                                                         plugin_registry);
+            error.has_value()) {
+            throw std::runtime_error("invalid project plugin selection: " + error->message);
+        }
+        if (const auto error = jrpgmaker::plugin::ValidateProjectDataRoots(
+                *project_result.manifest, std::filesystem::current_path());
+            error.has_value()) {
+            throw std::runtime_error("invalid project data root: " + error->message);
+        }
+        auto battle_result =
+            jrpgmaker::plugin::CreateProjectBattlePlugin(*project_result.manifest, plugin_registry);
+        if (!battle_result) {
+            throw std::runtime_error("failed to create project battle plugin: " +
+                                     battle_result.error->message);
+        }
+        auto battle_plugin = std::move(battle_result.instance);
+        const auto style_result =
+            jrpgmaker::plugin::CreateProjectRenderStyle(*project_result.manifest, plugin_registry);
+        if (!style_result) {
+            throw std::runtime_error("failed to create project render style: " +
+                                     style_result.error->message);
+        }
+        auto* style_adapter =
+            dynamic_cast<jrpgmaker::render::IRenderStyleAdapter*>(style_result.instance.get());
+        if (style_adapter == nullptr) {
+            throw std::runtime_error("project render style has an invalid adapter type");
+        }
+        const auto material_document = ReadJsonFile(project_result.manifest->material_document);
+        if (!material_document.is_object() || material_document.value("schema", 0) != 1 ||
+            material_document.value("id", std::string{}) != "character" ||
+            material_document.value("style_plugin_id", std::string{}) !=
+                project_result.manifest->render_style ||
+            !material_document.contains("parameters")) {
+            throw std::runtime_error("invalid character material instance");
+        }
+        const auto material_validation =
+            style_adapter->ValidateMaterial(material_document["parameters"]);
+        if (!material_validation.ok) {
+            throw std::runtime_error("invalid character material parameters: " +
+                                     material_validation.error);
+        }
+        const auto material_parameters = EncodeMaterialParameters(material_document["parameters"]);
+        const auto theme = jrpgmaker::ui::ParseTheme(ReadJsonFile("assets/data/theme_demo.json"));
+        if (!theme) {
+            throw std::runtime_error("invalid project UI theme: " + theme.error);
+        }
+        const auto resource_catalog = jrpgmaker::render::ParseRenderResourceCatalog(
+            ReadJsonFile("assets/data/render_resources_demo.json"));
+        if (!resource_catalog) {
+            throw std::runtime_error("invalid render resource catalog: " + resource_catalog.error);
+        }
         const auto character_view =
             character.scene.Registry()
                 .view<jrpgmaker::assetimport::MeshRef, jrpgmaker::assetimport::SkinRef>();
@@ -238,6 +438,65 @@ auto main() -> int {
         };
         pipeline_desc.vertex_uniform_size = 32u * 16u * sizeof(float);
         const jrpgmaker::rhi::PipelineHandle pipeline = device->CreatePipeline(pipeline_desc);
+        jrpgmaker::rhi::GraphicsPipelineDesc accent_pipeline_desc = pipeline_desc;
+        const jrpgmaker::rhi::ShaderBytecode accent_ps = {
+#if defined(_WIN32)
+            jrpgmaker::shaders::kCameraPsDxil, jrpgmaker::shaders::kCameraPsDxil_size
+#else
+            jrpgmaker::shaders::kCameraPsSpv, jrpgmaker::shaders::kCameraPsSpv_size
+#endif
+        };
+        accent_pipeline_desc.pixel_shader = accent_ps;
+        const jrpgmaker::rhi::PipelineHandle accent_pipeline =
+            device->CreatePipeline(accent_pipeline_desc);
+
+        const jrpgmaker::rhi::VertexAttribute ui_attributes[] = {
+            {.location = 0,
+             .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat3,
+             .offset_bytes = 0,
+             .semantic_name = "POSITION"},
+            {.location = 1,
+             .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat4,
+             .offset_bytes = 12,
+             .semantic_name = "COLOR"},
+        };
+        jrpgmaker::rhi::GraphicsPipelineDesc ui_pipeline_desc{};
+        ui_pipeline_desc.color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm;
+        ui_pipeline_desc.vertex_input = jrpgmaker::rhi::VertexInputLayout{
+            .attributes = ui_attributes,
+            .attribute_count = static_cast<std::uint32_t>(std::size(ui_attributes)),
+            .stride_bytes = sizeof(UiVertex),
+        };
+#if defined(_WIN32)
+        ui_pipeline_desc.vertex_shader = {jrpgmaker::shaders::kUiVsDxil,
+                                          jrpgmaker::shaders::kUiVsDxil_size};
+        ui_pipeline_desc.pixel_shader = {jrpgmaker::shaders::kUiPsDxil,
+                                         jrpgmaker::shaders::kUiPsDxil_size};
+#else
+        ui_pipeline_desc.vertex_shader = {jrpgmaker::shaders::kUiVsSpv,
+                                          jrpgmaker::shaders::kUiVsSpv_size};
+        ui_pipeline_desc.pixel_shader = {jrpgmaker::shaders::kUiPsSpv,
+                                         jrpgmaker::shaders::kUiPsSpv_size};
+#endif
+        const jrpgmaker::rhi::PipelineHandle ui_pipeline = device->CreatePipeline(ui_pipeline_desc);
+        const auto& ui_theme = *theme.theme;
+        const std::array<UiVertex, 4> ui_vertices = {{
+            {{-0.95f, -0.88f, 0.0f},
+             {ui_theme.accent.r, ui_theme.accent.g, ui_theme.accent.b, 0.88f}},
+            {{0.95f, -0.88f, 0.0f},
+             {ui_theme.accent.r, ui_theme.accent.g, ui_theme.accent.b, 0.88f}},
+            {{0.95f, -0.62f, 0.0f},
+             {ui_theme.accent.r, ui_theme.accent.g, ui_theme.accent.b, 0.88f}},
+            {{-0.95f, -0.62f, 0.0f},
+             {ui_theme.accent.r, ui_theme.accent.g, ui_theme.accent.b, 0.88f}},
+        }};
+        constexpr std::array<std::uint32_t, 6> kUiIndices = {0, 1, 2, 0, 2, 3};
+        const auto ui_vertex_buffer = device->CreateBuffer(jrpgmaker::rhi::BufferDesc{
+            .size_bytes = sizeof(ui_vertices), .usage = jrpgmaker::rhi::BufferUsage::kVertex});
+        device->MapWrite(ui_vertex_buffer, ui_vertices.data(), sizeof(ui_vertices));
+        const auto ui_index_buffer = device->CreateBuffer(jrpgmaker::rhi::BufferDesc{
+            .size_bytes = sizeof(kUiIndices), .usage = jrpgmaker::rhi::BufferUsage::kIndex});
+        device->MapWrite(ui_index_buffer, kUiIndices.data(), sizeof(kUiIndices));
 
         const jrpgmaker::rhi::BufferHandle vertex_buffer =
             device->CreateBuffer(jrpgmaker::rhi::BufferDesc{
@@ -302,15 +561,42 @@ auto main() -> int {
             event_script = jrpgmaker::domain::ParseEventScript(nlohmann::json::parse(file));
         }
         jrpgmaker::domain::ValidateInteractionTargets(interactions, event_script);
+        const auto encounters = jrpgmaker::domain::ParseEncounterPoints(
+            ReadJsonFile("assets/data/encounter_demo.json"));
+        jrpgmaker::domain::ValidateEncounterTargets(encounters, event_script);
+        const auto cutscene_timeline =
+            jrpgmaker::core::ParseCutsceneTimeline(ReadJsonFile("assets/data/cutscene_demo.json"));
+        jrpgmaker::domain::ValidateCutsceneTargets(cutscene_timeline, event_script);
+        const auto calendar_result = jrpgmaker::core::ParseCalendarDefinition(
+            ReadJsonFile("assets/data/calendar_demo.json"));
+        if (!calendar_result.ok) {
+            throw std::runtime_error("calendar data error: " + calendar_result.error);
+        }
+        const auto calendar = calendar_result.calendar;
+        const auto schedule = jrpgmaker::domain::ParseScheduleTable(
+            ReadJsonFile("assets/data/schedule_demo.json"), calendar);
+        jrpgmaker::domain::ValidateScheduleTargets(schedule, event_script);
+        const auto vertical_slice = jrpgmaker::domain::ParseVerticalSliceDefinition(
+            ReadJsonFile("assets/data/vertical_slice_demo.json"));
+        jrpgmaker::domain::ValidateVerticalSliceTargets(vertical_slice, event_script);
+        std::cout << "vertical slice " << vertical_slice.id << " loaded ("
+                  << vertical_slice.total_duration_seconds << " seconds)\n";
+        jrpgmaker::core::GameClock game_clock(calendar);
+        jrpgmaker::domain::ScheduleSystem schedule_system(schedule, calendar);
+        jrpgmaker::core::CutscenePlayer cutscene_player(cutscene_timeline);
         jrpgmaker::core::EventBus event_bus;
         jrpgmaker::domain::FlagStore flags;
         jrpgmaker::domain::EventRunner event_runner(event_script, flags, event_bus);
         jrpgmaker::domain::InteractionSystem interaction_system(interactions, event_bus);
+        jrpgmaker::domain::EncounterSystem encounter_system(encounters, event_bus);
         jrpgmaker::core::CharacterController controller(
             {.position = {0.0f, 1.0f, 0.0f}, .radius = 0.35f, .half_height = 0.9f});
         jrpgmaker::core::CameraRig camera_rig(camera_data.third_person);
         jrpgmaker::core::LocomotionState locomotion = jrpgmaker::core::LocomotionState::kIdle;
         std::deque<std::string> pending_events;
+        std::deque<jrpgmaker::domain::EncounterRequested> pending_encounters;
+        std::unique_ptr<jrpgmaker::plugin::IBattleSession> battle_session;
+        std::map<std::string, std::string> battle_result_events;
         std::string prompt_projection;
         std::string dialog_projection;
         event_bus.Subscribe<jrpgmaker::domain::InteractionPromptShown>(
@@ -321,20 +607,97 @@ auto main() -> int {
             [&prompt_projection](const auto&) { prompt_projection.clear(); });
         event_bus.Subscribe<jrpgmaker::domain::DialogRequested>(
             [&dialog_projection](const auto& dialog) { dialog_projection = dialog.text_key; });
+        event_bus.Subscribe<jrpgmaker::domain::EventStarted>(
+            [&mixer](const auto&) { mixer.Play("event.cue", MakeEventCue(), 0.8f); });
+        event_bus.Subscribe<jrpgmaker::domain::EncounterRequested>(
+            [&pending_encounters](const auto& request) { pending_encounters.push_back(request); });
         InputState input;
         stages.RegisterSystem(jrpgmaker::core::Stage::kInput, {jrpgmaker::core::Stage::kInput, 0},
                               [&input](double) { input.UpdateMovement(); });
         stages.RegisterSystem(
             jrpgmaker::core::Stage::kDomainSim, {jrpgmaker::core::Stage::kDomainSim, 0},
-            [&controller, &input, &obstacles, &interaction_system, &event_runner, &character,
-             character_entity, &pending_events](double delta) {
-                controller.Move(input.movement * 3.0f, static_cast<float>(delta), obstacles);
+            [&controller, &input, &obstacles, &interaction_system, &encounter_system, &event_runner,
+             &character, &battle_plugin, &plugin_registry, &battle_session, &battle_result_events,
+             character_entity, &pending_events, &cutscene_player, &game_clock, &schedule_system,
+             &pending_encounters, &flags, project_result](double delta) {
+                const bool in_battle = battle_session != nullptr;
+                controller.Move(in_battle ? glm::vec3(0.0f) : input.movement * 3.0f,
+                                static_cast<float>(delta), obstacles);
                 character.scene.Registry()
                     .get<jrpgmaker::core::Transform>(character_entity)
                     .translation = controller.state().position;
                 interaction_system.Update(controller.state().position, input.confirm_pressed);
+                if (!in_battle)
+                    encounter_system.Update(controller.state().position);
+                game_clock.AdvanceMinutes(1);
+                for (const auto& event_id : schedule_system.Poll(game_clock)) {
+                    pending_events.push_back(event_id);
+                }
+                cutscene_player.Advance(delta);
+                for (const auto& event_id : cutscene_player.DrainTriggeredEvents()) {
+                    pending_events.push_back(event_id);
+                }
                 for (const std::string& event_id : interaction_system.DrainConfirmedEvents()) {
                     pending_events.push_back(event_id);
+                }
+                if (battle_session != nullptr) {
+                    jrpgmaker::plugin::BattleFrameInput battle_input{
+                        .delta_seconds = delta,
+                        .action_ids = input.confirm_requested
+                                          ? std::vector<std::string>{"extension.confirm"}
+                                          : std::vector<std::string>{},
+                        .opaque_payload = {},
+                        .cancel_requested = false};
+                    const auto advanced = battle_session->Advance(battle_input);
+                    if (!advanced) {
+                        throw std::runtime_error("battle plugin advance failed: " +
+                                                 advanced.error->message);
+                    }
+                    if (const auto error = jrpgmaker::plugin::ValidateBattleOutput(advanced.output);
+                        error.has_value()) {
+                        throw std::runtime_error("battle plugin returned invalid output: " +
+                                                 error->message);
+                    }
+                    if (advanced.output.finished) {
+                        const auto result = battle_result_events.find(advanced.output.result_key);
+                        if (result == battle_result_events.end()) {
+                            throw std::runtime_error("battle result has no mapped project event: " +
+                                                     advanced.output.result_key);
+                        }
+                        pending_events.push_back(result->second);
+                        battle_session.reset();
+                        battle_result_events.clear();
+                    }
+                } else if (!pending_encounters.empty() && !event_runner.IsActive() &&
+                           pending_events.empty()) {
+                    const auto request = std::move(pending_encounters.front());
+                    pending_encounters.pop_front();
+                    const std::string plugin_id = request.plugin_id.empty()
+                                                      ? project_result.manifest->battle_plugin
+                                                      : request.plugin_id;
+                    if (plugin_id != project_result.manifest->battle_plugin) {
+                        auto selected = plugin_registry.Create(
+                            plugin_id, jrpgmaker::plugin::PluginType::kBattle);
+                        if (!selected) {
+                            throw std::runtime_error("encounter selected unknown battle plugin: " +
+                                                     plugin_id);
+                        }
+                        battle_plugin = std::move(selected.instance);
+                    }
+                    auto* battle =
+                        dynamic_cast<jrpgmaker::plugin::IBattlePlugin*>(battle_plugin.get());
+                    if (battle == nullptr) {
+                        throw std::runtime_error(
+                            "selected battle plugin has no battle interface: " + plugin_id);
+                    }
+                    auto created = battle->CreateSession(
+                        {.encounter_id = request.encounter_id, .opaque_payload = {}});
+                    if (!created) {
+                        throw std::runtime_error("battle session creation failed: " +
+                                                 created.error->message);
+                    }
+                    battle_session = std::move(created.session);
+                    battle_result_events = request.result_event_ids;
                 }
                 const auto start_next_event = [&]() {
                     if (!event_runner.IsActive() && !pending_events.empty()) {
@@ -353,6 +716,33 @@ auto main() -> int {
                 }
                 event_runner.Tick(delta);
                 start_next_event();
+                if (input.save_requested) {
+                    if (event_runner.IsActive() || !pending_events.empty()) {
+                        throw std::runtime_error("save is only available at an event boundary");
+                    }
+                    std::string error;
+                    if (!jrpgmaker::domain::WriteSaveFile(
+                            "save_slot_0.json", jrpgmaker::domain::CaptureSave(game_clock, flags),
+                            error)) {
+                        throw std::runtime_error("save failed: " + error);
+                    }
+                    std::cout << "save written at minute " << game_clock.absolute_minutes() << '\n';
+                    input.save_requested = false;
+                }
+                if (input.load_requested) {
+                    if (event_runner.IsActive() || !pending_events.empty()) {
+                        throw std::runtime_error("load is only available at an event boundary");
+                    }
+                    const auto loaded = jrpgmaker::domain::ReadSaveFile("save_slot_0.json");
+                    if (!loaded.ok) {
+                        throw std::runtime_error("load failed: " + loaded.error);
+                    }
+                    jrpgmaker::domain::RestoreSave(loaded.state, game_clock, flags);
+                    schedule_system.Reset(game_clock);
+                    std::cout << "save restored at minute " << game_clock.absolute_minutes()
+                              << '\n';
+                    input.load_requested = false;
+                }
                 input.confirm_requested = false;
             });
         stages.RegisterSystem(jrpgmaker::core::Stage::kPresentationSync,
@@ -390,9 +780,10 @@ auto main() -> int {
         stages.RegisterSystem(
             jrpgmaker::core::Stage::kRenderSubmit, {jrpgmaker::core::Stage::kRenderSubmit, 0},
             [device = device.get(), swapchain = swapchain.get(), command_list, pipeline,
-             vertex_buffer, index_buffer, uniform_buffer, &character, character_entity,
-             character_skin_ref, character_mesh, &camera_rig, &animation_time,
-             &locomotion](double) mutable {
+             vertex_buffer, index_buffer, uniform_buffer, accent_pipeline, ui_pipeline,
+             ui_vertex_buffer, ui_index_buffer, &character, character_entity, character_skin_ref,
+             character_mesh, &camera_rig, &animation_time, &locomotion, style = style_adapter,
+             material_document, material_parameters, resource_catalog](double) mutable {
                 const auto& skeleton =
                     character.skeletons[character_skin_ref.skeleton_index].skeleton;
                 const std::size_t clip_index =
@@ -406,6 +797,46 @@ auto main() -> int {
                 std::vector<glm::mat4> render_bones(32u, glm::mat4(1.0f));
                 const glm::mat4 world = character.scene.WorldMatrix(character_entity);
                 const glm::mat4 view_projection = camera_rig.camera().ViewProjection();
+                jrpgmaker::render::SceneSnapshot snapshot{
+                    .view_projection = view_projection,
+                    .renderables = {{.mesh = "character",
+                                     .material = "character",
+                                     .world = world,
+                                     .material_parameters = material_parameters}}};
+                auto render_plan = style->BuildPlan(snapshot);
+                if (render_plan.passes.empty()) {
+                    throw std::runtime_error("render style produced an empty render plan");
+                }
+                render_plan.passes.push_back(
+                    jrpgmaker::render::RenderPass{.id = "ui.overlay",
+                                                  .clear_color = glm::vec4(0.0f),
+                                                  .clear_target = false,
+                                                  .pipeline = "ui",
+                                                  .draws = {{.mesh = "ui",
+                                                             .material = "ui",
+                                                             .world = glm::mat4(1.0f),
+                                                             .material_parameters = {}}}});
+                const auto validation =
+                    jrpgmaker::render::ValidateRenderPlan(render_plan, style->Descriptor().budget);
+                if (!validation.ok) {
+                    throw std::runtime_error("render style produced an invalid render plan: " +
+                                             validation.error);
+                }
+                const auto& catalog = *resource_catalog.catalog;
+                for (const auto& pass : render_plan.passes) {
+                    if (std::find(catalog.pipeline_ids.begin(), catalog.pipeline_ids.end(),
+                                  pass.pipeline) == catalog.pipeline_ids.end()) {
+                        throw std::runtime_error("render plan references unknown pipeline: " +
+                                                 pass.pipeline);
+                    }
+                    for (const auto& draw : pass.draws) {
+                        if (std::find(catalog.mesh_ids.begin(), catalog.mesh_ids.end(),
+                                      draw.mesh) == catalog.mesh_ids.end()) {
+                            throw std::runtime_error("render plan references unknown mesh: " +
+                                                     draw.mesh);
+                        }
+                    }
+                }
                 for (std::size_t bone = 0; bone < local_bones.size(); ++bone) {
                     render_bones[bone] = view_projection * world * local_bones[bone];
                 }
@@ -413,21 +844,75 @@ auto main() -> int {
                                  render_bones.size() * sizeof(glm::mat4));
                 const jrpgmaker::rhi::TextureHandle back_buffer = swapchain->AcquireTexture();
                 command_list->Begin();
-                command_list->BeginRendering(back_buffer, {0.10f, 0.11f, 0.12f, 1.0f});
-                command_list->SetPipeline(pipeline);
-                command_list->SetVertexUniformBuffer(uniform_buffer, 32u * sizeof(glm::mat4));
-                command_list->SetVertexBuffer(vertex_buffer, sizeof(SkinnedVertex));
-                command_list->SetIndexBuffer(index_buffer, true);
-                command_list->DrawIndexed(
-                    static_cast<std::uint32_t>(character_mesh->indices.size()), 1);
-                command_list->EndRendering();
+                const jrpgmaker::render::RenderPlanResolver resolver{
+                    .resolve_pipeline = [pipeline, accent_pipeline, ui_pipeline](const auto& pass)
+                        -> std::optional<jrpgmaker::rhi::PipelineHandle> {
+                        if (pass.pipeline == "unlit") {
+                            return pipeline;
+                        }
+                        if (pass.pipeline == "accent") {
+                            return accent_pipeline;
+                        }
+                        if (pass.pipeline == "ui") {
+                            return ui_pipeline;
+                        }
+                        return std::nullopt;
+                    },
+                    .resolve_mesh =
+                        [vertex_buffer, index_buffer, character_mesh, ui_vertex_buffer,
+                         ui_index_buffer](const auto& draw) {
+                            if (draw.mesh == "ui") {
+                                return std::optional<jrpgmaker::render::RenderMeshBinding>{
+                                    jrpgmaker::render::RenderMeshBinding{
+                                        .vertex_buffer = ui_vertex_buffer,
+                                        .index_buffer = ui_index_buffer,
+                                        .stride_bytes = sizeof(UiVertex),
+                                        .index_count = 6,
+                                        .indices_are_32_bit = true}};
+                            }
+                            return std::optional{jrpgmaker::render::RenderMeshBinding{
+                                .vertex_buffer = vertex_buffer,
+                                .index_buffer = index_buffer,
+                                .stride_bytes = sizeof(SkinnedVertex),
+                                .index_count =
+                                    static_cast<std::uint32_t>(character_mesh->indices.size()),
+                                .indices_are_32_bit = true}};
+                        },
+                    .validate_material = [style, material_document](const auto& draw)
+                        -> jrpgmaker::render::RenderPlanValidation {
+                        if (draw.material == "ui") {
+                            return {};
+                        }
+                        if (draw.material != material_document.value("id", std::string{})) {
+                            return jrpgmaker::render::RenderPlanValidation{
+                                .ok = false, .error = "render draw references unknown material"};
+                        }
+                        const auto result =
+                            style->ValidateMaterial(material_document["parameters"]);
+                        return jrpgmaker::render::RenderPlanValidation{.ok = result.ok,
+                                                                       .error = result.error};
+                    },
+                    .bind_draw_resources =
+                        [uniform_buffer](jrpgmaker::rhi::ICommandList& list, const auto& draw,
+                                         const auto&) {
+                            if (draw.mesh == "character") {
+                                list.SetVertexUniformBuffer(uniform_buffer,
+                                                            32u * sizeof(glm::mat4));
+                            }
+                            return jrpgmaker::render::RenderPlanValidation{};
+                        }};
+                const auto recorded = jrpgmaker::render::RenderPlanExecutor::Record(
+                    render_plan, back_buffer, *command_list, resolver, style->Descriptor().budget);
+                if (!recorded.ok) {
+                    throw std::runtime_error("failed to record render plan: " + recorded.error);
+                }
                 command_list->End();
                 device->Submit(*command_list);
                 swapchain->Present();
             });
 
         std::cout << "jrpgmaker " << jrpgmaker::core::version() << " running\n";
-        RunMainLoop(swapchain.get(), stages, input);
+        RunMainLoop(swapchain.get(), stages, input, audio_output);
 
         // DestroyXxx requires the GPU to be idle (docs/01 lifecycle contract):
         // the last submitted command list and the shared allocator must not be
@@ -437,11 +922,14 @@ auto main() -> int {
         device->DestroyBuffer(vertex_buffer);
         device->DestroyBuffer(index_buffer);
         device->DestroyBuffer(uniform_buffer);
+        device->DestroyPipeline(pipeline);
+        device->DestroyPipeline(accent_pipeline);
+        device->DestroyPipeline(ui_pipeline);
+        device->DestroyBuffer(ui_vertex_buffer);
+        device->DestroyBuffer(ui_index_buffer);
 
         // Teardown order matters: destroy the swapchain before the window so
-        // the Vulkan surface is destroyed while its window still exists, and
-        // destroy the pipeline while the GPU is idle.
-        device->DestroyPipeline(pipeline);
+        // the Vulkan surface is destroyed while its window still exists.
         swapchain.reset();
         SDL_DestroyWindow(window);
         SDL_Quit();

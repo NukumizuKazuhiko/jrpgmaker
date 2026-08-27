@@ -30,7 +30,7 @@
 | DEBT-026 | 2026-08-24 | `StageRunner::Tick` 每帧对全表 `std::sort`；注册时即可维护有序性 | 可记录债务 | 系统数小（v0 空占位），每帧排序成本可忽略 | Stage 成熟时改为注册期排序或按序插入 | 开放 |
 | DEBT-027 | 2026-08-24 | `EnabledInstanceExtensions` 对必需扩展（`VK_KHR_surface` 等）不支持时静默跳过而非硬失败，问题推迟到 CreateSwapchain 才暴露 | 可记录债务 | 离屏测试环境（lavapipe）可能缺 surface 扩展但无需 swapchain；静默跳过让离屏可用 | CreateSwapchain 已对 swapchain_supported_ 检查；若需更早失败可在 instance 创建时校验 surface 必需扩展 | 开放 |
 | DEBT-028 | 2026-08-24 | `vkAcquireNextImageKHR` 用 `VK_NULL_HANDLE` semaphore/fence：单线程+FIFO present 可用但非规范用法，无帧内同步信号量 | 可记录债务 | 当前单命令列表顺序执行、Present 前有 WaitForGpuIdle 间接同步；未暴露竞争 | 多帧 in-flight 或双缓冲流水线落地时引入 acquire semaphore + present wait semaphore | 开放 |
-| DEBT-029 | 2026-08-24 | 材质/纹理（PBR 兼容输入）未落地：cgltf 已能解析材质数据，但引擎侧 PBR 渲染（stb 纹理解码 + 纹理上传 RHI + 采样器 + shader 采样）涉及 RHI 纹理采样管线横切，P2 收尾时经用户确认不进入 P2 范围 | 可记录债务 | P2 聚焦渲染数据文件闭环（网格/变换/相机 golden），材质纹理是下一个数据维度；cgltf/stb 已在 vcpkg.json 锁定待用（ADR-004） | 进入 P3 时作为前置或并行项评估：`TextureHandle` 采样器合同 + stb_image 解码 + material 数据入 `SceneLoad` | 部分关闭（2026-08-24 RHI 纹理采样管线落地：`SamplerHandle`/`CreateSampler`/`UploadTexture`/`SetSampledTexture`/`sample_slot` 双后端同步 + `textured.hlsl` + `texture_quad_64x64.ppm` golden delta=0；**剩余：stb_image 解码 + material 数据入 `SceneLoad`（glTF PBR 材质），随 P4/P6 PBR 渲染轮次**） |
+| DEBT-029 | 2026-08-24 | 材质/纹理兼容输入未完整落地：cgltf 已能解析材质元数据，但纹理解码、材质数据保留及其向渲染风格插件的交接尚未闭环 | 可记录债务 | P2 聚焦网格/变换/相机；RHI 采样能力先独立落地，避免引擎提前绑定固定材质模型 | P6 渲染风格 seam：stb_image 解码 + `SceneLoad` 保留 glTF material/texture 引用 + 插件拥有的材质 schema/validator | 部分关闭（RHI 纹理采样双后端路径、stb 解码、glTF 材质数据保留、style validator 和 opaque CBOR 参数消费已落地；**剩余：将 glTF 纹理资源接入实际 style pipeline**） |
 
 ## 已关闭
 
@@ -55,6 +55,8 @@
 | （P4 审计轮 A4）2026-08-26 `BufferEntry` 丢弃 `BufferDesc.usage`，vertex/index/uniform 绑定可接受用途不匹配的 buffer，无法兑现 RHI 资源用途合同 | 双后端保存 usage 位并在三个绑定入口校验对应 `kVertex`/`kIndex`/`kUniform`；组合 usage 仍可用于多个入口；新增 `[buffer-contract]` 双端回归测试，Windows/D3D12、Linux/Vulkan 全量 ctest 各 144/144 通过 |
 | DEBT-030 | 2026-08-25 | RHI per-object uniform 为单 buffer 绑定单对象（无 ring buffer/多对象 dynamic offset）：每对象独立 buffer + 每帧 MapWrite，多角色同帧渲染时 buffer 数量随角色数线性增长 | 可记录债务 | P4 骨骼动画 v0 仅单蒙皮对象 golden 闭环，CharacterController/NPC 多对象渲染在后续轮次才需要 | P4 相机/动态场景子任务引入多对象渲染时评估 ring buffer（帧内偏移对齐 256B）或 per-frame 大 buffer + dynamic offset | 开 |
 | DEBT-031 | 2026-08-25 | 动画状态机未落地：BlendPose 仅支持双 clip 标量权重混合（v0 混合树），clip 图、过渡时间线、动画事件轨缺失 | 可记录债务 | P4 子任务 1 范围是导入/采样/混合最小闭环；状态机属 CharacterController 及演出时间轴（P6）的消费语义，提前落地无消费者 | P4 CharacterController 移动驱动动画时按需扩展（idle-walk-run 一维混合已可表达）；事件轨随 P6 cutscene 时间轴 | 开 |
+| DEBT-032 | 2026-08-27 | 战斗插件 manifest 已有数据根声明，但通用 host 尚未调度插件私有 validator；当前只完成项目清单/类型/路径与遭遇结果事件的校验 | 设计风险 | 本轮先闭合源码级 battle seam 与 Windows 竖切，避免把插件私有 schema 误收进 engine/domain | P5-2：为 `IPlugin` 增加有界 validator 入口，由 eventlint/项目 lint 聚合插件级 issue 后再允许会话创建 | 开 |
+| DEBT-033 | 2026-08-27 | P5/P6 的 macOS CI 门禁尚未在本轮复验 | 可记录债务 | Windows/D3D12 与 Linux/Vulkan/lavapipe 当前源码已各 209/209；137 个 C++ 源文件已用 clang-format 22.1.3 dry-run 通过；WSL 无 WSLg 不能做 SDL Vulkan surface 实机验收，但不影响离屏 Vulkan 回归 | 后续执行 macOS CI build/test、shader-sync 及必要的实机/CI 证据 | 开 |
 | A5 | Vulkan descriptor set 在 draw 间复用并更新，可能污染已录制 draw | 已修复：按绑定快照分配独立 set，设备销毁时统一回收 pool | 2026-08-26 |
 | P3-9 | `TextBlock` 对未加载字体或零像素高度缺少输入保护，可能产生除零/无效布局 | 已修复：无效字体度量或零高度返回零尺寸，并有 widget 回归测试 | 2026-08-26 |
 | P3-10 | `FlagTriggerSystem` 每次 `FlagChanged` 都线性扫描全部 trigger | 已修复：构造期建立不可变 flag→event 索引，查询降为均摊 O(1) | 2026-08-26 |

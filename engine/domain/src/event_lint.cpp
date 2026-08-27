@@ -1,6 +1,7 @@
 #include "jrpgmaker/domain/event_lint.hpp"
 
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <variant>
@@ -138,6 +139,19 @@ std::vector<LintIssue> LintEventScript(const EventScript& script) {
     }
 
     return issues;
+}
+
+void ValidateCutsceneTargets(const core::CutsceneTimeline& timeline,
+                             const EventScript& event_script) {
+    std::set<std::string> event_ids;
+    for (const auto& event : event_script.events)
+        event_ids.insert(event.id);
+    for (const auto& cue : timeline.cues) {
+        if (!event_ids.contains(cue.event_id)) {
+            throw std::invalid_argument("cutscene cue '" + cue.id + "' references unknown event '" +
+                                        cue.event_id + "'");
+        }
+    }
 }
 
 } // namespace jrpgmaker::domain

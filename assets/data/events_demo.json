@@ -2,6 +2,13 @@
   "schema": 1,
   "events": [
     {
+      "id": "intro",
+      "instructions": [
+        { "op": "dialog", "speaker": "system", "text_key": "intro.welcome" },
+        { "op": "set_flag", "flag": "intro.seen", "value": true }
+      ]
+    },
+    {
       "id": "meet_alice",
       "instructions": [
         {

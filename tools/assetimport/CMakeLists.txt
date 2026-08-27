@@ -12,8 +12,10 @@ target_include_directories(jrpgmaker_assetimport PUBLIC ${CMAKE_CURRENT_SOURCE_D
 # cgltf is header-only (CGLTF_IMPLEMENTATION in asset_import.cpp); vcpkg
 # provides no CMake config, so resolve its include dir explicitly.
 find_path(CGLTF_INCLUDE_DIRS NAMES cgltf.h REQUIRED)
+find_path(STB_INCLUDE_DIRS NAMES stb_image.h REQUIRED)
 find_package(glm REQUIRED CONFIG)
 target_include_directories(jrpgmaker_assetimport PUBLIC ${CGLTF_INCLUDE_DIRS})
+target_include_directories(jrpgmaker_assetimport PRIVATE ${STB_INCLUDE_DIRS})
 
 # cgltf is a vendored C header that legitimately uses fopen/strcpy; the
 # deprecation warnings (C4996) would otherwise be promoted to errors by the

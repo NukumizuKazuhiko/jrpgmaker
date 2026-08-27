@@ -153,6 +153,34 @@ TEST_CASE("gltf scene import composes world transforms through the hierarchy",
     REQUIRE(world_pos.z == Catch::Approx(0.0f).margin(1e-5f));
 }
 
+TEST_CASE("gltf scene import preserves generic material data", "[core][assetimport][p6]") {
+    jrpgmaker::assetimport::GltfLoadError error;
+    const std::optional<jrpgmaker::assetimport::SceneLoad> load =
+        LoadGltfScene(AssetPath("art/meshes/triangle.gltf"), &error);
+    INFO(error.message);
+    REQUIRE(load.has_value());
+    REQUIRE(load->textures.size() == 1u);
+    REQUIRE(load->textures[0].name == "triangle_albedo");
+    REQUIRE(load->textures[0].source_uri == "triangle_albedo.ppm");
+    REQUIRE(load->textures[0].decoded());
+    REQUIRE(load->textures[0].width == 1u);
+    REQUIRE(load->textures[0].height == 1u);
+    REQUIRE(load->textures[0].rgba8 == std::vector<std::uint8_t>{65u, 66u, 67u, 255u});
+    REQUIRE(load->materials.size() == 1u);
+    const auto& material = load->materials.front();
+    REQUIRE(material.name == "triangle_material");
+    REQUIRE(material.base_color_factor == glm::vec4(0.2f, 0.4f, 0.8f, 1.0f));
+    REQUIRE(material.metallic_factor == 0.25f);
+    REQUIRE(material.roughness_factor == 0.75f);
+    REQUIRE(material.base_color_texture == 0u);
+
+    const Entity node = load->node_entities.front();
+    const auto* material_ref =
+        load->scene.Registry().try_get<jrpgmaker::assetimport::MaterialRef>(node);
+    REQUIRE(material_ref != nullptr);
+    REQUIRE(material_ref->material_index == 0u);
+}
+
 TEST_CASE("gltf import reports a clear error for a missing file", "[core][assetimport]") {
     GltfLoadError error;
     const std::optional<MeshData> mesh =

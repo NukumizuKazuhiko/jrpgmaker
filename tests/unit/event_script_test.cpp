@@ -177,12 +177,13 @@ TEST_CASE("event script parses the committed demo data file", "[domain][event_sc
     std::ifstream file(path);
     REQUIRE(file.is_open());
     const EventScript script = ParseEventScript(nlohmann::json::parse(file));
-    REQUIRE(script.events.size() == 5);
-    REQUIRE(script.events[0].id == "meet_alice");
-    REQUIRE(script.events[1].id == "alice_ask_help");
-    REQUIRE(script.events[2].id == "chest_west");
-    REQUIRE(script.events[3].id == "alice_reward");
-    REQUIRE(script.events[4].id == "chest_west_echo");
+    REQUIRE(script.events.size() == 6);
+    REQUIRE(script.events[0].id == "intro");
+    REQUIRE(script.events[1].id == "meet_alice");
+    REQUIRE(script.events[2].id == "alice_ask_help");
+    REQUIRE(script.events[3].id == "chest_west");
+    REQUIRE(script.events[4].id == "alice_reward");
+    REQUIRE(script.events[5].id == "chest_west_echo");
 }
 
 TEST_CASE("event script parses choice with inline option sequences", "[domain][event_script]") {

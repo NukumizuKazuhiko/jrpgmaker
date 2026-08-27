@@ -22,9 +22,34 @@
                     "attributes": {
                         "POSITION": 0
                     },
-                    "indices": 1
+                    "indices": 1,
+                    "material": 0
                 }
             ]
+        }
+    ],
+    "materials": [
+        {
+            "name": "triangle_material",
+            "pbrMetallicRoughness": {
+                "baseColorFactor": [0.2, 0.4, 0.8, 1.0],
+                "metallicFactor": 0.25,
+                "roughnessFactor": 0.75,
+                "baseColorTexture": {
+                    "index": 0
+                }
+            }
+        }
+    ],
+    "textures": [
+        {
+            "source": 0
+        }
+    ],
+    "images": [
+        {
+            "name": "triangle_albedo",
+            "uri": "triangle_albedo.ppm"
         }
     ],
     "accessors": [

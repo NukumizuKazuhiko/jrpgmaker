@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "id": "project.accent",
+  "render_style": "sample.style",
+  "material_document": "assets/data/material_accent.json",
+  "plugins": ["sample.unlit", "sample.style"],
+  "data_roots": ["assets/data"]
+}
