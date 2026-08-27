@@ -1,5 +1,6 @@
 #include "jrpgmaker/plugins/sample_unlit/unlit.hpp"
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -52,10 +53,13 @@ render::MaterialValidation Adapter::ValidateMaterial(const nlohmann::json& mater
 
 render::RenderPlan Adapter::BuildPlan(const render::SceneSnapshot& snapshot) const {
     render::RenderPlan plan{.view_projection = snapshot.view_projection, .passes = {}};
+    const bool has_sampled_texture =
+        std::any_of(snapshot.renderables.begin(), snapshot.renderables.end(),
+                    [](const auto& renderable) { return !renderable.sampled_texture.empty(); });
     render::RenderPass pass{.id = "sample.unlit.opaque",
                             .clear_color = {0.08f, 0.09f, 0.11f, 1.0f},
                             .clear_target = true,
-                            .pipeline = "unlit",
+                            .pipeline = has_sampled_texture ? "textured" : "unlit",
                             .draws = {}};
     for (const auto& renderable : snapshot.renderables) {
         if (const auto color = DecodeBaseColor(renderable.material_parameters); color.has_value()) {
@@ -64,7 +68,8 @@ render::RenderPlan Adapter::BuildPlan(const render::SceneSnapshot& snapshot) con
         pass.draws.push_back({.mesh = renderable.mesh,
                               .material = renderable.material,
                               .world = renderable.world,
-                              .material_parameters = renderable.material_parameters});
+                              .material_parameters = renderable.material_parameters,
+                              .sampled_texture = renderable.sampled_texture});
     }
     plan.passes.push_back(std::move(pass));
     return plan;

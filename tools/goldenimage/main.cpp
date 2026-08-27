@@ -207,6 +207,7 @@ bool RenderInto(
                                 .index_count = mesh.index_count,
                                 .indices_are_32_bit = true}};
                         },
+                    .resolve_sampled_texture = {},
                     .validate_material = {},
                     .bind_draw_resources =
                         [push_constants](ICommandList& list, const auto&, const auto&) {
@@ -301,7 +302,8 @@ bool RenderProjectStyledTriangle(std::vector<std::uint8_t>& rgba,
     snapshot.renderables.push_back({.mesh = "triangle",
                                     .material = "triangle",
                                     .world = glm::mat4(1.0f),
-                                    .material_parameters = {}});
+                                    .material_parameters = {},
+                                    .sampled_texture = {}});
     std::ifstream project_file(project_path);
     if (!project_file) {
         std::cerr << "failed to open project manifest: " << project_path.string() << '\n';

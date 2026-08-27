@@ -2,6 +2,7 @@
   "schema": 1,
   "id": "character",
   "style_plugin_id": "sample.unlit",
+  "sampled_texture": "arm.albedo",
   "parameters": {
     "schema": 1,
     "base_color": [0.8, 0.8, 0.8, 1.0]

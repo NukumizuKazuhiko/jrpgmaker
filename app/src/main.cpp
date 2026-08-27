@@ -38,6 +38,7 @@
 #include "jrpgmaker/plugin/plugin.hpp"
 #include "jrpgmaker/plugins/register.hpp"
 #include "jrpgmaker/render/style.hpp"
+#include "jrpgmaker/render/texture_resource.hpp"
 #include "jrpgmaker/rhi/command_list.hpp"
 #include "jrpgmaker/rhi/device.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
@@ -156,6 +157,7 @@ struct SkinnedVertex {
     float position[3];
     std::uint16_t joints[4];
     float weights[4];
+    float uv[2];
 };
 
 struct UiVertex {
@@ -205,6 +207,11 @@ std::vector<SkinnedVertex> BuildSkinnedVertices(const jrpgmaker::core::MeshData&
             output.joints[component] = mesh.joints[vertex * 4u + component];
             output.weights[component] = mesh.weights[vertex * 4u + component];
         }
+        if (mesh.texcoords.size() != mesh.vertex_count() * 2u) {
+            throw std::runtime_error("textured character mesh has no TEXCOORD_0 data");
+        }
+        output.uv[0] = mesh.texcoords[vertex * 2u];
+        output.uv[1] = mesh.texcoords[vertex * 2u + 1u];
     }
     return vertices;
 }
@@ -309,6 +316,25 @@ auto main() -> int {
             throw std::runtime_error("failed to load animated character asset");
         }
         auto& character = *character_load;
+        jrpgmaker::render::TextureResourceService texture_resources(*device);
+        for (const auto& texture : character.textures) {
+            const std::string resource_id =
+                !texture.name.empty() ? texture.name : texture.source_uri;
+            if (resource_id.empty() || !texture.decoded()) {
+                throw std::runtime_error("character texture has no stable id or decoded pixels");
+            }
+            const auto registered = texture_resources.Register(
+                {.id = resource_id,
+                 .width = texture.width,
+                 .height = texture.height,
+                 .rgba8 = texture.rgba8,
+                 .sampler = {.filter = jrpgmaker::rhi::SamplerFilter::kLinear,
+                             .address = jrpgmaker::rhi::SamplerAddress::kRepeat}});
+            if (!registered) {
+                throw std::runtime_error("failed to register character texture " + resource_id +
+                                         ": " + registered.error);
+            }
+        }
 
         const auto project_result =
             jrpgmaker::plugin::ParseProjectManifest(ReadJsonFile("assets/data/project_demo.json"));
@@ -362,7 +388,10 @@ auto main() -> int {
             material_document.value("id", std::string{}) != "character" ||
             material_document.value("style_plugin_id", std::string{}) !=
                 project_result.manifest->render_style ||
-            !material_document.contains("parameters")) {
+            !material_document.contains("parameters") ||
+            (material_document.contains("sampled_texture") &&
+             (!material_document["sampled_texture"].is_string() ||
+              material_document["sampled_texture"].get<std::string>().empty()))) {
             throw std::runtime_error("invalid character material instance");
         }
         const auto material_validation =
@@ -438,6 +467,44 @@ auto main() -> int {
         };
         pipeline_desc.vertex_uniform_size = 32u * 16u * sizeof(float);
         const jrpgmaker::rhi::PipelineHandle pipeline = device->CreatePipeline(pipeline_desc);
+        jrpgmaker::rhi::GraphicsPipelineDesc textured_pipeline_desc = pipeline_desc;
+        const jrpgmaker::rhi::ShaderBytecode textured_vs = {
+#if defined(_WIN32)
+            jrpgmaker::shaders::kSkinnedTexturedVsDxil,
+            jrpgmaker::shaders::kSkinnedTexturedVsDxil_size
+#else
+            jrpgmaker::shaders::kSkinnedTexturedVsSpv,
+            jrpgmaker::shaders::kSkinnedTexturedVsSpv_size
+#endif
+        };
+        const jrpgmaker::rhi::ShaderBytecode textured_ps = {
+#if defined(_WIN32)
+            jrpgmaker::shaders::kSkinnedTexturedPsDxil,
+            jrpgmaker::shaders::kSkinnedTexturedPsDxil_size
+#else
+            jrpgmaker::shaders::kSkinnedTexturedPsSpv,
+            jrpgmaker::shaders::kSkinnedTexturedPsSpv_size
+#endif
+        };
+        const jrpgmaker::rhi::VertexAttribute textured_skinned_attributes[] = {
+            skinned_attributes[0],
+            skinned_attributes[1],
+            skinned_attributes[2],
+            {.location = 3,
+             .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat2,
+             .offset_bytes = 36,
+             .semantic_name = "TEXCOORD"},
+        };
+        textured_pipeline_desc.vertex_shader = textured_vs;
+        textured_pipeline_desc.pixel_shader = textured_ps;
+        textured_pipeline_desc.vertex_input = jrpgmaker::rhi::VertexInputLayout{
+            .attributes = textured_skinned_attributes,
+            .attribute_count = static_cast<std::uint32_t>(std::size(textured_skinned_attributes)),
+            .stride_bytes = static_cast<std::uint32_t>(sizeof(SkinnedVertex)),
+        };
+        textured_pipeline_desc.sample_slot = 1;
+        const jrpgmaker::rhi::PipelineHandle textured_pipeline =
+            device->CreatePipeline(textured_pipeline_desc);
         jrpgmaker::rhi::GraphicsPipelineDesc accent_pipeline_desc = pipeline_desc;
         const jrpgmaker::rhi::ShaderBytecode accent_ps = {
 #if defined(_WIN32)
@@ -779,11 +846,12 @@ auto main() -> int {
         // contract: RenderSubmit drives the render submit).
         stages.RegisterSystem(
             jrpgmaker::core::Stage::kRenderSubmit, {jrpgmaker::core::Stage::kRenderSubmit, 0},
-            [device = device.get(), swapchain = swapchain.get(), command_list, pipeline,
-             vertex_buffer, index_buffer, uniform_buffer, accent_pipeline, ui_pipeline,
-             ui_vertex_buffer, ui_index_buffer, &character, character_entity, character_skin_ref,
-             character_mesh, &camera_rig, &animation_time, &locomotion, style = style_adapter,
-             material_document, material_parameters, resource_catalog](double) mutable {
+            [device = device.get(), swapchain = swapchain.get(), command_list, vertex_buffer,
+             index_buffer, uniform_buffer, pipeline, textured_pipeline, accent_pipeline,
+             ui_pipeline, ui_vertex_buffer, ui_index_buffer, &character, character_entity,
+             character_skin_ref, character_mesh, &camera_rig, &animation_time, &locomotion,
+             style = style_adapter, material_document, material_parameters, resource_catalog,
+             &texture_resources](double) mutable {
                 const auto& skeleton =
                     character.skeletons[character_skin_ref.skeleton_index].skeleton;
                 const std::size_t clip_index =
@@ -802,7 +870,9 @@ auto main() -> int {
                     .renderables = {{.mesh = "character",
                                      .material = "character",
                                      .world = world,
-                                     .material_parameters = material_parameters}}};
+                                     .material_parameters = material_parameters,
+                                     .sampled_texture = material_document.value("sampled_texture",
+                                                                                std::string{})}}};
                 auto render_plan = style->BuildPlan(snapshot);
                 if (render_plan.passes.empty()) {
                     throw std::runtime_error("render style produced an empty render plan");
@@ -815,7 +885,8 @@ auto main() -> int {
                                                   .draws = {{.mesh = "ui",
                                                              .material = "ui",
                                                              .world = glm::mat4(1.0f),
-                                                             .material_parameters = {}}}});
+                                                             .material_parameters = {},
+                                                             .sampled_texture = {}}}});
                 const auto validation =
                     jrpgmaker::render::ValidateRenderPlan(render_plan, style->Descriptor().budget);
                 if (!validation.ok) {
@@ -835,6 +906,18 @@ auto main() -> int {
                             throw std::runtime_error("render plan references unknown mesh: " +
                                                      draw.mesh);
                         }
+                        if (!draw.sampled_texture.empty()) {
+                            if (std::find(catalog.texture_ids.begin(), catalog.texture_ids.end(),
+                                          draw.sampled_texture) == catalog.texture_ids.end()) {
+                                throw std::runtime_error(
+                                    "render plan references unknown texture: " +
+                                    draw.sampled_texture);
+                            }
+                            if (!texture_resources.Find(draw.sampled_texture).has_value()) {
+                                throw std::runtime_error("render plan texture is not loaded: " +
+                                                         draw.sampled_texture);
+                            }
+                        }
                     }
                 }
                 for (std::size_t bone = 0; bone < local_bones.size(); ++bone) {
@@ -845,10 +928,17 @@ auto main() -> int {
                 const jrpgmaker::rhi::TextureHandle back_buffer = swapchain->AcquireTexture();
                 command_list->Begin();
                 const jrpgmaker::render::RenderPlanResolver resolver{
-                    .resolve_pipeline = [pipeline, accent_pipeline, ui_pipeline](const auto& pass)
-                        -> std::optional<jrpgmaker::rhi::PipelineHandle> {
+                    .resolve_pipeline =
+                        [pipeline, textured_pipeline, accent_pipeline, ui_pipeline](
+                            const auto& pass) -> std::optional<jrpgmaker::rhi::PipelineHandle> {
                         if (pass.pipeline == "unlit") {
                             return pipeline;
+                        }
+                        if (pass.pipeline == "textured") {
+                            return textured_pipeline;
+                        }
+                        if (pass.pipeline == "accent_textured") {
+                            return textured_pipeline;
                         }
                         if (pass.pipeline == "accent") {
                             return accent_pipeline;
@@ -877,6 +967,10 @@ auto main() -> int {
                                 .index_count =
                                     static_cast<std::uint32_t>(character_mesh->indices.size()),
                                 .indices_are_32_bit = true}};
+                        },
+                    .resolve_sampled_texture =
+                        [&texture_resources](const auto& draw) {
+                            return texture_resources.Find(draw.sampled_texture);
                         },
                     .validate_material = [style, material_document](const auto& draw)
                         -> jrpgmaker::render::RenderPlanValidation {
@@ -923,6 +1017,7 @@ auto main() -> int {
         device->DestroyBuffer(index_buffer);
         device->DestroyBuffer(uniform_buffer);
         device->DestroyPipeline(pipeline);
+        device->DestroyPipeline(textured_pipeline);
         device->DestroyPipeline(accent_pipeline);
         device->DestroyPipeline(ui_pipeline);
         device->DestroyBuffer(ui_vertex_buffer);

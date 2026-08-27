@@ -59,10 +59,17 @@ render::RenderPlan Adapter::BuildPlan(const render::SceneSnapshot& snapshot) con
         if (const auto color = DecodeAccent(renderable.material_parameters); color.has_value()) {
             pass.clear_color = *color;
         }
+        if (!renderable.sampled_texture.empty()) {
+            // The plugin owns the decision to consume a generic sampled
+            // resource. The app maps this style-owned pipeline to its
+            // textured implementation, while the resource ID remains opaque.
+            pass.pipeline = "accent_textured";
+        }
         pass.draws.push_back({.mesh = renderable.mesh,
                               .material = renderable.material,
                               .world = renderable.world,
-                              .material_parameters = renderable.material_parameters});
+                              .material_parameters = renderable.material_parameters,
+                              .sampled_texture = renderable.sampled_texture});
     }
     plan.passes.push_back(std::move(pass));
     return plan;

@@ -25,6 +25,9 @@ struct Renderable {
     std::string material;
     glm::mat4 world{1.0f};
     OpaqueMaterialParameters material_parameters;
+    // Style-neutral sampled resource id. The selected style decides how its
+    // shader interprets the sampled slot; render core only binds the resource.
+    std::string sampled_texture;
 };
 
 // The scene snapshot is the only scene input crossing the style seam. It is a
@@ -40,6 +43,7 @@ struct RenderDraw {
     std::string material;
     glm::mat4 world{1.0f};
     OpaqueMaterialParameters material_parameters;
+    std::string sampled_texture;
 };
 
 struct RenderPass {
@@ -64,6 +68,7 @@ struct RenderResourceBudget {
 struct RenderResourceCatalog {
     std::vector<std::string> pipeline_ids;
     std::vector<std::string> mesh_ids;
+    std::vector<std::string> texture_ids;
 };
 
 struct RenderResourceCatalogParseResult {
@@ -85,9 +90,16 @@ struct RenderMeshBinding {
     bool indices_are_32_bit = true;
 };
 
+struct RenderSampledTextureBinding {
+    rhi::TextureHandle texture = rhi::TextureHandle::kInvalid;
+    rhi::SamplerHandle sampler = rhi::SamplerHandle::kInvalid;
+};
+
 struct RenderPlanResolver {
     std::function<std::optional<rhi::PipelineHandle>(const RenderPass&)> resolve_pipeline;
     std::function<std::optional<RenderMeshBinding>(const RenderDraw&)> resolve_mesh;
+    std::function<std::optional<RenderSampledTextureBinding>(const RenderDraw&)>
+        resolve_sampled_texture;
     std::function<RenderPlanValidation(const RenderDraw&)> validate_material;
     std::function<RenderPlanValidation(rhi::ICommandList&, const RenderDraw&, const glm::mat4&)>
         bind_draw_resources;

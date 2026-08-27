@@ -49,6 +49,18 @@ bool ReadIndices(const cgltf_accessor* accessor, core::MeshData& out) {
     return true;
 }
 
+// Copies a glTF TEXCOORD_0 accessor into tightly packed float2 UVs.
+bool ReadTexcoords(const cgltf_accessor* accessor, core::MeshData& out) {
+    if (accessor->type != cgltf_type_vec2 ||
+        accessor->component_type != cgltf_component_type_r_32f) {
+        return false;
+    }
+    out.texcoords.resize(accessor->count * 2u);
+    const cgltf_size written = cgltf_accessor_unpack_floats(
+        accessor, out.texcoords.data(), static_cast<cgltf_size>(out.texcoords.size()));
+    return written == accessor->count * 2u;
+}
+
 // Reads a glTF JOINTS_0 accessor (VEC4 of u8/u16) into tightly packed uint16
 // joint indices (4 per vertex). Padded slots (0xFFFF from glTF, or out-of-range
 // indices) are written verbatim; the matching weight must be zero.
@@ -128,8 +140,14 @@ bool LoadPrimitive(const cgltf_primitive& primitive, core::MeshData& out, std::s
             }
             found_weights = true;
             break;
+        case cgltf_attribute_type_texcoord:
+            if (attribute.index == 0 && !ReadTexcoords(attribute.data, out)) {
+                message = "unsupported TEXCOORD_0 accessor layout";
+                return false;
+            }
+            break;
         default:
-            break; // NORMAL/TEXCOORD etc. are ignored in v0.
+            break; // NORMAL and non-zero TEXCOORD sets are ignored in v0.
         }
     }
     if (!found_position) {

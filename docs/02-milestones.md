@@ -201,7 +201,7 @@
 - **测试证据**：`triangle.gltf` fixture 覆盖 material + texture source，`asset_import_test.cpp` 验证字段与节点关联；stb 将 1×1 P6 纹理解码为 RGBA8，Windows 材质导入定向测试通过。
 - **资源安全**：外部与嵌入式纹理均限制最大 4096×4096 与 16M 像素，解码失败/缺失/超限均返回导入错误；嵌入式 data URI 与 bufferView 均转为 RGBA8。
 - **已补齐**：`IRenderStyleAdapter::ValidateMaterial` 将材质 schema 解释权交给插件；两个参考插件分别校验 `base_color[4]` 与 `accent[4]`。app 已从项目清单创建 style adapter 并消费其 RenderPlan 清屏输出。
-- **已补齐**：app 的 `RenderPlanExecutor` resolver 在录制前调用当前 style adapter 的材质 validator；项目 manifest 通过安全相对路径选择材质实例，app 同时注册并按 `RenderPass.pipeline` 解析 `unlit`/`accent` 两套管线。app 将项目材质 parameters 编码为 opaque CBOR，两个 style adapter 分别解码自己的 schema 并将颜色消费到 RenderPass，同时保留参数字节到 draw；实际 glTF 纹理采样材质 pipeline 仍留待后续纹理渲染任务。
+- **已补齐**：app 的 `RenderPlanExecutor` resolver 在录制前调用当前 style adapter 的材质 validator；项目 manifest 通过安全相对路径选择材质实例，app 同时注册并按 `RenderPass.pipeline` 解析 `unlit`/`accent` 两套管线。app 将项目材质 parameters 编码为 opaque CBOR，两个 style adapter 分别解码自己的 schema 并将颜色消费到 RenderPass，同时保留参数字节到 draw。P8-1 已补齐 glTF 纹理资源服务与 sampled pipeline，材质/画风字段仍由插件解释。
 
 ### P6-3/P6-4 风格 Adapter（Windows/Linux/macOS CI 闭环，2026-08-26）
 
@@ -209,7 +209,7 @@
 - **测试证据**：`render_style_adapters_test.cpp` 验证两个 Adapter 的 descriptor、可替换 plan 和差异化输出；Windows/Linux 全量回归各 **183/183** 通过。
 - **已补齐**：app 读取 `project_demo.json`，通过集中注册入口和 registry 按 `render_style` 创建 adapter；`RenderPlanExecutor` 统一录制 pass、pipeline、mesh 和 draw，goldenimage 的两个 style 也经该 executor 进入 D3D12 离屏 RHI；两个 adapter 声明不同 pipeline key，golden 使用不同 pixel shader，生成两套基准图。
 - **已补齐**：`assets/data/render_resources_demo.json` 提供 schema 1 的 pipeline/mesh 目录，app 在录制前校验所有 plan 引用；项目清单、材质实例和资源目录共同完成 demo/accent 装配。
-- **剩余设计风险**：目录到 GPU handle 的最终加载器仍由 app 负责，尚未抽成独立资源服务；CI run `33058546267` attempt 2 已验证 macOS build/test、golden 和 shader 专项门禁。
+- **剩余设计风险**：P8-1 已将目录到 GPU handle 的纹理资源服务抽至 `engine/render`；app 仍负责项目装配和生命周期边界。CI run `33058546267` attempt 2 已验证 macOS build/test、golden 和 shader 专项门禁。
 
 ### P6-5/P6-6 演出合同与风格 golden（Windows/Linux/macOS CI 闭环，2026-08-26）
 
@@ -217,7 +217,7 @@
 - **golden 门禁**：两个 `compare-style` CTest 已接入，Windows/D3D12 基准图已生成并用于本地比较。
 - **Windows 证据（2026-08-26）**：MSVC Debug 构建通过，`ctest --preset win-debug --output-on-failure` **183/183** 通过；音频设备不可用时 adapter 降级为日志并不阻断渲染主循环。项目清单新增安全相对路径 `material_document`，demo 与 accent 项目可分别装配对应材质实例。
 - **Linux 证据（2026-08-26）**：`cmake --build --preset linux-debug --parallel 2` 与 `ctest --preset linux-debug --output-on-failure` 均通过，Vulkan/lavapipe 全量 **183/183** 通过。
-- **未完成**：实际 glTF 纹理采样材质 pipeline 和独立资源加载服务仍待补；它们不阻断本轮已闭合的插件材质参数消费和三平台专项门禁，另由 DEBT-029 跟踪。
+- **后续边界**：P8-1 负责 glTF 纹理到 GPU sampled resource 的最小闭环；更完整的异步流式加载、纹理压缩格式和多材质批处理不在本轮，另行登记为后续资源系统工作。
 
 ## P7 工具链与竖切组装
 
@@ -260,6 +260,14 @@
 - **端到端证据**：`p7_vertical_slice_test.cpp` 覆盖日程触发 → EventRunner → 对话阻塞/确认 → flag 变更 → SaveState 恢复；Windows/D3D12 全量 ctest **197/197** 通过；`eventlint` 的 events、map、schedule、cutscene 检查均 exit 0。
 - **Windows 证据**：从仓库根目录启动同一构建出的 app，进程保持响应并成功完成资源/日历/日程/竖切数据初始化；GUI 自动化工具未能枚举 SDL 窗口，因此按可复现的进程存活、数据 lint 和 domain 端到端证据记录，不伪造按键操作证据。
 - **三平台 CI 证据**：CI run `33058546267` attempt 2 的 Windows D3D12、Linux Vulkan、macOS build/test 全部通过；全量 ctest 209/209、data-lint、golden-sync、shader-sync、format 和私有头审计均通过。该矩阵覆盖 P7 的日历、存档、日程、竖切与对话恢复测试，因此 P7 的平台验收已闭合。
+
+## P8 渲染资源与扩展消费闭环
+
+- **目标**：将 glTF/项目材质资源通过独立资源服务送入 RHI，并由选定的渲染风格插件实际消费；不把 PBR 或固定画风提升为引擎合同。
+- **当前进度（2026-08-27，Windows 优先）**：已落地通用 `RenderDraw.sampled_texture` 资源 ID、schema 1 catalog 的 `textures` 列表、`TextureResourceService`（RGBA8 尺寸/字节数/重复 ID 校验、GPU texture/sampler 生命周期）和 RenderPlan sampled resolver；两个参考 style adapter 按各自 pipeline 选择消费该通用绑定；glTF importer 已导入 `TEXCOORD_0`，arm fixture 通过独立 UV buffer 保持 P4 骨骼 golden 字节不变，并绑定真实外部 PPM 纹理。
+- **Windows 已验证**：`cmake --build --preset win-debug`（MSVC 开发者环境）通过；`ctest --preset win-debug --output-on-failure` **213/213** 通过，新增 skinned glTF → UV → TextureResourceService → `skinned_textured.hlsl` → D3D12 采样测试通过，P4 三组 skin golden 与原 triangle golden 均通过；shader 生成脚本成功产出新增 DXIL/SPIR-V，`git diff --check` 通过。
+- **Linux 证据**：WSL2 原生 Vulkan/lavapipe 全新配置、构建与 CTest 通过，包含 P8 纹理资源服务、sampled quad 和 skinned glTF 实际采样用例；全量 **213/213** 通过。
+- **剩余平台门禁**：macOS CI，以及当前提交触发的 P8 专属 golden-sync/data-lint/私有头审计和 shader-sync 运行证据待补齐；这些是平台/发布门禁，不改变已闭合的 P8-1 代码主链。
 
 ---
 

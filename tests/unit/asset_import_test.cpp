@@ -75,6 +75,11 @@ TEST_CASE("gltf skin and animation import produces a skinned mesh",
         }
     }
     REQUIRE(found_skinned);
+    REQUIRE(load->textures.size() == 1u);
+    REQUIRE(load->textures.front().name == "arm.albedo");
+    REQUIRE(load->textures.front().decoded());
+    REQUIRE(load->textures.front().width == 1u);
+    REQUIRE(load->textures.front().height == 1u);
 
     // Skeleton: two joints, elbow parented under root.
     REQUIRE(load->skeletons.size() == 1u);
@@ -179,6 +184,12 @@ TEST_CASE("gltf scene import preserves generic material data", "[core][assetimpo
         load->scene.Registry().try_get<jrpgmaker::assetimport::MaterialRef>(node);
     REQUIRE(material_ref != nullptr);
     REQUIRE(material_ref->material_index == 0u);
+
+    const std::optional<MeshData> mesh =
+        LoadGltfMesh(AssetPath("art/meshes/triangle.gltf"), &error);
+    INFO(error.message);
+    REQUIRE(mesh.has_value());
+    REQUIRE(mesh->texcoords == std::vector<float>{0.0f, 1.0f, 1.0f, 1.0f, 0.5f, 0.0f});
 }
 
 TEST_CASE("gltf import reports a clear error for a missing file", "[core][assetimport]") {

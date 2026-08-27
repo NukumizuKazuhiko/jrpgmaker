@@ -30,13 +30,35 @@
             "primitives": [
                 {
                     "attributes": {
-                        "POSITION": 0,
-                        "JOINTS_0": 1,
-                        "WEIGHTS_0": 2
+                    "POSITION": 0,
+                    "JOINTS_0": 1,
+                    "WEIGHTS_0": 2,
+                    "TEXCOORD_0": 11
                     },
                     "indices": 3
                 }
             ]
+        }
+    ],
+    "images": [
+        {
+            "name": "arm.albedo",
+            "uri": "triangle_albedo.ppm"
+        }
+    ],
+    "textures": [
+        {
+            "source": 0
+        }
+    ],
+    "materials": [
+        {
+            "name": "ArmMaterial",
+            "pbrMetallicRoughness": {
+                "baseColorTexture": {
+                    "index": 0
+                }
+            }
         }
     ],
     "skins": [
@@ -171,6 +193,12 @@
             "componentType": 5126,
             "count": 6,
             "type": "VEC4"
+        },
+        {
+            "bufferView": 11,
+            "componentType": 5126,
+            "count": 8,
+            "type": "VEC2"
         }
     ],
     "bufferViews": [
@@ -228,6 +256,11 @@
             "buffer": 1,
             "byteOffset": 8,
             "byteLength": 96
+        },
+        {
+            "buffer": 2,
+            "byteOffset": 0,
+            "byteLength": 64
         }
     ],
     "buffers": [
@@ -238,6 +271,10 @@
         {
             "byteLength": 104,
             "uri": "data:application/octet-stream;base64,AAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADzBDU/8wQ1PwAAAAAAAAAAAAAAAAAAAAA="
+        },
+        {
+            "byteLength": 64,
+            "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAIA/AAAAAAAAgD8AAIA/AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAACAPwAAgD8AAAAAAACAPw=="
         }
     ]
 }

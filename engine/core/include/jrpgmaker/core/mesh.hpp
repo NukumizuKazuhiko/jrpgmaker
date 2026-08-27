@@ -7,8 +7,9 @@ namespace jrpgmaker::core {
 
 // CPU-side mesh data produced by the asset import pipeline (P2: glTF via
 // cgltf). Layout-independent of any RHI backend: `positions` is tightly packed
-// float3 (xyz per vertex), `indices` is a flat triangle index list. The render
-// layer is responsible for uploading this into GPU vertex/index buffers.
+// float3 (xyz per vertex), `texcoords` is tightly packed float2 (uv per vertex),
+// and `indices` is a flat triangle index list. The render layer is responsible
+// for uploading this into GPU vertex/index buffers.
 //
 // P4 skinned meshes: `joints` and `weights` are parallel per-vertex arrays.
 // `joints` holds 4 joint indices per vertex (tightly packed uint16, P4 v0:
@@ -19,6 +20,7 @@ namespace jrpgmaker::core {
 // static mesh (no skinning), matching P2 behavior.
 struct MeshData {
     std::vector<float> positions;
+    std::vector<float> texcoords;
     std::vector<std::uint32_t> indices;
     std::vector<std::uint16_t> joints;
     std::vector<float> weights;

@@ -1,5 +1,6 @@
 {
   "schema": 1,
-  "pipelines": ["unlit", "accent", "ui"],
-  "meshes": ["character", "ui"]
+  "pipelines": ["unlit", "textured", "accent", "accent_textured", "ui"],
+  "meshes": ["character", "ui"],
+  "textures": ["arm.albedo"]
 }

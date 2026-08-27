@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -15,6 +16,7 @@
 #include "jrpgmaker/core/animation.hpp"
 #include "jrpgmaker/core/asset.hpp"
 #include "jrpgmaker/core/scene.hpp"
+#include "jrpgmaker/render/texture_resource.hpp"
 #include "jrpgmaker/rhi/command_list.hpp"
 #include "jrpgmaker/rhi/device.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
@@ -258,6 +260,143 @@ void CheckSkinGolden(const char* golden_name, float time, float blend) {
 }
 
 } // namespace
+
+TEST_CASE("skinned glTF uploads UVs and samples its imported texture", "[rhi][texture][skin][p8]") {
+    const auto load =
+        jrpgmaker::assetimport::LoadGltfScene(AssetPath("art/meshes/arm_skinned.gltf"));
+    REQUIRE(load.has_value());
+    REQUIRE(load->textures.size() == 1u);
+    const auto& texture = load->textures.front();
+    const auto bones = ComputeBones(*load, 0.0f, 0.0f);
+
+    const std::unique_ptr<IDevice> device = CreateDevice(kBackend);
+    REQUIRE(device != nullptr);
+    jrpgmaker::render::TextureResourceService texture_resources(*device);
+    REQUIRE(texture_resources.Register(
+        {.id = texture.name,
+         .width = texture.width,
+         .height = texture.height,
+         .rgba8 = texture.rgba8,
+         .sampler = {.filter = SamplerFilter::kNearest, .address = SamplerAddress::kClamp}}));
+
+    struct TexturedVertex {
+        float position[3];
+        std::uint16_t joints[4];
+        float weights[4];
+        float uv[2];
+    };
+    const VertexAttribute attributes[] = {
+        {.location = 0, .format = VertexAttributeFormat::kFloat3, .offset_bytes = 0},
+        {.location = 1,
+         .format = VertexAttributeFormat::kUint16x4,
+         .offset_bytes = 12,
+         .semantic_name = "JOINTS"},
+        {.location = 2,
+         .format = VertexAttributeFormat::kFloat4,
+         .offset_bytes = 20,
+         .semantic_name = "WEIGHTS"},
+        {.location = 3,
+         .format = VertexAttributeFormat::kFloat2,
+         .offset_bytes = 36,
+         .semantic_name = "TEXCOORD"},
+    };
+    GraphicsPipelineDesc pipeline_desc;
+    pipeline_desc.color_format = Format::kR8G8B8A8Unorm;
+    pipeline_desc.vertex_input = VertexInputLayout{
+        .attributes = attributes, .attribute_count = 4, .stride_bytes = sizeof(TexturedVertex)};
+    pipeline_desc.vertex_uniform_size = kMaxBonesPerObject * 16u * sizeof(float);
+    pipeline_desc.sample_slot = 1;
+#if defined(_WIN32)
+    pipeline_desc.vertex_shader = {jrpgmaker::shaders::kSkinnedTexturedVsDxil,
+                                   jrpgmaker::shaders::kSkinnedTexturedVsDxil_size};
+    pipeline_desc.pixel_shader = {jrpgmaker::shaders::kSkinnedTexturedPsDxil,
+                                  jrpgmaker::shaders::kSkinnedTexturedPsDxil_size};
+#else
+    pipeline_desc.vertex_shader = {jrpgmaker::shaders::kSkinnedTexturedVsSpv,
+                                   jrpgmaker::shaders::kSkinnedTexturedVsSpv_size};
+    pipeline_desc.pixel_shader = {jrpgmaker::shaders::kSkinnedTexturedPsSpv,
+                                  jrpgmaker::shaders::kSkinnedTexturedPsSpv_size};
+#endif
+    const PipelineHandle pipeline = device->CreatePipeline(pipeline_desc);
+    REQUIRE(pipeline != PipelineHandle::kInvalid);
+
+    const auto view = load->scene.Registry()
+                          .view<jrpgmaker::assetimport::MeshRef, jrpgmaker::assetimport::SkinRef>();
+    REQUIRE(view.begin() != view.end());
+    const auto& mesh_ref = view.get<jrpgmaker::assetimport::MeshRef>(*view.begin());
+    const auto* mesh = load->assets.FindMesh(mesh_ref.handle);
+    REQUIRE(mesh != nullptr);
+    REQUIRE(mesh->texcoords.size() == mesh->vertex_count() * 2u);
+    std::vector<TexturedVertex> vertices(mesh->vertex_count());
+    for (std::size_t vertex = 0; vertex < vertices.size(); ++vertex) {
+        std::memcpy(vertices[vertex].position, &mesh->positions[vertex * 3u], 3u * sizeof(float));
+        for (std::size_t component = 0; component < 4u; ++component) {
+            vertices[vertex].joints[component] = mesh->joints[vertex * 4u + component];
+            vertices[vertex].weights[component] = mesh->weights[vertex * 4u + component];
+        }
+        vertices[vertex].uv[0] = mesh->texcoords[vertex * 2u];
+        vertices[vertex].uv[1] = mesh->texcoords[vertex * 2u + 1u];
+    }
+    const BufferHandle vertex_buffer = device->CreateBuffer(BufferDesc{
+        .size_bytes = vertices.size() * sizeof(TexturedVertex), .usage = BufferUsage::kVertex});
+    const BufferHandle index_buffer = device->CreateBuffer(BufferDesc{
+        .size_bytes = mesh->indices.size() * sizeof(std::uint32_t), .usage = BufferUsage::kIndex});
+    const BufferHandle uniform_buffer = device->CreateBuffer(
+        BufferDesc{.size_bytes = bones.size() * sizeof(glm::mat4), .usage = BufferUsage::kUniform});
+    REQUIRE(vertex_buffer != BufferHandle::kInvalid);
+    REQUIRE(index_buffer != BufferHandle::kInvalid);
+    REQUIRE(uniform_buffer != BufferHandle::kInvalid);
+    device->MapWrite(vertex_buffer, vertices.data(), vertices.size() * sizeof(TexturedVertex));
+    device->MapWrite(index_buffer, mesh->indices.data(),
+                     mesh->indices.size() * sizeof(std::uint32_t));
+    device->MapWrite(uniform_buffer, bones.data(), bones.size() * sizeof(glm::mat4));
+
+    const TextureHandle target = device->CreateTexture(
+        TextureDesc{.width = kWidth,
+                    .height = kHeight,
+                    .format = Format::kR8G8B8A8Unorm,
+                    .usage = TextureUsage::kRenderTarget | TextureUsage::kReadBack});
+    REQUIRE(target != TextureHandle::kInvalid);
+    const auto sampled = texture_resources.Find(texture.name);
+    REQUIRE(sampled.has_value());
+    ICommandList* command_list = device->CreateCommandList();
+    REQUIRE(command_list != nullptr);
+    command_list->Begin();
+    command_list->BeginRendering(target, kClearColor);
+    command_list->SetPipeline(pipeline);
+    command_list->SetVertexUniformBuffer(
+        uniform_buffer, static_cast<std::uint32_t>(bones.size() * sizeof(glm::mat4)));
+    command_list->SetSampledTexture(sampled->texture, sampled->sampler);
+    command_list->SetVertexBuffer(vertex_buffer, sizeof(TexturedVertex));
+    command_list->SetIndexBuffer(index_buffer, true);
+    command_list->DrawIndexed(static_cast<std::uint32_t>(mesh->indices.size()), 1);
+    command_list->EndRendering();
+    command_list->End();
+    device->Submit(*command_list);
+    device->WaitForGpuIdle();
+    device->DestroyCommandList(command_list);
+
+    const MappedTexture mapped = device->MapReadBack(target);
+    REQUIRE(mapped.data != nullptr);
+    bool found_sampled_pixel = false;
+    for (std::uint32_t y = 0; y < kHeight && !found_sampled_pixel; ++y) {
+        const auto* row =
+            reinterpret_cast<const std::uint8_t*>(mapped.data) + y * mapped.row_pitch_bytes;
+        for (std::uint32_t x = 0; x < kWidth; ++x) {
+            const auto* pixel = row + x * 4u;
+            if (pixel[0] == 65u && pixel[1] == 66u && pixel[2] == 67u && pixel[3] == 255u) {
+                found_sampled_pixel = true;
+                break;
+            }
+        }
+    }
+    REQUIRE(found_sampled_pixel);
+    device->DestroyBuffer(uniform_buffer);
+    device->DestroyBuffer(index_buffer);
+    device->DestroyBuffer(vertex_buffer);
+    device->DestroyPipeline(pipeline);
+    device->DestroyTexture(target);
+}
 
 // Skinned-mesh golden references (lavapipe-generated): the bind pose, the full
 // wave pose (elbow rotated 90 degrees around Z), and the halfway blend. The

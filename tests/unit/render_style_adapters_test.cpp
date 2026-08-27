@@ -14,7 +14,8 @@ TEST_CASE("two render style adapters produce replaceable plans", "[render][style
     snapshot.renderables.push_back({.mesh = "hero.mesh",
                                     .material = "hero.material",
                                     .world = glm::mat4(1.0f),
-                                    .material_parameters = {}});
+                                    .material_parameters = {},
+                                    .sampled_texture = {}});
 
     const jrpgmaker::plugins::sample_unlit::Adapter unlit;
     const jrpgmaker::plugins::sample_style::Adapter style;
@@ -30,6 +31,21 @@ TEST_CASE("two render style adapters produce replaceable plans", "[render][style
     REQUIRE(unlit_plan.passes[0].clear_color != style_plan.passes[0].clear_color);
     REQUIRE(unlit_plan.passes[0].draws.size() == style_plan.passes[0].draws.size());
     REQUIRE(unlit_plan.passes[0].draws[0].mesh == style_plan.passes[0].draws[0].mesh);
+}
+
+TEST_CASE("render styles preserve generic sampled texture bindings", "[render][style][p8]") {
+    jrpgmaker::render::SceneSnapshot snapshot;
+    snapshot.renderables.push_back({.mesh = "hero.mesh",
+                                    .material = "hero.material",
+                                    .world = glm::mat4(1.0f),
+                                    .material_parameters = {},
+                                    .sampled_texture = "hero.albedo"});
+
+    const auto unlit_plan = jrpgmaker::plugins::sample_unlit::Adapter().BuildPlan(snapshot);
+    const auto style_plan = jrpgmaker::plugins::sample_style::Adapter().BuildPlan(snapshot);
+    REQUIRE(unlit_plan.passes[0].draws[0].sampled_texture == "hero.albedo");
+    REQUIRE(style_plan.passes[0].draws[0].sampled_texture == "hero.albedo");
+    REQUIRE(unlit_plan.passes[0].pipeline == "textured");
 }
 
 TEST_CASE("style adapters own their material schemas", "[render][style][p6]") {
@@ -57,12 +73,14 @@ TEST_CASE("style adapters consume opaque project material parameters", "[render]
     unlit_snapshot.renderables.push_back({.mesh = "hero.mesh",
                                           .material = "hero.material",
                                           .world = glm::mat4(1.0f),
-                                          .material_parameters = unlit_parameters});
+                                          .material_parameters = unlit_parameters,
+                                          .sampled_texture = {}});
     jrpgmaker::render::SceneSnapshot style_snapshot;
     style_snapshot.renderables.push_back({.mesh = "hero.mesh",
                                           .material = "hero.material",
                                           .world = glm::mat4(1.0f),
-                                          .material_parameters = style_parameters});
+                                          .material_parameters = style_parameters,
+                                          .sampled_texture = {}});
 
     const auto unlit_plan = jrpgmaker::plugins::sample_unlit::Adapter().BuildPlan(unlit_snapshot);
     const auto style_plan = jrpgmaker::plugins::sample_style::Adapter().BuildPlan(style_snapshot);

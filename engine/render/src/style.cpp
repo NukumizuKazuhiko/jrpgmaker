@@ -7,9 +7,11 @@ namespace jrpgmaker::render {
 RenderResourceCatalogParseResult ParseRenderResourceCatalog(const nlohmann::json& document) {
     if (!document.is_object() || document.value("schema", 0) != 1 ||
         !document.contains("pipelines") || !document.contains("meshes") ||
-        !document["pipelines"].is_array() || !document["meshes"].is_array()) {
+        !document.contains("textures") || !document["pipelines"].is_array() ||
+        !document["meshes"].is_array() || !document["textures"].is_array()) {
         return {.catalog = std::nullopt,
-                .error = "render resource catalog requires schema 1, pipelines, and meshes"};
+                .error =
+                    "render resource catalog requires schema 1, pipelines, meshes, and textures"};
     }
     RenderResourceCatalog catalog;
     std::unordered_set<std::string> ids;
@@ -33,6 +35,15 @@ RenderResourceCatalogParseResult ParseRenderResourceCatalog(const nlohmann::json
     if (catalog.pipeline_ids.empty() || catalog.mesh_ids.empty()) {
         return {.catalog = std::nullopt,
                 .error = "render resource catalog must contain pipelines and meshes"};
+    }
+    ids.clear();
+    for (const auto& value : document["textures"]) {
+        if (!value.is_string() || value.get<std::string>().empty() ||
+            !ids.insert(value.get<std::string>()).second) {
+            return {.catalog = std::nullopt,
+                    .error = "render resource texture IDs must be unique non-empty strings"};
+        }
+        catalog.texture_ids.push_back(value.get<std::string>());
     }
     return {.catalog = std::move(catalog), .error = std::string{}};
 }
@@ -112,6 +123,20 @@ RenderPlanValidation RenderPlanExecutor::Record(const RenderPlan& plan,
                     command_list.EndRendering();
                     return bound;
                 }
+            }
+            if (!draw.sampled_texture.empty()) {
+                if (!resolver.resolve_sampled_texture) {
+                    command_list.EndRendering();
+                    return {.ok = false, .error = "sampled texture resolver is incomplete"};
+                }
+                const auto sampled = resolver.resolve_sampled_texture(draw);
+                if (!sampled.has_value() || sampled->texture == rhi::TextureHandle::kInvalid ||
+                    sampled->sampler == rhi::SamplerHandle::kInvalid) {
+                    command_list.EndRendering();
+                    return {.ok = false,
+                            .error = "render draw sampled texture could not be resolved"};
+                }
+                command_list.SetSampledTexture(sampled->texture, sampled->sampler);
             }
             command_list.DrawIndexed(mesh->index_count, 1);
         }
