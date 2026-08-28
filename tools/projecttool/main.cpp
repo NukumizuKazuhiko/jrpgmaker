@@ -222,19 +222,6 @@ bool OpenProject(const std::filesystem::path& root, bool validate) {
     return true;
 }
 
-const std::vector<std::string>& EditableFields() {
-    static const std::vector<std::string> fields = {
-        "id",           "render_style",      "battle_plugin", "plugins",
-        "data_roots",   "material_document", "input_actions", "event_script",
-        "localization", "resource_manifest"};
-    return fields;
-}
-
-bool IsEditableField(const std::string& field) {
-    const auto& fields = EditableFields();
-    return std::find(fields.begin(), fields.end(), field) != fields.end();
-}
-
 bool LoadJsonDocument(const std::filesystem::path& path, nlohmann::json& document) {
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -250,111 +237,56 @@ bool LoadJsonDocument(const std::filesystem::path& path, nlohmann::json& documen
     }
 }
 
-bool ApplyManifestPatch(const nlohmann::json& patch, nlohmann::json& document) {
-    if (!patch.is_object() || patch.empty()) {
+bool EditProject(const std::filesystem::path& root, const std::filesystem::path& patch_path,
+                 bool write) {
+    nlohmann::json patch;
+    if (!LoadJsonDocument(patch_path, patch) || !patch.is_object() || patch.empty()) {
         std::cerr << "manifest patch must be a non-empty object\n";
         return false;
     }
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto opened = workspace.Open();
+    if (!opened) {
+        for (const auto& diagnostic : opened.diagnostics)
+            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        return false;
+    }
+    std::vector<jrpgmaker::project::Change> changes;
+    std::uint64_t current_revision = opened.snapshot->revision;
     for (auto it = patch.begin(); it != patch.end(); ++it) {
-        if (!IsEditableField(it.key())) {
-            std::cerr << "manifest patch contains non-editable field: " << it.key() << '\n';
+        const auto edit = workspace.Apply({"project.manifest", "/" + it.key(), it.value()});
+        if (!edit) {
+            for (const auto& diagnostic : edit.diagnostics)
+                std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
             return false;
         }
-        document[it.key()] = it.value();
+        current_revision = edit.revision;
+        changes.insert(changes.end(), edit.changes.begin(), edit.changes.end());
     }
-    return true;
-}
-
-bool BuildEditedDocument(const std::filesystem::path& root, const std::filesystem::path& patch_path,
-                         nlohmann::json& original, nlohmann::json& edited,
-                         ProjectSnapshot& snapshot) {
-    if (!LoadJsonDocument(root / "project.json", original))
-        return false;
-    edited = original;
-    nlohmann::json patch;
-    if (!LoadJsonDocument(patch_path, patch) || !ApplyManifestPatch(patch, edited))
-        return false;
-    const auto result = jrpgmaker::plugin::ParseProjectManifest(edited);
-    if (!result) {
-        std::cerr << patch_path.string() << ": " << result.error->code << ": "
-                  << result.error->message << " (" << result.error->path << ")\n";
-        return false;
-    }
-    snapshot = {.root = root, .manifest = *result.manifest};
-    return ValidateSnapshot(snapshot);
-}
-
-void PrintManifestDiff(const nlohmann::json& original, const nlohmann::json& edited) {
-    bool changed = false;
-    for (const auto& field : EditableFields()) {
-        const nlohmann::json before = original.contains(field) ? original[field] : nlohmann::json();
-        const nlohmann::json after = edited.contains(field) ? edited[field] : nlohmann::json();
-        if (before == after)
-            continue;
-        changed = true;
-        std::cout << "/" << field << ": " << before.dump() << " -> " << after.dump() << '\n';
-    }
-    if (!changed)
+    if (changes.empty()) {
         std::cout << "project.json: no changes\n";
-}
-
-bool WriteEditedManifest(const std::filesystem::path& root, const nlohmann::json& document) {
-    const auto manifest = root / "project.json";
-    const auto temporary = root / ".project.json.tmp";
-    std::error_code error;
-    if (std::filesystem::exists(temporary, error)) {
-        std::cerr << "refusing to overwrite an existing temporary manifest\n";
+        return true;
+    }
+    for (const auto& change : changes)
+        std::cout << change.field_path << ": " << change.before.dump() << " -> "
+                  << change.after.dump() << '\n';
+    if (!write)
+        return true;
+    const auto plan = workspace.PrepareSave(current_revision);
+    if (!plan) {
+        for (const auto& diagnostic : plan.diagnostics)
+            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
         return false;
     }
-    std::filesystem::path backup;
-    for (std::size_t index = 0; index <= 8; ++index) {
-        const auto candidate = index == 0 ? root / "project.json.bak"
-                                          : root / ("project.json.bak." + std::to_string(index));
-        if (!std::filesystem::exists(candidate, error)) {
-            backup = candidate;
-            break;
-        }
-    }
-    if (backup.empty()) {
-        std::cerr << "refusing to write: backup retention limit reached\n";
+    const auto committed = workspace.Commit(*plan.token);
+    if (!committed) {
+        for (const auto& diagnostic : committed.diagnostics)
+            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
         return false;
     }
-    {
-        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-        if (!output.is_open()) {
-            std::cerr << temporary.string() << ": cannot create temporary manifest\n";
-            return false;
-        }
-        output << document.dump(2) << '\n';
-        if (!output) {
-            std::filesystem::remove(temporary, error);
-            return false;
-        }
-    }
-    std::filesystem::rename(manifest, backup, error);
-    if (error) {
-        std::filesystem::remove(temporary, error);
-        std::filesystem::remove(backup, error);
-        return false;
-    }
-    std::filesystem::rename(temporary, manifest, error);
-    if (error) {
-        std::filesystem::rename(backup, manifest, error);
-        return false;
-    }
-    std::cout << manifest.string() << ": written; backup=" << backup.string() << '\n';
+    std::cout << (root / "project.json").string() << ": written; backup="
+              << committed.backup.string() << '\n';
     return true;
-}
-
-bool EditProject(const std::filesystem::path& root, const std::filesystem::path& patch_path,
-                 bool write) {
-    nlohmann::json original;
-    nlohmann::json edited;
-    ProjectSnapshot snapshot;
-    if (!BuildEditedDocument(root, patch_path, original, edited, snapshot))
-        return false;
-    PrintManifestDiff(original, edited);
-    return !write || WriteEditedManifest(root, edited);
 }
 
 bool MigrateProject(const std::filesystem::path& root) {
