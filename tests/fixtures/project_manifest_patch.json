@@ -1,0 +1,4 @@
+{
+  "render_style": "sample.style",
+  "battle_plugin": "sample.turn_based"
+}

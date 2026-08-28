@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -187,14 +188,167 @@ bool OpenProject(const std::filesystem::path& root, bool validate) {
     return !validate || ValidateSnapshot(snapshot);
 }
 
+const std::vector<std::string>& EditableFields() {
+    static const std::vector<std::string> fields = {
+        "id",           "render_style",      "battle_plugin", "plugins",
+        "data_roots",   "material_document", "input_actions", "event_script",
+        "localization", "resource_manifest"};
+    return fields;
+}
+
+bool IsEditableField(const std::string& field) {
+    const auto& fields = EditableFields();
+    return std::find(fields.begin(), fields.end(), field) != fields.end();
+}
+
+bool LoadJsonDocument(const std::filesystem::path& path, nlohmann::json& document) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cerr << path.string() << ": cannot open JSON file\n";
+        return false;
+    }
+    try {
+        file >> document;
+        return true;
+    } catch (const std::exception& error) {
+        std::cerr << path.string() << ": JSON parse error: " << error.what() << '\n';
+        return false;
+    }
+}
+
+bool ApplyManifestPatch(const nlohmann::json& patch, nlohmann::json& document) {
+    if (!patch.is_object() || patch.empty()) {
+        std::cerr << "manifest patch must be a non-empty object\n";
+        return false;
+    }
+    for (auto it = patch.begin(); it != patch.end(); ++it) {
+        if (!IsEditableField(it.key())) {
+            std::cerr << "manifest patch contains non-editable field: " << it.key() << '\n';
+            return false;
+        }
+        document[it.key()] = it.value();
+    }
+    return true;
+}
+
+bool BuildEditedDocument(const std::filesystem::path& root, const std::filesystem::path& patch_path,
+                         nlohmann::json& original, nlohmann::json& edited,
+                         ProjectSnapshot& snapshot) {
+    if (!LoadJsonDocument(root / "project.json", original))
+        return false;
+    edited = original;
+    nlohmann::json patch;
+    if (!LoadJsonDocument(patch_path, patch) || !ApplyManifestPatch(patch, edited))
+        return false;
+    const auto result = jrpgmaker::plugin::ParseProjectManifest(edited);
+    if (!result) {
+        std::cerr << patch_path.string() << ": " << result.error->code << ": "
+                  << result.error->message << " (" << result.error->path << ")\n";
+        return false;
+    }
+    snapshot = {.root = root, .manifest = *result.manifest};
+    return ValidateSnapshot(snapshot);
+}
+
+void PrintManifestDiff(const nlohmann::json& original, const nlohmann::json& edited) {
+    bool changed = false;
+    for (const auto& field : EditableFields()) {
+        const nlohmann::json before = original.contains(field) ? original[field] : nlohmann::json();
+        const nlohmann::json after = edited.contains(field) ? edited[field] : nlohmann::json();
+        if (before == after)
+            continue;
+        changed = true;
+        std::cout << "/" << field << ": " << before.dump() << " -> " << after.dump() << '\n';
+    }
+    if (!changed)
+        std::cout << "project.json: no changes\n";
+}
+
+bool WriteEditedManifest(const std::filesystem::path& root, const nlohmann::json& document) {
+    const auto manifest = root / "project.json";
+    const auto temporary = root / ".project.json.tmp";
+    std::error_code error;
+    if (std::filesystem::exists(temporary, error)) {
+        std::cerr << "refusing to overwrite an existing temporary manifest\n";
+        return false;
+    }
+    std::filesystem::path backup;
+    for (std::size_t index = 0; index <= 8; ++index) {
+        const auto candidate = index == 0 ? root / "project.json.bak"
+                                          : root / ("project.json.bak." + std::to_string(index));
+        if (!std::filesystem::exists(candidate, error)) {
+            backup = candidate;
+            break;
+        }
+    }
+    if (backup.empty()) {
+        std::cerr << "refusing to write: backup retention limit reached\n";
+        return false;
+    }
+    {
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        if (!output.is_open()) {
+            std::cerr << temporary.string() << ": cannot create temporary manifest\n";
+            return false;
+        }
+        output << document.dump(2) << '\n';
+        if (!output) {
+            std::filesystem::remove(temporary, error);
+            return false;
+        }
+    }
+    std::filesystem::rename(manifest, backup, error);
+    if (error) {
+        std::filesystem::remove(temporary, error);
+        std::filesystem::remove(backup, error);
+        return false;
+    }
+    std::filesystem::rename(temporary, manifest, error);
+    if (error) {
+        std::filesystem::rename(backup, manifest, error);
+        return false;
+    }
+    std::cout << manifest.string() << ": written; backup=" << backup.string() << '\n';
+    return true;
+}
+
+bool EditProject(const std::filesystem::path& root, const std::filesystem::path& patch_path,
+                 bool write) {
+    nlohmann::json original;
+    nlohmann::json edited;
+    ProjectSnapshot snapshot;
+    if (!BuildEditedDocument(root, patch_path, original, edited, snapshot))
+        return false;
+    PrintManifestDiff(original, edited);
+    return !write || WriteEditedManifest(root, edited);
+}
+
+bool MigrateProject(const std::filesystem::path& root) {
+    ProjectSnapshot snapshot;
+    if (!LoadSnapshot(root, snapshot))
+        return false;
+    if (snapshot.manifest.schema != 1) {
+        std::cerr << "unsupported project schema for migration\n";
+        return false;
+    }
+    std::cout << root.string() << ": schema 1 requires no migration\n";
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc < 3 || (std::string(argv[1]) == "create" && argc != 4) ||
-        (std::string(argv[1]) != "create" && argc != 3)) {
+        ((std::string(argv[1]) == "open" || std::string(argv[1]) == "validate" ||
+          std::string(argv[1]) == "migrate") &&
+         argc != 3) ||
+        ((std::string(argv[1]) == "diff" || std::string(argv[1]) == "write") && argc != 4)) {
         std::cerr << "usage: projecttool create <output-root> <template-root>\n"
                      "       projecttool open <project-root>\n"
-                     "       projecttool validate <project-root>\n";
+                     "       projecttool validate <project-root>\n"
+                     "       projecttool diff <project-root> <patch.json>\n"
+                     "       projecttool write <project-root> <patch.json>\n"
+                     "       projecttool migrate <project-root>\n";
         return 2;
     }
     const std::string command = argv[1];
@@ -204,6 +358,12 @@ int main(int argc, char** argv) {
         return OpenProject(argv[2], false) ? 0 : 1;
     if (command == "validate")
         return OpenProject(argv[2], true) ? 0 : 1;
+    if (command == "diff")
+        return EditProject(argv[2], argv[3], false) ? 0 : 1;
+    if (command == "write")
+        return EditProject(argv[2], argv[3], true) ? 0 : 1;
+    if (command == "migrate")
+        return MigrateProject(argv[2]) ? 0 : 1;
     std::cerr << "unknown projecttool command: " << command << '\n';
     return 2;
 }
