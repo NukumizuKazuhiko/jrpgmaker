@@ -17,3 +17,27 @@ TEST_CASE("form projection exposes adapter metadata and current values", "[edito
     REQUIRE(projection.fields[1].value.is_null());
     REQUIRE(projection.fields[1].read_only);
 }
+
+TEST_CASE("workspace preview exposes only structured diagnosis metrics", "[editor]") {
+    const jrpgmaker::project::DiagnosticSet diagnosis{.event_count = 2,
+                                                       .interaction_count = 1,
+                                                       .collision_count = 3,
+                                                       .navigation_width = 8,
+                                                       .navigation_height = 6,
+                                                       .camera_region_count = 2};
+    const auto preview = jrpgmaker::editor::BuildWorkspacePreview(diagnosis);
+    REQUIRE(preview.valid);
+    REQUIRE(preview.diagnostics.empty());
+    REQUIRE(preview.metrics.size() == 6);
+    REQUIRE(preview.metrics.front().label_key == "editor.preview.event_count");
+    REQUIRE(preview.metrics.front().value == 2);
+}
+
+TEST_CASE("workspace preview preserves diagnostics", "[editor]") {
+    const jrpgmaker::project::DiagnosticSet diagnosis{
+        .diagnostics = {{"project.workspace.invalid", "project.json"}}};
+    const auto preview = jrpgmaker::editor::BuildWorkspacePreview(diagnosis);
+    REQUIRE_FALSE(preview.valid);
+    REQUIRE(preview.metrics.empty());
+    REQUIRE(preview.diagnostics.size() == 1);
+}

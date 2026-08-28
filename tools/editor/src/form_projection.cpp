@@ -25,4 +25,20 @@ FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
     return projection;
 }
 
+PreviewProjection BuildWorkspacePreview(const project::DiagnosticSet& diagnosis) {
+    PreviewProjection projection{.valid = diagnosis.diagnostics.empty(),
+                                 .diagnostics = diagnosis.diagnostics};
+    if (!projection.valid)
+        return projection;
+    projection.metrics = {
+        {"editor.preview.event_count", "integer", diagnosis.event_count},
+        {"editor.preview.interaction_count", "integer", diagnosis.interaction_count},
+        {"editor.preview.collision_count", "integer", diagnosis.collision_count},
+        {"editor.preview.navigation_width", "integer", diagnosis.navigation_width},
+        {"editor.preview.navigation_height", "integer", diagnosis.navigation_height},
+        {"editor.preview.camera_region_count", "integer", diagnosis.camera_region_count},
+    };
+    return projection;
+}
+
 } // namespace jrpgmaker::editor

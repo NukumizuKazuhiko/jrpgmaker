@@ -24,7 +24,21 @@ struct FormProjection {
     std::vector<FormFieldProjection> fields;
 };
 
+struct PreviewMetricProjection {
+    std::string label_key;
+    std::string value_type;
+    nlohmann::json value;
+};
+
+struct PreviewProjection {
+    bool valid = false;
+    std::vector<project::Diagnostic> diagnostics;
+    std::vector<PreviewMetricProjection> metrics;
+};
+
 [[nodiscard]] FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
                                                   const nlohmann::json& document);
+
+[[nodiscard]] PreviewProjection BuildWorkspacePreview(const project::DiagnosticSet& diagnosis);
 
 } // namespace jrpgmaker::editor

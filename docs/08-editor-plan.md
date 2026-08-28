@@ -75,7 +75,7 @@
 
 ### P13-5 只读运行预览与发布回归
 
-- GUI 通过 `editor::BuildFormProjection` 展示 adapter 驱动表单，并发起 projecttool preview/诊断展示结构化快照；必要时启动独立 app 进程验证项目。
+- GUI 通过 `editor::BuildFormProjection` 展示 adapter 驱动表单，并通过 `editor::BuildWorkspacePreview` 展示 workspace 诊断指标；必要时启动独立 app 进程验证项目。
 - 发布包、CLI、运行时和编辑器分别构建，编辑器不进入发布包。
 - 验收：Windows 与 Linux 完成创建→编辑→校验→构建→运行→迁移；P12 全量测试和发布包门禁保持通过。
 
