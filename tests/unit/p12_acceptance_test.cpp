@@ -12,6 +12,8 @@
 #include "jrpgmaker/domain/interaction.hpp"
 #include "jrpgmaker/domain/save.hpp"
 #include "jrpgmaker/domain/schedule.hpp"
+#include "jrpgmaker/plugin/plugin.hpp"
+#include "jrpgmaker/plugins/register.hpp"
 
 namespace {
 
@@ -21,10 +23,46 @@ nlohmann::json ReadAsset(const char* name) {
     return nlohmann::json::parse(file);
 }
 
+nlohmann::json ReadProjectFile(const std::filesystem::path& root, const std::string& relative) {
+    std::ifstream file(root / relative);
+    REQUIRE(file.is_open());
+    return nlohmann::json::parse(file);
+}
+
+jrpgmaker::plugin::PluginManifest ReadPluginManifest(const std::filesystem::path& root,
+                                                     const std::string& relative) {
+    const auto result = jrpgmaker::plugin::ParseManifest(ReadProjectFile(root, relative));
+    REQUIRE(result);
+    return *result.manifest;
+}
+
 } // namespace
 
 TEST_CASE("P12 reference data closes movement interaction schedule and save flow",
           "[p12][acceptance]") {
+    const std::filesystem::path asset_root = JRPGMAKER_ASSET_DIR;
+    const std::filesystem::path project_root = asset_root.parent_path();
+    const auto project_result = jrpgmaker::plugin::ParseProjectManifest(
+        ReadProjectFile(project_root, "assets/data/project_demo.json"));
+    REQUIRE(project_result);
+    jrpgmaker::plugin::PluginRegistry registry;
+    const auto register_render = jrpgmaker::plugins::RegisterSamplePlugins(
+        registry, ReadPluginManifest(project_root, "plugins/sample_unlit/plugin.json"),
+        ReadPluginManifest(project_root, "plugins/sample_style/plugin.json"));
+    REQUIRE_FALSE(register_render.has_value());
+    const auto register_battle = jrpgmaker::plugins::RegisterSampleBattlePlugins(
+        registry, ReadPluginManifest(project_root, "plugins/sample_instant/plugin.json"),
+        ReadPluginManifest(project_root, "plugins/sample_turn_based/plugin.json"));
+    REQUIRE_FALSE(register_battle.has_value());
+    REQUIRE_FALSE(jrpgmaker::plugin::ValidateProjectPlugins(*project_result.manifest, registry));
+    REQUIRE_FALSE(
+        jrpgmaker::plugin::ValidateProjectDataRoots(*project_result.manifest, project_root));
+    REQUIRE(jrpgmaker::plugin::ValidateProjectPluginData(*project_result.manifest, registry,
+                                                         project_root)
+                .empty());
+    REQUIRE(jrpgmaker::plugin::CreateProjectRenderStyle(*project_result.manifest, registry));
+    REQUIRE(jrpgmaker::plugin::CreateProjectBattlePlugin(*project_result.manifest, registry));
+
     const auto navigation = jrpgmaker::core::ParseNavigationGrid(ReadAsset("navigation_demo.json"));
     const auto obstacles = jrpgmaker::core::ParseCollisionAabbs(ReadAsset("collision_demo.json"));
     const auto interactions =
@@ -33,8 +71,8 @@ TEST_CASE("P12 reference data closes movement interaction schedule and save flow
     const auto calendar_result =
         jrpgmaker::core::ParseCalendarDefinition(ReadAsset("calendar_demo.json"));
     REQUIRE(calendar_result.ok);
-    const auto schedule = jrpgmaker::domain::ParseScheduleTable(
-        ReadAsset("schedule_demo.json"), calendar_result.calendar);
+    const auto schedule = jrpgmaker::domain::ParseScheduleTable(ReadAsset("schedule_demo.json"),
+                                                                calendar_result.calendar);
 
     REQUIRE(navigation.FindPath({0, 0}, {4, 4}).succeeded());
     REQUIRE(navigation.FindPath({0, 0}, {2, 2}).failure ==

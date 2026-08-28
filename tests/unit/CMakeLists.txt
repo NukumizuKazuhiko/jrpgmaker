@@ -16,6 +16,7 @@ target_sources(jrpgmaker_unit_tests PRIVATE input_actions_test.cpp)
 target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::core jrpgmaker::domain jrpgmaker::audio jrpgmaker::rhi
                                                 jrpgmaker::shaders jrpgmaker::assetimport
                                                 jrpgmaker::ui jrpgmaker::render jrpgmaker::plugin
+                                                jrpgmaker::plugins
                                                 jrpgmaker::sample_unlit jrpgmaker::sample_style
                                                 jrpgmaker::sample_instant jrpgmaker::sample_turn_based
                                                 Catch2::Catch2WithMain)
