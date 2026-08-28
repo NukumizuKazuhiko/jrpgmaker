@@ -556,6 +556,15 @@ bool CheckProject(const std::filesystem::path& project_path,
     const auto resource_path = project_root / project_result.manifest->resource_manifest;
     if (!CheckResourceManifest(resource_path, project_root))
         ok = false;
+    const auto material_path = project_root / project_result.manifest->material_document;
+    const auto material_document = LoadJson(material_path);
+    if (!material_document.is_object() ||
+        material_document.value("style_plugin_id", std::string{}) !=
+            project_result.manifest->render_style) {
+        std::cerr << material_path.string() << ": style_plugin_id must match render_style '"
+                  << project_result.manifest->render_style << "'\n";
+        ok = false;
+    }
     if (ok)
         std::cout << project_path.string() << ": project data clean\n";
     return ok;

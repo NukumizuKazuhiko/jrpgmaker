@@ -245,6 +245,11 @@ jobs:
           P10_ROOT="$(mktemp -d)/project"
           ./build/linux-debug/tools/projecttool/jrpgmaker_projecttool create "$P10_ROOT" .
           ./build/linux-debug/tools/projecttool/jrpgmaker_projecttool validate "$P10_ROOT"
+          ./build/linux-debug/tools/projecttool/jrpgmaker_projecttool diagnose "$P10_ROOT"
+          ./build/linux-debug/tools/projecttool/jrpgmaker_projecttool preview "$P10_ROOT"
+          ./build/linux-debug/tools/projecttool/jrpgmaker_projecttool data-diff "$P10_ROOT" assets/data/calendar_demo.json tests/fixtures/calendar_patch.json
+          ./build/linux-debug/tools/projecttool/jrpgmaker_projecttool data-write "$P10_ROOT" assets/data/calendar_demo.json tests/fixtures/calendar_patch.json
+          ./build/linux-debug/tools/projecttool/jrpgmaker_projecttool diagnose "$P10_ROOT"
           ./build/linux-debug/tools/eventlint/jrpgmaker_eventlint --check-project "$P10_ROOT/project.json" "$P10_ROOT"
           ./build/linux-debug/tools/eventlint/jrpgmaker_eventlint --build-resource-package ./assets/data/resources_demo.json . ./build/linux-debug/resources-package.json
           cp ./build/linux-debug/resources-package.json ./build/linux-debug/resources-package-repeat.json

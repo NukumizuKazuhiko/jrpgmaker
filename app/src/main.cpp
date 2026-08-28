@@ -318,8 +318,16 @@ void RunMainLoop(jrpgmaker::rhi::ISwapchain* swapchain, jrpgmaker::core::StageRu
 
 } // namespace
 
-auto main() -> int {
+auto main(int argc, char** argv) -> int {
     try {
+        const std::filesystem::path project_root =
+            argc > 1 ? std::filesystem::path(argv[1]) : std::filesystem::current_path();
+        const std::filesystem::path project_manifest_path =
+            argc > 1 ? project_root / "project.json"
+                     : project_root / "assets/data/project_demo.json";
+        const auto data_path = [&project_root](const char* name) {
+            return project_root / "assets/data" / name;
+        };
         if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
             throw std::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
         }
@@ -339,7 +347,8 @@ auto main() -> int {
                                     jrpgmaker::rhi::Format::kB8G8R8A8Unorm));
 
         std::optional<jrpgmaker::assetimport::SceneLoad> character_load =
-            jrpgmaker::assetimport::LoadGltfScene("assets/art/meshes/arm_skinned.gltf");
+            jrpgmaker::assetimport::LoadGltfScene(project_root /
+                                                  "assets/art/meshes/arm_skinned.gltf");
         if (!character_load.has_value() || character_load->skeletons.empty() ||
             character_load->animations.empty()) {
             throw std::runtime_error("failed to load animated character asset");
@@ -352,7 +361,8 @@ auto main() -> int {
         std::vector<std::string> character_texture_ids;
         std::vector<bool> character_texture_acquired;
         std::deque<std::string> texture_errors;
-        const std::filesystem::path character_asset_path = "assets/art/meshes/arm_skinned.gltf";
+        const std::filesystem::path character_asset_path =
+            project_root / "assets/art/meshes/arm_skinned.gltf";
         for (const auto& texture : character.textures) {
             const std::string resource_id =
                 !texture.name.empty() ? texture.name : texture.source_uri;
@@ -408,7 +418,7 @@ auto main() -> int {
         }
 
         const auto project_result =
-            jrpgmaker::plugin::ParseProjectManifest(ReadJsonFile("assets/data/project_demo.json"));
+            jrpgmaker::plugin::ParseProjectManifest(ReadJsonFile(project_manifest_path));
         if (!project_result) {
             throw std::runtime_error("invalid project manifest: " + project_result.error->message);
         }
@@ -420,14 +430,15 @@ auto main() -> int {
         const InputBindings input_bindings = BuildInputBindings(*input_action_map.map);
         jrpgmaker::plugin::PluginRegistry plugin_registry;
         const auto registration_error = jrpgmaker::plugins::RegisterSamplePlugins(
-            plugin_registry, ReadPluginManifest("plugins/sample_unlit/plugin.json"),
-            ReadPluginManifest("plugins/sample_style/plugin.json"));
+            plugin_registry, ReadPluginManifest(project_root / "plugins/sample_unlit/plugin.json"),
+            ReadPluginManifest(project_root / "plugins/sample_style/plugin.json"));
         if (registration_error.has_value()) {
             throw std::runtime_error("failed to register plugins: " + registration_error->message);
         }
         const auto battle_registration_error = jrpgmaker::plugins::RegisterSampleBattlePlugins(
-            plugin_registry, ReadPluginManifest("plugins/sample_instant/plugin.json"),
-            ReadPluginManifest("plugins/sample_turn_based/plugin.json"));
+            plugin_registry,
+            ReadPluginManifest(project_root / "plugins/sample_instant/plugin.json"),
+            ReadPluginManifest(project_root / "plugins/sample_turn_based/plugin.json"));
         if (battle_registration_error.has_value()) {
             throw std::runtime_error("failed to register battle plugins: " +
                                      battle_registration_error->message);
@@ -437,8 +448,8 @@ auto main() -> int {
             error.has_value()) {
             throw std::runtime_error("invalid project plugin selection: " + error->message);
         }
-        if (const auto error = jrpgmaker::plugin::ValidateProjectDataRoots(
-                *project_result.manifest, std::filesystem::current_path());
+        if (const auto error =
+                jrpgmaker::plugin::ValidateProjectDataRoots(*project_result.manifest, project_root);
             error.has_value()) {
             throw std::runtime_error("invalid project data root: " + error->message);
         }
@@ -460,7 +471,8 @@ auto main() -> int {
         if (style_adapter == nullptr) {
             throw std::runtime_error("project render style has an invalid adapter type");
         }
-        const auto material_document = ReadJsonFile(project_result.manifest->material_document);
+        const auto material_document =
+            ReadJsonFile(project_root / project_result.manifest->material_document);
         if (!material_document.is_object() || material_document.value("schema", 0) != 1 ||
             material_document.value("id", std::string{}) != "character" ||
             material_document.value("style_plugin_id", std::string{}) !=
@@ -478,12 +490,12 @@ auto main() -> int {
                                      material_validation.error);
         }
         const auto material_parameters = EncodeMaterialParameters(material_document["parameters"]);
-        const auto theme = jrpgmaker::ui::ParseTheme(ReadJsonFile("assets/data/theme_demo.json"));
+        const auto theme = jrpgmaker::ui::ParseTheme(ReadJsonFile(data_path("theme_demo.json")));
         if (!theme) {
             throw std::runtime_error("invalid project UI theme: " + theme.error);
         }
         const auto resource_catalog = jrpgmaker::render::ParseRenderResourceCatalog(
-            ReadJsonFile("assets/data/render_resources_demo.json"));
+            ReadJsonFile(data_path("render_resources_demo.json")));
         if (!resource_catalog) {
             throw std::runtime_error("invalid render resource catalog: " + resource_catalog.error);
         }
@@ -664,17 +676,19 @@ auto main() -> int {
         float animation_time = 0.0f;
         std::vector<jrpgmaker::core::Aabb> obstacles;
         {
-            std::ifstream file("assets/data/collision_demo.json");
+            const auto path = data_path("collision_demo.json");
+            std::ifstream file(path);
             if (!file) {
-                throw std::runtime_error("failed to open assets/data/collision_demo.json");
+                throw std::runtime_error("failed to open " + path.string());
             }
             obstacles = jrpgmaker::core::ParseCollisionAabbs(nlohmann::json::parse(file));
         }
         jrpgmaker::core::NavigationGrid navigation_grid(1, 1, glm::vec2(0.0f), 1.0f, {true});
         {
-            std::ifstream file("assets/data/navigation_demo.json");
+            const auto path = data_path("navigation_demo.json");
+            std::ifstream file(path);
             if (!file) {
-                throw std::runtime_error("failed to open assets/data/navigation_demo.json");
+                throw std::runtime_error("failed to open " + path.string());
             }
             navigation_grid = jrpgmaker::core::ParseNavigationGrid(nlohmann::json::parse(file));
         }
@@ -682,46 +696,49 @@ auto main() -> int {
                   << navigation_grid.height() << " loaded\n";
         jrpgmaker::core::CameraRigData camera_data;
         {
-            std::ifstream file("assets/data/camera_demo.json");
+            const auto path = data_path("camera_demo.json");
+            std::ifstream file(path);
             if (!file) {
-                throw std::runtime_error("failed to open assets/data/camera_demo.json");
+                throw std::runtime_error("failed to open " + path.string());
             }
             camera_data = jrpgmaker::core::ParseCameraRigData(nlohmann::json::parse(file));
         }
         std::vector<jrpgmaker::domain::InteractionPoint> interactions;
         {
-            std::ifstream file("assets/data/interaction_demo.json");
+            const auto path = data_path("interaction_demo.json");
+            std::ifstream file(path);
             if (!file) {
-                throw std::runtime_error("failed to open assets/data/interaction_demo.json");
+                throw std::runtime_error("failed to open " + path.string());
             }
             interactions = jrpgmaker::domain::ParseInteractionPoints(nlohmann::json::parse(file));
         }
         jrpgmaker::domain::EventScript event_script;
         {
-            std::ifstream file("assets/data/events_demo.json");
+            const auto path = data_path("events_demo.json");
+            std::ifstream file(path);
             if (!file) {
-                throw std::runtime_error("failed to open assets/data/events_demo.json");
+                throw std::runtime_error("failed to open " + path.string());
             }
             event_script = jrpgmaker::domain::ParseEventScript(nlohmann::json::parse(file));
         }
         jrpgmaker::domain::ValidateInteractionTargets(interactions, event_script);
-        const auto encounters = jrpgmaker::domain::ParseEncounterPoints(
-            ReadJsonFile("assets/data/encounter_demo.json"));
+        const auto encounters =
+            jrpgmaker::domain::ParseEncounterPoints(ReadJsonFile(data_path("encounter_demo.json")));
         jrpgmaker::domain::ValidateEncounterTargets(encounters, event_script);
         const auto cutscene_timeline =
-            jrpgmaker::core::ParseCutsceneTimeline(ReadJsonFile("assets/data/cutscene_demo.json"));
+            jrpgmaker::core::ParseCutsceneTimeline(ReadJsonFile(data_path("cutscene_demo.json")));
         jrpgmaker::domain::ValidateCutsceneTargets(cutscene_timeline, event_script);
-        const auto calendar_result = jrpgmaker::core::ParseCalendarDefinition(
-            ReadJsonFile("assets/data/calendar_demo.json"));
+        const auto calendar_result =
+            jrpgmaker::core::ParseCalendarDefinition(ReadJsonFile(data_path("calendar_demo.json")));
         if (!calendar_result.ok) {
             throw std::runtime_error("calendar data error: " + calendar_result.error);
         }
         const auto calendar = calendar_result.calendar;
         const auto schedule = jrpgmaker::domain::ParseScheduleTable(
-            ReadJsonFile("assets/data/schedule_demo.json"), calendar);
+            ReadJsonFile(data_path("schedule_demo.json")), calendar);
         jrpgmaker::domain::ValidateScheduleTargets(schedule, event_script);
         const auto vertical_slice = jrpgmaker::domain::ParseVerticalSliceDefinition(
-            ReadJsonFile("assets/data/vertical_slice_demo.json"));
+            ReadJsonFile(data_path("vertical_slice_demo.json")));
         jrpgmaker::domain::ValidateVerticalSliceTargets(vertical_slice, event_script);
         std::cout << "vertical slice " << vertical_slice.id << " loaded ("
                   << vertical_slice.total_duration_seconds << " seconds)\n";

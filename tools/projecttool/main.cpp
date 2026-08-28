@@ -11,6 +11,14 @@
 
 #include <nlohmann/json.hpp>
 
+#include "jrpgmaker/core/calendar.hpp"
+#include "jrpgmaker/core/input_actions.hpp"
+#include "jrpgmaker/core/map_data.hpp"
+#include "jrpgmaker/domain/event_script.hpp"
+#include "jrpgmaker/domain/interaction.hpp"
+#include "jrpgmaker/domain/localization.hpp"
+#include "jrpgmaker/domain/schedule.hpp"
+#include "jrpgmaker/domain/vertical_slice.hpp"
 #include "jrpgmaker/plugin/plugin.hpp"
 
 namespace {
@@ -157,6 +165,8 @@ bool LoadSnapshot(const std::filesystem::path& root, ProjectSnapshot& snapshot) 
     }
 }
 
+bool LoadJsonDocument(const std::filesystem::path& path, nlohmann::json& document);
+
 bool ValidateSnapshot(const ProjectSnapshot& snapshot) {
     const auto& manifest = snapshot.manifest;
     std::vector<std::string> paths = manifest.data_roots;
@@ -171,6 +181,14 @@ bool ValidateSnapshot(const ProjectSnapshot& snapshot) {
             std::cerr << "project.json: missing or unsafe reference: " << relative << '\n';
             ok = false;
         }
+    }
+    nlohmann::json material;
+    const auto material_path = snapshot.root / manifest.material_document;
+    if (ok && (!LoadJsonDocument(material_path, material) || !material.is_object() ||
+               material.value("style_plugin_id", std::string{}) != manifest.render_style)) {
+        std::cerr << material_path.string() << ": style_plugin_id must match render_style '"
+                  << manifest.render_style << "'\n";
+        ok = false;
     }
     if (ok) {
         std::cout << snapshot.root.string() << ": project manifest clean (id=" << manifest.id
@@ -335,20 +353,172 @@ bool MigrateProject(const std::filesystem::path& root) {
     return true;
 }
 
+bool DiagnoseProject(const std::filesystem::path& root) {
+    ProjectSnapshot snapshot;
+    if (!LoadSnapshot(root, snapshot) || !ValidateSnapshot(snapshot))
+        return false;
+    try {
+        const auto read = [&root](const char* name) {
+            nlohmann::json document;
+            if (!LoadJsonDocument(root / "assets/data" / name, document))
+                throw std::invalid_argument(std::string("cannot read ") + name);
+            return document;
+        };
+        const auto events = jrpgmaker::domain::ParseEventScript(read("events_demo.json"));
+        const auto navigation = jrpgmaker::core::ParseNavigationGrid(read("navigation_demo.json"));
+        const auto collision = jrpgmaker::core::ParseCollisionAabbs(read("collision_demo.json"));
+        const auto camera = jrpgmaker::core::ParseCameraRigData(read("camera_demo.json"));
+        const auto interactions =
+            jrpgmaker::domain::ParseInteractionPoints(read("interaction_demo.json"));
+        jrpgmaker::domain::ValidateInteractionTargets(interactions, events);
+        std::cout << root.string() << ": diagnostic snapshot events=" << events.events.size()
+                  << " interactions=" << interactions.size()
+                  << " collision_boxes=" << collision.size() << " navigation=" << navigation.width()
+                  << "x" << navigation.height() << " camera_regions=" << camera.fixed_regions.size()
+                  << '\n';
+        return true;
+    } catch (const std::exception& error) {
+        std::cerr << root.string() << ": diagnostic error: " << error.what() << '\n';
+        return false;
+    }
+}
+
+bool ValidateDataDocument(const std::filesystem::path& root, const std::filesystem::path& relative,
+                          const nlohmann::json& document) {
+    const std::string name = relative.filename().string();
+    try {
+        if (name == "events_demo.json") {
+            (void) jrpgmaker::domain::ParseEventScript(document);
+        } else if (name == "navigation_demo.json") {
+            (void) jrpgmaker::core::ParseNavigationGrid(document);
+        } else if (name == "collision_demo.json") {
+            (void) jrpgmaker::core::ParseCollisionAabbs(document);
+        } else if (name == "camera_demo.json") {
+            (void) jrpgmaker::core::ParseCameraRigData(document);
+        } else if (name == "interaction_demo.json") {
+            (void) jrpgmaker::domain::ParseInteractionPoints(document);
+        } else if (name == "input_actions.json") {
+            (void) jrpgmaker::core::ParseInputActionMap(document);
+        } else if (name == "calendar_demo.json") {
+            const auto result = jrpgmaker::core::ParseCalendarDefinition(document);
+            if (!result.ok)
+                throw std::invalid_argument(result.error);
+        } else if (name == "localization_en.json") {
+            const auto result = jrpgmaker::domain::ParseLocalizationTable(document);
+            if (!result)
+                throw std::invalid_argument(result.error);
+        } else if (name == "material_demo.json" || name == "material_accent.json") {
+            if (!document.is_object() || document.value("schema", 0) != 1 ||
+                !document.contains("parameters"))
+                throw std::invalid_argument("material requires schema 1 and parameters");
+        } else if (name == "schedule_demo.json") {
+            nlohmann::json calendar_document;
+            if (!LoadJsonDocument(root / "assets/data/calendar_demo.json", calendar_document))
+                return false;
+            const auto calendar_result =
+                jrpgmaker::core::ParseCalendarDefinition(calendar_document);
+            if (!calendar_result.ok)
+                throw std::invalid_argument(calendar_result.error);
+            (void) jrpgmaker::domain::ParseScheduleTable(document, calendar_result.calendar);
+        } else if (name == "vertical_slice_demo.json") {
+            (void) jrpgmaker::domain::ParseVerticalSliceDefinition(document);
+        } else {
+            throw std::invalid_argument("unsupported schema-aware data file");
+        }
+    } catch (const std::exception& error) {
+        std::cerr << (root / relative).string() << ": data validation error: " << error.what()
+                  << '\n';
+        return false;
+    }
+    return true;
+}
+
+bool EditData(const std::filesystem::path& root, const std::filesystem::path& relative,
+              const std::filesystem::path& patch_path, bool write) {
+    if (relative.empty() || relative.is_absolute() ||
+        relative.string().find("..") != std::string::npos) {
+        std::cerr << "data path must be safe and relative\n";
+        return false;
+    }
+    nlohmann::json original;
+    nlohmann::json patch;
+    if (!LoadJsonDocument(root / relative, original) || !LoadJsonDocument(patch_path, patch) ||
+        !patch.is_object() || patch.empty()) {
+        std::cerr << "data patch must be a non-empty JSON object\n";
+        return false;
+    }
+    nlohmann::json edited = original;
+    for (auto it = patch.begin(); it != patch.end(); ++it)
+        edited[it.key()] = it.value();
+    if (!ValidateDataDocument(root, relative, edited))
+        return false;
+    bool changed = false;
+    for (auto it = patch.begin(); it != patch.end(); ++it) {
+        if (!original.contains(it.key()) || original[it.key()] != it.value()) {
+            std::cout << "/" << it.key() << ": "
+                      << (original.contains(it.key()) ? original[it.key()].dump() : "null")
+                      << " -> " << it.value().dump() << '\n';
+            changed = true;
+        }
+    }
+    if (!changed)
+        std::cout << (root / relative).string() << ": no changes\n";
+    if (!write)
+        return true;
+    const auto temporary = root / (relative.string() + ".tmp");
+    std::error_code error;
+    if (std::filesystem::exists(temporary, error)) {
+        std::cerr << "refusing to overwrite existing data temporary file\n";
+        return false;
+    }
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    if (!output.is_open())
+        return false;
+    output << edited.dump(2) << '\n';
+    output.close();
+    if (!output)
+        return false;
+    const auto backup = root / (relative.string() + ".bak");
+    if (std::filesystem::exists(backup, error)) {
+        std::cerr << "refusing to overwrite existing data backup\n";
+        std::filesystem::remove(temporary, error);
+        return false;
+    }
+    std::filesystem::rename(root / relative, backup, error);
+    if (error) {
+        std::filesystem::remove(temporary, error);
+        return false;
+    }
+    std::filesystem::rename(temporary, root / relative, error);
+    if (error) {
+        std::filesystem::rename(backup, root / relative, error);
+        return false;
+    }
+    std::cout << (root / relative).string() << ": data written; backup=" << backup.string() << '\n';
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc < 3 || (std::string(argv[1]) == "create" && argc != 4) ||
         ((std::string(argv[1]) == "open" || std::string(argv[1]) == "validate" ||
-          std::string(argv[1]) == "migrate") &&
+          std::string(argv[1]) == "migrate" || std::string(argv[1]) == "diagnose" ||
+          std::string(argv[1]) == "preview") &&
          argc != 3) ||
-        ((std::string(argv[1]) == "diff" || std::string(argv[1]) == "write") && argc != 4)) {
+        ((std::string(argv[1]) == "diff" || std::string(argv[1]) == "write") && argc != 4) ||
+        ((std::string(argv[1]) == "data-diff" || std::string(argv[1]) == "data-write") &&
+         argc != 5)) {
         std::cerr << "usage: projecttool create <output-root> <template-root>\n"
                      "       projecttool open <project-root>\n"
                      "       projecttool validate <project-root>\n"
                      "       projecttool diff <project-root> <patch.json>\n"
                      "       projecttool write <project-root> <patch.json>\n"
-                     "       projecttool migrate <project-root>\n";
+                     "       projecttool migrate <project-root>\n"
+                     "       projecttool diagnose <project-root>\n"
+                     "       projecttool preview <project-root>\n"
+                     "       projecttool data-diff <project-root> <path> <patch.json>\n"
+                     "       projecttool data-write <project-root> <path> <patch.json>\n";
         return 2;
     }
     const std::string command = argv[1];
@@ -364,6 +534,10 @@ int main(int argc, char** argv) {
         return EditProject(argv[2], argv[3], true) ? 0 : 1;
     if (command == "migrate")
         return MigrateProject(argv[2]) ? 0 : 1;
+    if (command == "diagnose" || command == "preview")
+        return DiagnoseProject(argv[2]) ? 0 : 1;
+    if (command == "data-diff" || command == "data-write")
+        return EditData(argv[2], argv[3], argv[4], command == "data-write") ? 0 : 1;
     std::cerr << "unknown projecttool command: " << command << '\n';
     return 2;
 }
