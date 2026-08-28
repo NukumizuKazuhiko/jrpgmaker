@@ -48,7 +48,7 @@ jrpgmaker_eventlint --check-project <project.json> <project-root>
 jrpgmaker_app
 ```
 
-默认输入映射来自 `assets/data/input_actions.json`：W/A/S/D 移动，E 确认交互或对话，F5 保存，F9 读档。角色接近数据声明的交互点后会显示提示；只有确认键按下才会排队启动目标事件。
+默认输入映射来自 `assets/data/input_actions.json`：W/A/S/D 移动，方向键上/下选择对话选项，E 确认交互、普通对话或当前选项，F5 保存，F9 读档。角色接近数据声明的交互点后会显示提示；只有确认键按下才会排队启动目标事件。按键与 action 的映射来自项目数据，可替换而无需修改 app。
 
 ## 发布运行包
 

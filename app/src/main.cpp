@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
@@ -35,6 +36,7 @@
 #include "jrpgmaker/domain/event_runner.hpp"
 #include "jrpgmaker/domain/event_script.hpp"
 #include "jrpgmaker/domain/interaction.hpp"
+#include "jrpgmaker/domain/localization.hpp"
 #include "jrpgmaker/domain/save.hpp"
 #include "jrpgmaker/domain/schedule.hpp"
 #include "jrpgmaker/domain/vertical_slice.hpp"
@@ -47,6 +49,7 @@
 #include "jrpgmaker/rhi/device.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
 #include "jrpgmaker/rhi/swapchain.hpp"
+#include "jrpgmaker/ui/dialog.hpp"
 #include "jrpgmaker/ui/theme.hpp"
 #include "shaders_generated.hpp"
 
@@ -144,6 +147,8 @@ struct InputState {
     bool backward = false;
     bool left = false;
     bool right = false;
+    bool dialog_previous_requested = false;
+    bool dialog_next_requested = false;
     bool save_requested = false;
     bool load_requested = false;
 
@@ -165,6 +170,10 @@ struct InputState {
             left = active;
         else if (action_id == "move.right")
             right = active;
+        else if (action_id == "dialog.previous" && is_down && !is_repeat)
+            dialog_previous_requested = true;
+        else if (action_id == "dialog.next" && is_down && !is_repeat)
+            dialog_next_requested = true;
         else if (action_id == "extension.confirm") {
             confirm_pressed = active;
             if (is_down && !is_repeat)
@@ -721,6 +730,18 @@ auto main(int argc, char** argv) -> int {
             }
             event_script = jrpgmaker::domain::ParseEventScript(nlohmann::json::parse(file));
         }
+        const auto localization_result = jrpgmaker::domain::ParseLocalizationTable(
+            ReadJsonFile(project_root / project_result.manifest->localization));
+        if (!localization_result) {
+            throw std::runtime_error("localization data error: " + localization_result.error);
+        }
+        const auto localization = *localization_result.table;
+        const auto localization_issues =
+            jrpgmaker::domain::ValidateLocalizationCoverage(event_script, localization);
+        if (!localization_issues.empty()) {
+            throw std::runtime_error("localization data is missing key: " +
+                                     localization_issues.front().key);
+        }
         jrpgmaker::domain::ValidateInteractionTargets(interactions, event_script);
         const auto encounters =
             jrpgmaker::domain::ParseEncounterPoints(ReadJsonFile(data_path("encounter_demo.json")));
@@ -759,7 +780,7 @@ auto main(int argc, char** argv) -> int {
         std::unique_ptr<jrpgmaker::plugin::IBattleSession> battle_session;
         std::map<std::string, std::string> battle_result_events;
         std::string prompt_projection;
-        std::string dialog_projection;
+        jrpgmaker::ui::DialogPresentation dialog_presentation;
         event_bus.Subscribe<jrpgmaker::domain::InteractionPromptShown>(
             [&prompt_projection](const auto& prompt) {
                 prompt_projection = prompt.prompt_text_key;
@@ -767,7 +788,14 @@ auto main(int argc, char** argv) -> int {
         event_bus.Subscribe<jrpgmaker::domain::InteractionPromptHidden>(
             [&prompt_projection](const auto&) { prompt_projection.clear(); });
         event_bus.Subscribe<jrpgmaker::domain::DialogRequested>(
-            [&dialog_projection](const auto& dialog) { dialog_projection = dialog.text_key; });
+            [&dialog_presentation, &localization](const auto& dialog) {
+                const auto result = dialog_presentation.Show(dialog, localization);
+                if (!result) {
+                    throw std::runtime_error(result.error);
+                }
+            });
+        event_bus.Subscribe<jrpgmaker::domain::EventFinished>(
+            [&dialog_presentation](const auto&) { dialog_presentation.Hide(); });
         event_bus.Subscribe<jrpgmaker::domain::EventStarted>(
             [&mixer](const auto&) { mixer.Play("event.cue", MakeEventCue(), 0.8f); });
         event_bus.Subscribe<jrpgmaker::domain::EncounterRequested>(
@@ -780,7 +808,8 @@ auto main(int argc, char** argv) -> int {
             [&controller, &input, &obstacles, &interaction_system, &encounter_system, &event_runner,
              &character, &battle_plugin, &plugin_registry, &battle_session, &battle_result_events,
              character_entity, &pending_events, &cutscene_player, &game_clock, &schedule_system,
-             &pending_encounters, &flags, project_result, &texture_loader](double delta) {
+             &pending_encounters, &flags, project_result, &texture_loader,
+             &dialog_presentation](double delta) {
                 texture_loader.Poll();
                 const bool in_battle = battle_session != nullptr;
                 controller.Move(in_battle ? glm::vec3(0.0f) : input.movement * 3.0f,
@@ -868,9 +897,22 @@ auto main(int argc, char** argv) -> int {
                     }
                 };
                 start_next_event();
-                if (input.confirm_requested && event_runner.IsDialogPending() &&
-                    event_runner.pending_options().empty()) {
-                    event_runner.AdvanceDialog();
+                if (event_runner.IsDialogPending()) {
+                    if (input.dialog_previous_requested) {
+                        dialog_presentation.SelectPrevious();
+                    }
+                    if (input.dialog_next_requested) {
+                        dialog_presentation.SelectNext();
+                    }
+                    if (input.confirm_requested) {
+                        const auto selected = dialog_presentation.selected_option();
+                        dialog_presentation.Hide();
+                        if (selected.has_value()) {
+                            event_runner.AdvanceDialog(*selected);
+                        } else {
+                            event_runner.AdvanceDialog();
+                        }
+                    }
                 }
                 event_runner.Tick(delta);
                 start_next_event();
@@ -902,13 +944,15 @@ auto main(int argc, char** argv) -> int {
                     input.load_requested = false;
                 }
                 input.confirm_requested = false;
+                input.dialog_previous_requested = false;
+                input.dialog_next_requested = false;
             });
         stages.RegisterSystem(
             jrpgmaker::core::Stage::kPresentationSync,
             {jrpgmaker::core::Stage::kPresentationSync, 0},
-            [&prompt_projection, &dialog_projection, &texture_errors](double) {
+            [&prompt_projection, &dialog_presentation, &texture_errors](double) {
                 static std::string last_prompt;
-                static std::string last_dialog;
+                static std::string last_dialog_snapshot;
                 while (!texture_errors.empty()) {
                     std::cerr << "texture load failed: " << texture_errors.front() << '\n';
                     texture_errors.pop_front();
@@ -919,9 +963,23 @@ auto main(int argc, char** argv) -> int {
                                       : "prompt shown: " + prompt_projection + "\n");
                     last_prompt = prompt_projection;
                 }
-                if (dialog_projection != last_dialog) {
-                    std::cout << "dialog requested: " << dialog_projection << '\n';
-                    last_dialog = dialog_projection;
+                const auto& dialog = dialog_presentation.snapshot();
+                std::ostringstream snapshot;
+                if (dialog.visible) {
+                    if (!dialog.speaker.empty()) {
+                        snapshot << dialog.speaker << ": ";
+                    }
+                    snapshot << dialog.text << '\n';
+                    for (std::size_t index = 0; index < dialog.options.size(); ++index) {
+                        snapshot << (index == dialog.selected_option ? "> " : "  ")
+                                 << dialog.options[index] << '\n';
+                    }
+                }
+                if (snapshot.str() != last_dialog_snapshot) {
+                    if (!snapshot.str().empty()) {
+                        std::cout << snapshot.str();
+                    }
+                    last_dialog_snapshot = snapshot.str();
                 }
             });
         stages.RegisterSystem(

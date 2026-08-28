@@ -5,6 +5,8 @@
     {"id": "move.backward", "keys": ["S"]},
     {"id": "move.left", "keys": ["A"]},
     {"id": "move.right", "keys": ["D"]},
+    {"id": "dialog.previous", "keys": ["Up"]},
+    {"id": "dialog.next", "keys": ["Down"]},
     {"id": "extension.confirm", "keys": ["E"]},
     {"id": "project.save", "keys": ["F5"]},
     {"id": "project.load", "keys": ["F9"]}
