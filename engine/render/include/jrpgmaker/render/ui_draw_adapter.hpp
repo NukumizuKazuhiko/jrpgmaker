@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
 #include "jrpgmaker/ui/draw_list.hpp"
@@ -15,7 +15,7 @@
 namespace jrpgmaker::render {
 
 struct UiVertex {
-    glm::vec2 position;
+    glm::vec3 position;
     glm::vec4 color;
 };
 

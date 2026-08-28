@@ -24,7 +24,7 @@ TEST_CASE("ui draw adapter builds ordered ndc geometry", "[render][ui]") {
     REQUIRE(packet.ok());
     REQUIRE(packet.vertices.size() == 4);
     REQUIRE(packet.indices.size() == 6);
-    REQUIRE(packet.vertices.front().position == glm::vec2{-0.8f, 0.6f});
+    REQUIRE(packet.vertices.front().position == glm::vec3{-0.8f, 0.6f, 0.0f});
     REQUIRE(packet.vertices.front().color == glm::vec4{1.0f, 0.0f, 128.0f / 255.0f, 1.0f});
     REQUIRE(packet.text_keys == std::vector<std::string>{"editor.title"});
 }

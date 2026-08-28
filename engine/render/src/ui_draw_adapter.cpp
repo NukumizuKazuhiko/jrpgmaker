@@ -93,10 +93,10 @@ UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list, const ui::EditorTh
         const float bottom = 1.0f - 2.0f * (rect.rect.y + rect.rect.height) / viewport.height;
         const auto rgba = ToColor(color->second);
         const auto base = static_cast<std::uint32_t>(packet.vertices.size());
-        packet.vertices.push_back({{left, top}, rgba});
-        packet.vertices.push_back({{right, top}, rgba});
-        packet.vertices.push_back({{right, bottom}, rgba});
-        packet.vertices.push_back({{left, bottom}, rgba});
+        packet.vertices.push_back({{left, top, 0.0f}, rgba});
+        packet.vertices.push_back({{right, top, 0.0f}, rgba});
+        packet.vertices.push_back({{right, bottom, 0.0f}, rgba});
+        packet.vertices.push_back({{left, bottom, 0.0f}, rgba});
         packet.indices.insert(packet.indices.end(), {base, base + 1, base + 2,
                                                       base, base + 2, base + 3});
     }

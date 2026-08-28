@@ -34,6 +34,22 @@ TEST_CASE("editor shell projection preserves layout hierarchy and metadata", "[e
     REQUIRE(projection->nodes[0].label_key == "editor.window.title");
 }
 
+TEST_CASE("editor shell projection produces draw primitives from layout bounds", "[editor]") {
+    jrpgmaker::ui::EditorLayout layout;
+    layout.id = "editor.workspace";
+    layout.root = {.type = "Panel",
+                   .id = "root",
+                   .label_key = "editor.window.title",
+                   .recipe = "panel",
+                   .bounds = {0.0f, 0.0f, 100.0f, 50.0f}};
+    const auto projection = jrpgmaker::editor::BuildShellProjection(layout);
+    REQUIRE(projection.has_value());
+    const auto draw_list = jrpgmaker::editor::BuildShellDrawList(*projection);
+    REQUIRE(draw_list.size() == 2);
+    REQUIRE(std::holds_alternative<jrpgmaker::ui::DrawRect>(draw_list.primitives()[0]));
+    REQUIRE(std::holds_alternative<jrpgmaker::ui::DrawText>(draw_list.primitives()[1]));
+}
+
 TEST_CASE("ui draw list is backend agnostic and bounded", "[ui][editor]") {
     jrpgmaker::ui::DrawList draw_list;
     REQUIRE(draw_list.Add(jrpgmaker::ui::DrawRect{{0.0f, 0.0f, 10.0f, 10.0f}, "panel"}));

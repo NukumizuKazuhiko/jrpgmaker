@@ -12,7 +12,8 @@ target_compile_features(jrpgmaker_editor_host PUBLIC cxx_std_20)
 
 add_executable(jrpgmaker_editor main.cpp)
 target_link_libraries(jrpgmaker_editor PRIVATE jrpgmaker::ui jrpgmaker::project
-                                                jrpgmaker::editor_host SDL3::SDL3)
+                                                jrpgmaker::editor_host jrpgmaker::render
+                                                jrpgmaker::rhi jrpgmaker::shaders SDL3::SDL3)
 target_compile_features(jrpgmaker_editor PRIVATE cxx_std_20)
 target_compile_definitions(
   jrpgmaker_editor
@@ -23,4 +24,10 @@ if(WIN32 AND SDL3_SHARED)
     TARGET jrpgmaker_editor POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE_DIR:jrpgmaker_editor>")
+endif()
+
+if(WIN32)
+  target_link_libraries(jrpgmaker_editor PRIVATE jrpgmaker::rhi_d3d12)
+else()
+  target_link_libraries(jrpgmaker_editor PRIVATE jrpgmaker::rhi_vulkan)
 endif()
