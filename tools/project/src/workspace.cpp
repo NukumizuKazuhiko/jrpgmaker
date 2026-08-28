@@ -90,6 +90,17 @@ void AddRevisionConflict(std::vector<Diagnostic>& diagnostics) {
     Add(diagnostics, "project.save.revision_conflict", "revision");
 }
 
+template <typename ParseFn>
+std::vector<Diagnostic> ValidateParsedDocument(const nlohmann::json& document,
+                                               const std::string& path, ParseFn&& parse) {
+    try {
+        parse(document);
+    } catch (const std::exception&) {
+        return {{"project.document.invalid", path}};
+    }
+    return {};
+}
+
 std::vector<Diagnostic> ValidateManifestAdapter(const nlohmann::json& document) {
     const auto parsed = plugin::ParseProjectManifest(document);
     if (parsed)
@@ -161,6 +172,49 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
                    {"/camera", "path", "editor.project.camera", "resource", true, false},
                    {"/interaction", "path", "editor.project.interaction", "resource", true, false}},
         .validate = ValidateManifestAdapter});
+    (void) registry.Register(DocumentAdapter{
+        .type_id = "domain.event_script",
+        .fields = {{"/events", "object[]", "editor.events.items", "event_list", true, false}},
+        .validate = [](const nlohmann::json& document) {
+            return ValidateParsedDocument(document, "event_script", [](const auto& value) {
+                (void) domain::ParseEventScript(value);
+            });
+        }});
+    (void) registry.Register(DocumentAdapter{
+        .type_id = "core.navigation",
+        .fields = {{"/width", "integer", "editor.navigation.width", "number", true, false},
+                   {"/height", "integer", "editor.navigation.height", "number", true, false},
+                   {"/walkable", "boolean[]", "editor.navigation.walkable", "grid", true, false}},
+        .validate = [](const nlohmann::json& document) {
+            return ValidateParsedDocument(document, "navigation", [](const auto& value) {
+                (void) core::ParseNavigationGrid(value);
+            });
+        }});
+    (void) registry.Register(DocumentAdapter{
+        .type_id = "core.collision",
+        .fields = {{"/obstacles", "object[]", "editor.collision.obstacles", "aabb_list", true, false}},
+        .validate = [](const nlohmann::json& document) {
+            return ValidateParsedDocument(document, "collision", [](const auto& value) {
+                (void) core::ParseCollisionAabbs(value);
+            });
+        }});
+    (void) registry.Register(DocumentAdapter{
+        .type_id = "core.camera",
+        .fields = {{"/third_person", "object", "editor.camera.third_person", "camera", true, false},
+                   {"/fixed_regions", "object[]", "editor.camera.fixed_regions", "region_list", true, false}},
+        .validate = [](const nlohmann::json& document) {
+            return ValidateParsedDocument(document, "camera", [](const auto& value) {
+                (void) core::ParseCameraRigData(value);
+            });
+        }});
+    (void) registry.Register(DocumentAdapter{
+        .type_id = "domain.interaction",
+        .fields = {{"/interactions", "object[]", "editor.interaction.points", "interaction_list", true, false}},
+        .validate = [](const nlohmann::json& document) {
+            return ValidateParsedDocument(document, "interaction", [](const auto& value) {
+                (void) domain::ParseInteractionPoints(value);
+            });
+        }});
     return registry;
 }
 
@@ -207,6 +261,18 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
         !Read(snapshot.root / snapshot.manifest.camera, camera_document, result.diagnostics) ||
         !Read(snapshot.root / snapshot.manifest.interaction, interaction_document, result.diagnostics))
         return result;
+    const auto validate = [this, &result](const char* type_id, const nlohmann::json& document) {
+        const auto adapter_result = adapters_.Validate(type_id, document);
+        for (const auto& diagnostic : adapter_result.diagnostics)
+            Add(result.diagnostics, diagnostic.code, diagnostic.path);
+    };
+    validate("domain.event_script", events_document);
+    validate("core.navigation", navigation_document);
+    validate("core.collision", collision_document);
+    validate("core.camera", camera_document);
+    validate("domain.interaction", interaction_document);
+    if (!result.diagnostics.empty())
+        return result;
     try {
         const auto events = domain::ParseEventScript(events_document);
         const auto navigation = core::ParseNavigationGrid(navigation_document);
@@ -221,7 +287,7 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
         result.navigation_height = navigation.height();
         result.camera_region_count = camera.fixed_regions.size();
     } catch (const std::exception&) {
-        Add(result.diagnostics, "project.diagnose.invalid_data", snapshot.manifest.event_script);
+        Add(result.diagnostics, "project.interaction.target_invalid", snapshot.manifest.interaction);
     }
     return result;
 }
