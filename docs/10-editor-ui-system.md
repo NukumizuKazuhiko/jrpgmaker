@@ -162,6 +162,7 @@ status: StatusBar
 ## 渲染与字体 seam
 
 - `engine/ui` 输出后端无关 `DrawList`：矩形、裁剪、纹理/图标、glyph run 和 z-order；当前已落地有界矩形/`recipe`/状态与 i18n key primitive 合同，后续补齐裁剪、glyph run 和 z-order；`tools/editor` 不直接录制 D3D12/Vulkan 命令。
+- 布局节点可声明受校验的像素 `bounds`；`editor::BuildShellDrawList` 仅把布局 bounds、recipe 和 label key 投影到 DrawList，不在 host 中写面板坐标或文案。
 - `render::BuildUiDrawPacket` 将 DrawList 按原始顺序解析为有界 NDC 顶点/索引上传包，并把 recipe/state、semantic token 和颜色错误作为结构化诊断返回；`UploadUiDrawPacket`/`RecordUiDrawPacket` 负责 RHI buffer 上传、绑定与 indexed draw，主题只提供资源 id/token，不持有 GPU handle。
 - 字体资源由 theme 声明 family、文件 id、fallback 列表和像素规格；启动时验证文件存在并预热基础 glyph，缺字按主题 fallback 顺序处理。
 - Windows/Linux 首批都至少验证拉丁、简体中文和日文标点；不能把“字体加载成功”当作 CJK 真实渲染通过。

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "jrpgmaker/ui/editor_resources.hpp"
+#include "jrpgmaker/ui/draw_list.hpp"
 
 namespace jrpgmaker::editor {
 
@@ -46,6 +47,7 @@ struct ShellNode {
     std::string type;
     std::string label_key;
     std::string recipe;
+    ui::Rect bounds;
     std::vector<std::size_t> children;
 };
 
@@ -56,5 +58,7 @@ struct ShellProjection {
 
 [[nodiscard]] std::optional<ShellProjection>
 BuildShellProjection(const ui::EditorLayout& layout);
+
+[[nodiscard]] ui::DrawList BuildShellDrawList(const ShellProjection& projection);
 
 } // namespace jrpgmaker::editor

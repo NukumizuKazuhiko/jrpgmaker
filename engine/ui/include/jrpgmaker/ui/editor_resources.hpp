@@ -10,6 +10,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "jrpgmaker/ui/widget.hpp"
+
 namespace jrpgmaker::ui {
 
 struct EditorResourceError {
@@ -66,6 +68,7 @@ struct EditorLayoutNode {
     std::string id;
     std::string label_key;
     std::string recipe;
+    Rect bounds;
     std::vector<EditorLayoutNode> children;
 };
 

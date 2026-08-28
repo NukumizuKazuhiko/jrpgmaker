@@ -85,6 +85,24 @@ bool ParseLayoutNode(const nlohmann::json& document, EditorLayoutNode& node,
         else
             node.recipe = document["recipe"].get<std::string>();
     }
+    if (document.contains("bounds")) {
+        const auto& bounds = document["bounds"];
+        if (!bounds.is_object() || !bounds.contains("x") || !bounds.contains("y") ||
+            !bounds.contains("width") || !bounds.contains("height") ||
+            !bounds["x"].is_number() || !bounds["y"].is_number() ||
+            !bounds["width"].is_number() || !bounds["height"].is_number()) {
+            Error(errors, "editor.layout.invalid_bounds", path + "/bounds");
+        } else {
+            node.bounds = Rect{bounds["x"].get<float>(), bounds["y"].get<float>(),
+                               bounds["width"].get<float>(), bounds["height"].get<float>()};
+            if (!std::isfinite(node.bounds.x) || !std::isfinite(node.bounds.y) ||
+                !std::isfinite(node.bounds.width) || !std::isfinite(node.bounds.height) ||
+                node.bounds.x < 0.0f || node.bounds.y < 0.0f || node.bounds.width < 0.0f ||
+                node.bounds.height < 0.0f || node.bounds.x > 4096.0f || node.bounds.y > 4096.0f ||
+                node.bounds.width > 4096.0f || node.bounds.height > 4096.0f)
+                Error(errors, "editor.layout.invalid_bounds", path + "/bounds");
+        }
+    }
     if (document.contains("children")) {
         if (!document["children"].is_array()) {
             Error(errors, "editor.layout.children_array_required", path + "/children");

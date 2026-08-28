@@ -43,7 +43,8 @@ std::optional<std::size_t> Flatten(const ui::EditorLayoutNode& source,
     if (source.id.empty() || projection.nodes.size() >= ui::kMaxEditorLayoutNodes)
         return std::nullopt;
     const auto index = projection.nodes.size();
-    projection.nodes.push_back(ShellNode{source.id, source.type, source.label_key, source.recipe, {}});
+    projection.nodes.push_back(
+        ShellNode{source.id, source.type, source.label_key, source.recipe, source.bounds, {}});
     for (const auto& child : source.children) {
         const auto child_index = Flatten(child, projection);
         if (!child_index)
@@ -62,6 +63,17 @@ std::optional<ShellProjection> BuildShellProjection(const ui::EditorLayout& layo
     if (!Flatten(layout.root, projection))
         return std::nullopt;
     return projection;
+}
+
+ui::DrawList BuildShellDrawList(const ShellProjection& projection) {
+    ui::DrawList draw_list;
+    for (const auto& node : projection.nodes) {
+        if (!node.recipe.empty())
+            (void) draw_list.Add(ui::DrawRect{node.bounds, node.recipe});
+        if (!node.label_key.empty())
+            (void) draw_list.Add(ui::DrawText{node.bounds, node.label_key});
+    }
+    return draw_list;
 }
 
 } // namespace jrpgmaker::editor
