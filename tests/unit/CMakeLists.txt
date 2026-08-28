@@ -35,6 +35,8 @@ target_sources(jrpgmaker_unit_tests PRIVATE clear_baseline_test.cpp triangle_tes
                                                texture_quad_test.cpp skin_golden_test.cpp)
 
 target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::golden)
+target_include_directories(jrpgmaker_unit_tests PRIVATE
+                           ${CMAKE_CURRENT_SOURCE_DIR}/../../templates/plugin_minimal)
 target_compile_definitions(jrpgmaker_unit_tests PRIVATE
                            JRPGMAKER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../golden"
                            JRPGMAKER_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../assets")

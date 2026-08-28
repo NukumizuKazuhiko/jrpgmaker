@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstddef>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -11,6 +13,28 @@
 #include "jrpgmaker/plugin/battle.hpp"
 #include "jrpgmaker/plugins/sample_instant/instant.hpp"
 #include "jrpgmaker/plugins/sample_turn_based/turn_based.hpp"
+
+namespace {
+
+class ThrowingBattleSession final : public jrpgmaker::plugin::IBattleSession {
+public:
+    jrpgmaker::plugin::BattleAdvanceResult
+    Advance(const jrpgmaker::plugin::BattleFrameInput&) override {
+        throw std::runtime_error("session failure");
+    }
+
+    jrpgmaker::plugin::BattleSnapshot Snapshot() const override { return {}; }
+};
+
+class ThrowingBattlePlugin final : public jrpgmaker::plugin::IBattlePlugin {
+public:
+    jrpgmaker::plugin::BattleSessionCreateResult
+    CreateSession(const jrpgmaker::plugin::BattleLaunchContext&) override {
+        throw std::runtime_error("create failure");
+    }
+};
+
+} // namespace
 
 TEST_CASE("instant and turn based samples use the same battle seam", "[plugin][battle][p5]") {
     jrpgmaker::plugins::sample_instant::Adapter instant;
@@ -51,9 +75,32 @@ TEST_CASE("battle sample sessions reject invalid launch contexts", "[plugin][bat
     REQUIRE(created.error->code == "battle.encounter");
 }
 
+TEST_CASE("battle host wrappers isolate plugin exceptions", "[plugin][battle][p11]") {
+    ThrowingBattlePlugin plugin;
+    const auto created = jrpgmaker::plugin::CreateBattleSession(
+        plugin, {.encounter_id = "demo", .opaque_payload = {}});
+    REQUIRE_FALSE(created);
+    REQUIRE(created.error.has_value());
+    REQUIRE(created.error->code == "battle.session_create_exception");
+
+    ThrowingBattleSession session;
+    const auto advanced = jrpgmaker::plugin::AdvanceBattleSession(
+        session,
+        {.delta_seconds = 0.0, .action_ids = {}, .opaque_payload = {}, .cancel_requested = false});
+    REQUIRE_FALSE(advanced);
+    REQUIRE(advanced.error.has_value());
+    REQUIRE(advanced.error->code == "battle.session_advance_exception");
+}
+
 TEST_CASE("sample battle validators reject malformed private data", "[plugin][p9]") {
-    const jrpgmaker::plugin::PluginManifest manifest{
-        .id = "sample.instant", .type = jrpgmaker::plugin::PluginType::kBattle};
+    const jrpgmaker::plugin::PluginManifest manifest{.schema = 1,
+                                                     .id = "sample.instant",
+                                                     .type = jrpgmaker::plugin::PluginType::kBattle,
+                                                     .version = 1,
+                                                     .engine_contract =
+                                                         jrpgmaker::plugin::kPluginEngineContract,
+                                                     .data_roots = {},
+                                                     .capabilities = {}};
     const jrpgmaker::plugin::PluginValidationContext context{
         .manifest = manifest, .read_file = [](std::string_view) {
             const std::string invalid = R"json({"schema":1,"encounters":[{}]})json";

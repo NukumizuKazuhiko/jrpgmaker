@@ -319,6 +319,8 @@
 - **验收**：第三方最小插件仅依赖公开合同即可构建、注册、校验、运行和卸载；替换战斗插件与渲染风格插件不改 `engine/domain`、RHI 后端或 app 业务分支；长时间运行无资源泄漏、无无界队列和无未处理结构化错误；Windows/Linux/macOS 的构建、测试、数据 lint、golden、shader-sync、格式和私有头门禁全绿。
 - **停止条件**：SDK 示例、兼容矩阵、迁移策略和发布包均可从干净环境复现，所有已接受设计风险有债务编号和后续入口。
 
+**当前进度（2026-08-28，P11 进行中）**：已落地公开插件 SDK 文档与 `templates/plugin_minimal`，明确源码级注册边界、engine contract 兼容矩阵、validator 读取预算和 presentation 预算；`ParseManifest` 与 `PluginRegistry` 共同复用 `ValidatePluginManifest`，不兼容合同在解析期和注册期均阻断，合同版本不再散落硬编码。validator 路径校验已补充 canonical containment，阻断数据目录符号链接越界，并有 symlink 回归测试。`engine/plugin` 已提供安装/导出 CMake package，`tests/fixtures/sdk_consumer` 验证外部 `find_package(jrpgmaker)` 消费路径，且 CI 矩阵纳入该烟测。新增 `tools/ci/package_release.ps1`，按平台装配 app、assets、插件 manifest/私有 data，并输出排序后的 SHA-256 清单，文件数/总字节数有界且拒绝覆盖输出目录；本机 Windows 和 Linux 构建产物各两次装配清单一致。公开最小模板已接入单元测试，完成构建、注册、创建和卸载验证；插件生命周期压力测试提升至 100,000 次。P11 审计新增 `RenderPlanExecutor` 插件/解析器异常隔离、活跃 rendering 清理、战斗 session wrapper 异常隔离回归测试，修复资源预算计数溢出边界，并让 app 通过 plugin owner wrapper 调用战斗插件。`docs/06-plugin-release.md` 补齐兼容矩阵、发布内容和排障合同。Windows 独立 NMake 构建已通过 app、plugin、render 和 SDK consumer，完整 CTest **232/232** 通过；此前 WSL/Linux 全量 CTest 为 **230/230**，本轮 C++ 新增测试的 Linux 复验待 WSL 恢复。三平台 CI 发布包及 SDK 消费门禁已加入，尚待 CI 实跑和 macOS/最终跨平台审计证据补齐。
+
 ## P12 项目完成与首个稳定版本
 
 - **目的**：以一个可交付的参考项目证明 jrpgmaker 的核心承诺，而不是继续无限扩展为通用全类型引擎。

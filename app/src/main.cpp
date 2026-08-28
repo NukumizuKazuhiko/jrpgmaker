@@ -810,15 +810,11 @@ auto main(int argc, char** argv) -> int {
                                           : std::vector<std::string>{},
                         .opaque_payload = {},
                         .cancel_requested = false};
-                    const auto advanced = battle_session->Advance(battle_input);
+                    const auto advanced =
+                        jrpgmaker::plugin::AdvanceBattleSession(*battle_session, battle_input);
                     if (!advanced) {
                         throw std::runtime_error("battle plugin advance failed: " +
                                                  advanced.error->message);
-                    }
-                    if (const auto error = jrpgmaker::plugin::ValidateBattleOutput(advanced.output);
-                        error.has_value()) {
-                        throw std::runtime_error("battle plugin returned invalid output: " +
-                                                 error->message);
                     }
                     if (advanced.output.finished) {
                         const auto result = battle_result_events.find(advanced.output.result_key);
@@ -852,8 +848,8 @@ auto main(int argc, char** argv) -> int {
                         throw std::runtime_error(
                             "selected battle plugin has no battle interface: " + plugin_id);
                     }
-                    auto created = battle->CreateSession(
-                        {.encounter_id = request.encounter_id, .opaque_payload = {}});
+                    auto created = jrpgmaker::plugin::CreateBattleSession(
+                        *battle, {.encounter_id = request.encounter_id, .opaque_payload = {}});
                     if (!created) {
                         throw std::runtime_error("battle session creation failed: " +
                                                  created.error->message);
@@ -995,7 +991,12 @@ auto main(int argc, char** argv) -> int {
                                      .material_parameters = material_parameters,
                                      .sampled_texture = material_document.value("sampled_texture",
                                                                                 std::string{})}}};
-                auto render_plan = style->BuildPlan(snapshot);
+                const auto built_plan = jrpgmaker::render::BuildRenderPlan(*style, snapshot);
+                if (!built_plan) {
+                    throw std::runtime_error("render style plan generation failed: " +
+                                             built_plan.error->message);
+                }
+                auto render_plan = *built_plan.plan;
                 if (render_plan.passes.empty()) {
                     throw std::runtime_error("render style produced an empty render plan");
                 }

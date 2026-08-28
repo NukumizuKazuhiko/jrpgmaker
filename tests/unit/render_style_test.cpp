@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -52,7 +53,7 @@ public:
     void End() override {}
     void BeginRendering(jrpgmaker::rhi::TextureHandle, const jrpgmaker::rhi::ClearColor&,
                         bool) override {}
-    void EndRendering() override {}
+    void EndRendering() override { ++end_rendering_calls; }
     void SetPipeline(jrpgmaker::rhi::PipelineHandle) override {}
     void Draw(std::uint32_t, std::uint32_t) override {}
     void SetVertexBuffer(jrpgmaker::rhi::BufferHandle, std::uint32_t) override {}
@@ -66,6 +67,7 @@ public:
 
     std::size_t draws = 0;
     std::size_t sampled_textures = 0;
+    std::size_t end_rendering_calls = 0;
 };
 
 std::unique_ptr<jrpgmaker::plugin::IPlugin> CreateEchoStyle() {
@@ -83,7 +85,9 @@ TEST_CASE("render style adapter receives a generic scene snapshot", "[render][st
                                     .sampled_texture = {}});
 
     const EchoStyle style;
-    const jrpgmaker::render::RenderPlan plan = style.BuildPlan(snapshot);
+    const auto built_plan = jrpgmaker::render::BuildRenderPlan(style, snapshot);
+    REQUIRE(built_plan);
+    const auto& plan = *built_plan.plan;
 
     REQUIRE(plan.passes.size() == 1);
     REQUIRE(plan.passes[0].draws.size() == 1);
@@ -171,6 +175,46 @@ TEST_CASE("render plan executor binds generic sampled resources", "[render][styl
     REQUIRE(result.ok);
     REQUIRE(command_list.draws == 1u);
     REQUIRE(command_list.sampled_textures == 1u);
+}
+
+TEST_CASE("render plan executor isolates adapter exceptions", "[render][style][p11]") {
+    jrpgmaker::render::RenderPlan plan;
+    plan.passes.push_back({.id = "opaque",
+                           .clear_color = glm::vec4(0.0f),
+                           .clear_target = true,
+                           .pipeline = "unlit",
+                           .draws = {{.mesh = "mesh",
+                                      .material = "material",
+                                      .world = glm::mat4(1.0f),
+                                      .material_parameters = {},
+                                      .sampled_texture = {}}}});
+    RecordingCommandList command_list;
+    const auto result = jrpgmaker::render::RenderPlanExecutor::Record(
+        plan, jrpgmaker::rhi::TextureHandle{static_cast<std::uint64_t>(1)}, command_list,
+        {.resolve_pipeline =
+             [](const auto&) {
+                 return std::optional{
+                     jrpgmaker::rhi::PipelineHandle{static_cast<std::uint64_t>(1)}};
+             },
+         .resolve_mesh =
+             [](const auto&) {
+                 return std::optional{jrpgmaker::render::RenderMeshBinding{
+                     .vertex_buffer = jrpgmaker::rhi::BufferHandle{static_cast<std::uint64_t>(1)},
+                     .index_buffer = jrpgmaker::rhi::BufferHandle{static_cast<std::uint64_t>(2)},
+                     .stride_bytes = 20,
+                     .index_count = 3,
+                     .indices_are_32_bit = true}};
+             },
+         .resolve_sampled_texture = {},
+         .validate_material = {},
+         .bind_draw_resources = [](auto&, const auto&,
+                                   const auto&) -> jrpgmaker::render::RenderPlanValidation {
+             throw std::runtime_error("adapter failure");
+         }},
+        jrpgmaker::render::RenderResourceBudget{});
+    REQUIRE_FALSE(result.ok);
+    REQUIRE(result.error == "render plan execution failed");
+    REQUIRE(command_list.end_rendering_calls == 1u);
 }
 
 TEST_CASE("render resource catalog validates stable pipeline and mesh IDs", "[render][p6]") {

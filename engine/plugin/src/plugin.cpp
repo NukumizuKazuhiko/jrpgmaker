@@ -31,6 +31,18 @@ bool IsInDataRoot(std::string_view path, std::string_view root) {
     return path.size() > root.size() && path.starts_with(root) && path[root.size()] == '/';
 }
 
+bool IsCanonicalPathWithin(const std::filesystem::path& root,
+                           const std::filesystem::path& candidate) {
+    const std::filesystem::path relative = candidate.lexically_relative(root);
+    if (relative.empty() || relative.is_absolute())
+        return relative.empty();
+    for (const auto& component : relative) {
+        if (component == "..")
+            return false;
+    }
+    return true;
+}
+
 } // namespace
 
 ManifestParseResult ParseManifest(const nlohmann::json& document) {
@@ -96,7 +108,42 @@ ManifestParseResult ParseManifest(const nlohmann::json& document) {
         }
         manifest.capabilities.push_back(capability.get<std::string>());
     }
+    if (const auto error = ValidatePluginManifest(manifest); error.has_value())
+        return Fail(error->code, error->message, error->path);
     return {.manifest = std::move(manifest), .error = std::nullopt};
+}
+
+std::optional<PluginError> ValidatePluginManifest(const PluginManifest& manifest) {
+    if (manifest.schema != 1u)
+        return PluginError{"manifest.schema", "unsupported plugin manifest schema", "schema"};
+    if (manifest.id.empty())
+        return PluginError{"manifest.id", "id must be a non-empty string", "id"};
+    if (manifest.type != PluginType::kBattle && manifest.type != PluginType::kRenderStyle)
+        return PluginError{"manifest.type", "unknown plugin type", "type"};
+    if (manifest.version == 0u)
+        return PluginError{"manifest.version", "version must be a positive integer", "version"};
+    if (manifest.engine_contract != kPluginEngineContract) {
+        return PluginError{"manifest.contract", "plugin engine contract is incompatible",
+                           "engine_contract"};
+    }
+    std::unordered_set<std::string> roots;
+    for (const std::string& root : manifest.data_roots) {
+        if (!IsSafeRelativePath(root))
+            return PluginError{"manifest.data_roots", "data root must be a safe relative path",
+                               "data_roots"};
+        if (!roots.insert(root).second)
+            return PluginError{"manifest.data_roots", "data roots must be unique", "data_roots"};
+    }
+    std::unordered_set<std::string> capabilities;
+    for (const std::string& capability : manifest.capabilities) {
+        if (capability.empty())
+            return PluginError{"manifest.capabilities", "capability must be a non-empty string",
+                               "capabilities"};
+        if (!capabilities.insert(capability).second)
+            return PluginError{"manifest.capabilities", "capabilities must be unique",
+                               "capabilities"};
+    }
+    return std::nullopt;
 }
 
 ProjectManifestParseResult ParseProjectManifest(const nlohmann::json& document) {
@@ -183,16 +230,17 @@ ProjectManifestParseResult ParseProjectManifest(const nlohmann::json& document) 
         if (!document["input_actions"].is_string() ||
             !IsSafeRelativePath(document["input_actions"].get<std::string>())) {
             return {.manifest = std::nullopt,
-                    .error = PluginError{"project.input_actions",
-                                         "input_actions must be a safe relative path",
-                                         "input_actions"}};
+                    .error =
+                        PluginError{"project.input_actions",
+                                    "input_actions must be a safe relative path", "input_actions"}};
         }
         project.input_actions = document["input_actions"].get<std::string>();
     }
     for (const char* field : {"event_script", "localization", "resource_manifest"}) {
         if (!document.contains(field))
             continue;
-        if (!document[field].is_string() || !IsSafeRelativePath(document[field].get<std::string>())) {
+        if (!document[field].is_string() ||
+            !IsSafeRelativePath(document[field].get<std::string>())) {
             return {.manifest = std::nullopt,
                     .error = PluginError{"project.path", "project data path must be safe", field}};
         }
@@ -289,6 +337,41 @@ std::vector<PluginError> ValidateProjectPluginData(const ProjectManifest& projec
             }
             const std::filesystem::path path = project_root / std::filesystem::path(relative);
             std::error_code error;
+            const auto canonical_project_root =
+                std::filesystem::weakly_canonical(project_root, error);
+            if (error) {
+                result.error =
+                    PluginError{"plugin.validator.path", "project root cannot be resolved", id};
+                return result;
+            }
+            const auto canonical_path = std::filesystem::weakly_canonical(path, error);
+            if (error) {
+                result.error = PluginError{"plugin.validator.path",
+                                           "plugin data path cannot be resolved", relative};
+                return result;
+            }
+            if (!IsCanonicalPathWithin(canonical_project_root, canonical_path)) {
+                result.error = PluginError{"plugin.validator.path",
+                                           "plugin data path escapes project root", relative};
+                return result;
+            }
+            bool within_declared_root = false;
+            for (const std::string& root : manifest.data_roots) {
+                if (!IsInDataRoot(relative, root))
+                    continue;
+                const auto canonical_root =
+                    std::filesystem::weakly_canonical(project_root / root, error);
+                if (!error && IsCanonicalPathWithin(canonical_root, canonical_path)) {
+                    within_declared_root = true;
+                    break;
+                }
+            }
+            if (!within_declared_root) {
+                result.error =
+                    PluginError{"plugin.validator.path", "plugin data path escapes declared roots",
+                                id + ":" + relative};
+                return result;
+            }
             const auto size = std::filesystem::file_size(path, error);
             if (error || size > kMaxPluginValidationFileBytes) {
                 result.error =
@@ -357,9 +440,12 @@ std::optional<PluginError> PluginRegistry::Register(PluginManifest manifest, Fac
     if (duplicate != entries_.end()) {
         return PluginError{"registry.duplicate", "plugin id is already registered", manifest.id};
     }
-    if (manifest.engine_contract != 1u) {
-        return PluginError{"registry.contract", "plugin engine contract is incompatible",
-                           manifest.id};
+    if (const auto error = ValidatePluginManifest(manifest); error.has_value()) {
+        PluginError registry_error = *error;
+        if (registry_error.code == "manifest.contract")
+            registry_error.code = "registry.contract";
+        registry_error.path = manifest.id;
+        return registry_error;
     }
     entries_.push_back({.manifest = std::move(manifest), .factory = std::move(factory)});
     return std::nullopt;

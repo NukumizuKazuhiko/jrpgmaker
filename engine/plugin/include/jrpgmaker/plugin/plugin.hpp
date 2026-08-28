@@ -16,6 +16,10 @@ namespace jrpgmaker::plugin {
 
 enum class PluginType : std::uint8_t { kBattle, kRenderStyle };
 
+// This is the source-level contract version consumed by the current runtime.
+// A plugin must be rebuilt and revalidated when this value changes.
+inline constexpr std::uint32_t kPluginEngineContract = 1;
+
 struct PluginError {
     std::string code;
     std::string message;
@@ -27,7 +31,7 @@ struct PluginManifest {
     std::string id;
     PluginType type = PluginType::kBattle;
     std::uint32_t version = 1;
-    std::uint32_t engine_contract = 1;
+    std::uint32_t engine_contract = kPluginEngineContract;
     std::vector<std::string> data_roots;
     std::vector<std::string> capabilities;
 };
@@ -39,6 +43,8 @@ struct ManifestParseResult {
 };
 
 ManifestParseResult ParseManifest(const nlohmann::json& document);
+
+[[nodiscard]] std::optional<PluginError> ValidatePluginManifest(const PluginManifest& manifest);
 
 struct ProjectManifest {
     std::uint32_t schema = 1;

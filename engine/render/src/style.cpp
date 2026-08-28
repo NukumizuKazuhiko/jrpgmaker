@@ -1,6 +1,8 @@
 #include "jrpgmaker/render/style.hpp"
 
+#include <algorithm>
 #include <unordered_set>
+#include <utility>
 
 namespace jrpgmaker::render {
 
@@ -60,10 +62,10 @@ RenderPlanValidation ValidateRenderPlan(const RenderPlan& plan,
         if (pass.id.empty()) {
             return {.ok = false, .error = "render pass id must not be empty"};
         }
-        draw_count += pass.draws.size();
-        if (draw_count > budget.max_draws) {
+        if (pass.draws.size() > budget.max_draws - std::min(draw_count, budget.max_draws)) {
             return {.ok = false, .error = "render plan exceeds draw budget"};
         }
+        draw_count += pass.draws.size();
         for (const RenderDraw& draw : pass.draws) {
             const std::size_t bytes = draw.material_parameters.size();
             if (material_bytes > budget.max_material_bytes ||
@@ -77,72 +79,107 @@ RenderPlanValidation ValidateRenderPlan(const RenderPlan& plan,
     return {};
 }
 
+RenderPlanBuildResult BuildRenderPlan(const IRenderStyleAdapter& adapter,
+                                      const SceneSnapshot& snapshot) {
+    try {
+        auto plan = adapter.BuildPlan(snapshot);
+        if (const auto validation = ValidateRenderPlan(plan, adapter.Descriptor().budget);
+            !validation.ok) {
+            return {.plan = std::nullopt,
+                    .error = plugin::PluginError{"render.plan_invalid", validation.error, ""}};
+        }
+        return {.plan = std::move(plan), .error = std::nullopt};
+    } catch (...) {
+        return {.plan = std::nullopt,
+                .error = plugin::PluginError{"render.plan_exception",
+                                             "render style plugin plan generation failed", ""}};
+    }
+}
+
 RenderPlanValidation RenderPlanExecutor::Record(const RenderPlan& plan,
                                                 rhi::TextureHandle color_target,
                                                 rhi::ICommandList& command_list,
                                                 const RenderPlanResolver& resolver,
                                                 const RenderResourceBudget& budget) {
-    const auto valid = ValidateRenderPlan(plan, budget);
-    if (!valid.ok) {
-        return valid;
-    }
-    if (!resolver.resolve_pipeline || !resolver.resolve_mesh) {
-        return {.ok = false, .error = "render plan resolver is incomplete"};
-    }
-    for (const RenderPass& pass : plan.passes) {
-        const auto pipeline = resolver.resolve_pipeline(pass);
-        if (!pipeline.has_value() || *pipeline == rhi::PipelineHandle::kInvalid) {
-            return {.ok = false, .error = "render pass pipeline could not be resolved"};
+    bool rendering_active = false;
+    try {
+        const auto valid = ValidateRenderPlan(plan, budget);
+        if (!valid.ok) {
+            return valid;
         }
-        command_list.BeginRendering(
-            color_target,
-            {pass.clear_color.r, pass.clear_color.g, pass.clear_color.b, pass.clear_color.a},
-            pass.clear_target);
-        command_list.SetPipeline(*pipeline);
-        for (const RenderDraw& draw : pass.draws) {
-            if (resolver.validate_material) {
-                const auto material = resolver.validate_material(draw);
-                if (!material.ok) {
-                    command_list.EndRendering();
-                    return material;
-                }
+        if (!resolver.resolve_pipeline || !resolver.resolve_mesh) {
+            return {.ok = false, .error = "render plan resolver is incomplete"};
+        }
+        for (const RenderPass& pass : plan.passes) {
+            const auto pipeline = resolver.resolve_pipeline(pass);
+            if (!pipeline.has_value() || *pipeline == rhi::PipelineHandle::kInvalid) {
+                return {.ok = false, .error = "render pass pipeline could not be resolved"};
             }
-            const auto mesh = resolver.resolve_mesh(draw);
-            if (!mesh.has_value() || mesh->vertex_buffer == rhi::BufferHandle::kInvalid ||
-                mesh->index_buffer == rhi::BufferHandle::kInvalid || mesh->stride_bytes == 0 ||
-                mesh->index_count == 0) {
+            command_list.BeginRendering(
+                color_target,
+                {pass.clear_color.r, pass.clear_color.g, pass.clear_color.b, pass.clear_color.a},
+                pass.clear_target);
+            rendering_active = true;
+            command_list.SetPipeline(*pipeline);
+            for (const RenderDraw& draw : pass.draws) {
+                if (resolver.validate_material) {
+                    const auto material = resolver.validate_material(draw);
+                    if (!material.ok) {
+                        command_list.EndRendering();
+                        rendering_active = false;
+                        return material;
+                    }
+                }
+                const auto mesh = resolver.resolve_mesh(draw);
+                if (!mesh.has_value() || mesh->vertex_buffer == rhi::BufferHandle::kInvalid ||
+                    mesh->index_buffer == rhi::BufferHandle::kInvalid || mesh->stride_bytes == 0 ||
+                    mesh->index_count == 0) {
+                    command_list.EndRendering();
+                    rendering_active = false;
+                    return {.ok = false, .error = "render draw mesh could not be resolved"};
+                }
+                command_list.SetVertexBuffer(mesh->vertex_buffer, mesh->stride_bytes);
+                command_list.SetIndexBuffer(mesh->index_buffer, mesh->indices_are_32_bit);
+                if (resolver.bind_draw_resources) {
+                    const auto bound =
+                        resolver.bind_draw_resources(command_list, draw, plan.view_projection);
+                    if (!bound.ok) {
+                        command_list.EndRendering();
+                        rendering_active = false;
+                        return bound;
+                    }
+                }
+                if (!draw.sampled_texture.empty()) {
+                    if (!resolver.resolve_sampled_texture) {
+                        command_list.EndRendering();
+                        rendering_active = false;
+                        return {.ok = false, .error = "sampled texture resolver is incomplete"};
+                    }
+                    const auto sampled = resolver.resolve_sampled_texture(draw);
+                    if (!sampled.has_value() || sampled->texture == rhi::TextureHandle::kInvalid ||
+                        sampled->sampler == rhi::SamplerHandle::kInvalid) {
+                        command_list.EndRendering();
+                        rendering_active = false;
+                        return {.ok = false,
+                                .error = "render draw sampled texture could not be resolved"};
+                    }
+                    command_list.SetSampledTexture(sampled->texture, sampled->sampler);
+                }
+                command_list.DrawIndexed(mesh->index_count, 1);
+            }
+            command_list.EndRendering();
+            rendering_active = false;
+        }
+        return {};
+    } catch (...) {
+        if (rendering_active) {
+            try {
                 command_list.EndRendering();
-                return {.ok = false, .error = "render draw mesh could not be resolved"};
+            } catch (...) {
             }
-            command_list.SetVertexBuffer(mesh->vertex_buffer, mesh->stride_bytes);
-            command_list.SetIndexBuffer(mesh->index_buffer, mesh->indices_are_32_bit);
-            if (resolver.bind_draw_resources) {
-                const auto bound =
-                    resolver.bind_draw_resources(command_list, draw, plan.view_projection);
-                if (!bound.ok) {
-                    command_list.EndRendering();
-                    return bound;
-                }
-            }
-            if (!draw.sampled_texture.empty()) {
-                if (!resolver.resolve_sampled_texture) {
-                    command_list.EndRendering();
-                    return {.ok = false, .error = "sampled texture resolver is incomplete"};
-                }
-                const auto sampled = resolver.resolve_sampled_texture(draw);
-                if (!sampled.has_value() || sampled->texture == rhi::TextureHandle::kInvalid ||
-                    sampled->sampler == rhi::SamplerHandle::kInvalid) {
-                    command_list.EndRendering();
-                    return {.ok = false,
-                            .error = "render draw sampled texture could not be resolved"};
-                }
-                command_list.SetSampledTexture(sampled->texture, sampled->sampler);
-            }
-            command_list.DrawIndexed(mesh->index_count, 1);
         }
-        command_list.EndRendering();
+        return {.ok = false, .error = "render plan execution failed"};
     }
-    return {};
 }
 
 } // namespace jrpgmaker::render

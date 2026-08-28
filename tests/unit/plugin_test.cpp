@@ -1,13 +1,16 @@
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <stdexcept>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
 #include "jrpgmaker/plugin/battle.hpp"
 #include "jrpgmaker/plugin/plugin.hpp"
+#include "minimal.hpp"
 
 namespace {
 class TestPlugin final : public jrpgmaker::plugin::IPlugin {};
@@ -35,6 +38,43 @@ public:
         }
         return {.issues = {data.error.value_or(jrpgmaker::plugin::PluginError{
                     "test.validator.boundary", "missing boundary error", "outside"})}};
+    }
+};
+
+class BudgetPlugin final : public jrpgmaker::plugin::IPlugin {
+public:
+    jrpgmaker::plugin::PluginValidationResult
+    ValidateData(const jrpgmaker::plugin::PluginValidationContext& context) const override {
+        for (std::size_t index = 0; index <= jrpgmaker::plugin::kMaxPluginValidationFiles;
+             ++index) {
+            const auto data = context.read_file("assets/data/project_demo.json");
+            if (!data) {
+                return {.issues = {data.error.value_or(jrpgmaker::plugin::PluginError{
+                            "test.validator.budget", "missing budget error", "data"})}};
+            }
+        }
+        return {};
+    }
+};
+
+class ThrowingPlugin final : public jrpgmaker::plugin::IPlugin {
+public:
+    jrpgmaker::plugin::PluginValidationResult
+    ValidateData(const jrpgmaker::plugin::PluginValidationContext&) const override {
+        throw std::runtime_error("validator failure");
+    }
+};
+
+class SymlinkPlugin final : public jrpgmaker::plugin::IPlugin {
+public:
+    jrpgmaker::plugin::PluginValidationResult
+    ValidateData(const jrpgmaker::plugin::PluginValidationContext& context) const override {
+        const auto data = context.read_file("data/link.json");
+        if (data) {
+            return {.issues = {{"test.validator.symlink", "symlink escape was accepted", {}}}};
+        }
+        return {.issues = {data.error.value_or(jrpgmaker::plugin::PluginError{
+                    "test.validator.symlink", "missing symlink boundary error", {}})}};
     }
 };
 
@@ -127,6 +167,28 @@ TEST_CASE("plugin manifest reports missing and unknown fields", "[plugin]") {
     REQUIRE(result.error->code == "manifest.type");
 }
 
+TEST_CASE("plugin manifest compatibility is explicit and reusable", "[plugin][p11]") {
+    const auto parsed = jrpgmaker::plugin::ParseManifest(Manifest());
+    REQUIRE(parsed);
+    REQUIRE_FALSE(jrpgmaker::plugin::ValidatePluginManifest(*parsed.manifest));
+
+    auto incompatible = *parsed.manifest;
+    incompatible.engine_contract = jrpgmaker::plugin::kPluginEngineContract + 1;
+    const auto error = jrpgmaker::plugin::ValidatePluginManifest(incompatible);
+    REQUIRE(error.has_value());
+    REQUIRE(error->code == "manifest.contract");
+
+    auto incompatible_document = Manifest();
+    incompatible_document["engine_contract"] = jrpgmaker::plugin::kPluginEngineContract + 1;
+    const auto parse_error = jrpgmaker::plugin::ParseManifest(incompatible_document);
+    REQUIRE_FALSE(parse_error);
+    REQUIRE(parse_error.error->code == "manifest.contract");
+
+    incompatible = *parsed.manifest;
+    incompatible.version = 0;
+    REQUIRE(jrpgmaker::plugin::ValidatePluginManifest(incompatible).has_value());
+}
+
 TEST_CASE("plugin registry creates registered adapters and rejects duplicates", "[plugin]") {
     jrpgmaker::plugin::PluginRegistry registry;
     const auto parsed = jrpgmaker::plugin::ParseManifest(Manifest());
@@ -153,6 +215,38 @@ TEST_CASE("plugin registry rejects incompatible contracts and type mismatches", 
     const auto result = registry.Create("test.render", jrpgmaker::plugin::PluginType::kBattle);
     REQUIRE_FALSE(result);
     REQUIRE(result.error->code == "registry.type");
+}
+
+TEST_CASE("plugin instances can be created and unloaded repeatedly", "[plugin][p11]") {
+    jrpgmaker::plugin::PluginRegistry registry;
+    const auto parsed = jrpgmaker::plugin::ParseManifest(Manifest());
+    REQUIRE(parsed);
+    REQUIRE_FALSE(
+        registry.Register(*parsed.manifest, [] { return std::make_unique<TestPlugin>(); }));
+
+    for (int iteration = 0; iteration < 100000; ++iteration) {
+        auto created = registry.Create("test.render", jrpgmaker::plugin::PluginType::kRenderStyle);
+        REQUIRE(created);
+        created.instance.reset();
+    }
+    REQUIRE(registry.size() == 1);
+}
+
+TEST_CASE("public minimal plugin template builds and registers", "[plugin][p11]") {
+    jrpgmaker::plugin::PluginRegistry registry;
+    const auto manifest = jrpgmaker::plugin::ParseManifest(
+        nlohmann::json{{"schema", 1},
+                       {"id", "vendor.minimal"},
+                       {"type", "render_style"},
+                       {"version", 1},
+                       {"engine_contract", jrpgmaker::plugin::kPluginEngineContract},
+                       {"data_roots", nlohmann::json::array({"data"})},
+                       {"capabilities", nlohmann::json::array()}});
+    REQUIRE(manifest);
+    REQUIRE_FALSE(registry.Register(*manifest.manifest, vendor::minimal::Create));
+    auto instance = registry.Create("vendor.minimal", jrpgmaker::plugin::PluginType::kRenderStyle);
+    REQUIRE(instance);
+    instance.instance.reset();
 }
 
 TEST_CASE("project manifest selects a render style by data", "[plugin][p6]") {
@@ -281,6 +375,74 @@ TEST_CASE("plugin validators receive only bounded files within manifest roots", 
     REQUIRE(boundary_issues.size() == 1);
     REQUIRE(boundary_issues.front().code == "plugin.validator.path");
     REQUIRE(boundary_issues.front().path == "test.boundary:outside.json");
+}
+
+TEST_CASE("plugin validator failures are isolated and reported structurally", "[plugin][p11]") {
+    auto project_result = jrpgmaker::plugin::ParseProjectManifest(nlohmann::json::parse(R"json({
+            "schema":1,"id":"project.demo","render_style":"test.budget",
+            "plugins":["test.budget"],"data_roots":["assets/data"]
+        })json"));
+    REQUIRE(project_result);
+    auto budget_manifest = jrpgmaker::plugin::ParseManifest(Manifest("test.budget"));
+    REQUIRE(budget_manifest);
+    budget_manifest.manifest->data_roots = {"assets/data"};
+    jrpgmaker::plugin::PluginRegistry budget_registry;
+    REQUIRE_FALSE(budget_registry.Register(*budget_manifest.manifest,
+                                           [] { return std::make_unique<BudgetPlugin>(); }));
+    const auto budget_issues = jrpgmaker::plugin::ValidateProjectPluginData(
+        *project_result.manifest, budget_registry,
+        std::filesystem::path(JRPGMAKER_ASSET_DIR).parent_path());
+    REQUIRE(budget_issues.size() == 1);
+    REQUIRE(budget_issues.front().code == "plugin.validator.file_budget");
+
+    project_result.manifest->render_style = "test.throwing";
+    project_result.manifest->plugins = {"test.throwing"};
+    auto throwing_manifest = jrpgmaker::plugin::ParseManifest(Manifest("test.throwing"));
+    REQUIRE(throwing_manifest);
+    throwing_manifest.manifest->data_roots = {"assets/data"};
+    jrpgmaker::plugin::PluginRegistry throwing_registry;
+    REQUIRE_FALSE(throwing_registry.Register(*throwing_manifest.manifest,
+                                             [] { return std::make_unique<ThrowingPlugin>(); }));
+    const auto throwing_issues = jrpgmaker::plugin::ValidateProjectPluginData(
+        *project_result.manifest, throwing_registry,
+        std::filesystem::path(JRPGMAKER_ASSET_DIR).parent_path());
+    REQUIRE(throwing_issues.size() == 1);
+    REQUIRE(throwing_issues.front().code == "plugin.validator.exception");
+}
+
+TEST_CASE("plugin validator rejects symlinks outside declared data roots", "[plugin][p11]") {
+    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::filesystem::path root = std::filesystem::temp_directory_path() /
+                                       ("jrpgmaker-p11-symlink-" + std::to_string(suffix));
+    std::error_code error;
+    std::filesystem::create_directories(root / "data", error);
+    REQUIRE_FALSE(error);
+    std::ofstream(root / "outside.json") << "{}";
+    std::filesystem::create_symlink(root / "outside.json", root / "data/link.json", error);
+    if (error) {
+        std::filesystem::remove_all(root, error);
+        WARN("symlink creation is unavailable; boundary test skipped");
+        return;
+    }
+
+    const auto project_result = jrpgmaker::plugin::ParseProjectManifest(
+        nlohmann::json{{"schema", 1},
+                       {"id", "project.symlink"},
+                       {"render_style", "test.symlink"},
+                       {"plugins", nlohmann::json::array({"test.symlink"})},
+                       {"data_roots", nlohmann::json::array({"data"})}});
+    REQUIRE(project_result);
+    auto plugin_result = jrpgmaker::plugin::ParseManifest(Manifest("test.symlink"));
+    REQUIRE(plugin_result);
+    plugin_result.manifest->data_roots = {"data"};
+    jrpgmaker::plugin::PluginRegistry registry;
+    REQUIRE_FALSE(registry.Register(*plugin_result.manifest,
+                                    [] { return std::make_unique<SymlinkPlugin>(); }));
+    const auto issues =
+        jrpgmaker::plugin::ValidateProjectPluginData(*project_result.manifest, registry, root);
+    REQUIRE(issues.size() == 1);
+    REQUIRE(issues.front().code == "plugin.validator.path");
+    std::filesystem::remove_all(root, error);
 }
 
 TEST_CASE("battle seam supports opaque actions and deterministic completion",

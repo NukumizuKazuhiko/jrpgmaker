@@ -85,4 +85,10 @@ protected:
     IBattlePlugin() = default;
 };
 
+// Host-side exception and contract boundary for third-party battle code.
+[[nodiscard]] BattleSessionCreateResult CreateBattleSession(IBattlePlugin& plugin,
+                                                            const BattleLaunchContext& context);
+[[nodiscard]] BattleAdvanceResult AdvanceBattleSession(IBattleSession& session,
+                                                       const BattleFrameInput& input);
+
 } // namespace jrpgmaker::plugin

@@ -348,12 +348,15 @@ bool RenderProjectStyledTriangle(std::vector<std::uint8_t>& rgba,
     if (style == nullptr) {
         return false;
     }
-    const auto plan = style->BuildPlan(snapshot);
-    const auto validation = jrpgmaker::render::ValidateRenderPlan(plan, style->Descriptor().budget);
-    if (!validation.ok || plan.passes.empty()) {
-        std::cerr << "invalid style render plan: " << validation.error << '\n';
+    const auto built_plan = jrpgmaker::render::BuildRenderPlan(*style, snapshot);
+    if (!built_plan || built_plan.plan->passes.empty()) {
+        std::cerr << "invalid style render plan: "
+                  << (built_plan.error.has_value() ? built_plan.error->message
+                                                   : "style produced an empty render plan")
+                  << '\n';
         return false;
     }
+    const auto& plan = *built_plan.plan;
     const auto& clear = plan.passes.front().clear_color;
     auto pipeline_desc = MakeTrianglePipelineDesc();
 #if defined(_WIN32)

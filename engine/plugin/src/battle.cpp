@@ -72,4 +72,45 @@ std::optional<PluginError> ValidateBattleSnapshot(const BattleSnapshot& snapshot
     return std::nullopt;
 }
 
+BattleSessionCreateResult CreateBattleSession(IBattlePlugin& plugin,
+                                              const BattleLaunchContext& context) {
+    if (const auto error = ValidateBattleLaunch(context); error.has_value())
+        return {.session = nullptr, .error = error};
+    try {
+        auto created = plugin.CreateSession(context);
+        if (!created)
+            return {.session = nullptr,
+                    .error = created.error.value_or(PluginError{
+                        "battle.session_create_failed", "battle plugin did not create a session",
+                        context.encounter_id})};
+        return created;
+    } catch (...) {
+        return {.session = nullptr,
+                .error = PluginError{"battle.session_create_exception",
+                                     "battle plugin session creation threw an exception",
+                                     context.encounter_id}};
+    }
+}
+
+BattleAdvanceResult AdvanceBattleSession(IBattleSession& session, const BattleFrameInput& input) {
+    if (const auto error = ValidateBattleInput(input); error.has_value())
+        return {.ok = false, .output = {}, .error = error};
+    try {
+        const auto advanced = session.Advance(input);
+        if (!advanced)
+            return {.ok = false,
+                    .output = advanced.output,
+                    .error = advanced.error.value_or(PluginError{
+                        "battle.session_advance_failed", "battle plugin did not advance", ""})};
+        if (const auto error = ValidateBattleOutput(advanced.output); error.has_value())
+            return {.ok = false, .output = advanced.output, .error = error};
+        return advanced;
+    } catch (...) {
+        return {.ok = false,
+                .output = {},
+                .error = PluginError{"battle.session_advance_exception",
+                                     "battle plugin session advance threw an exception", ""}};
+    }
+}
+
 } // namespace jrpgmaker::plugin

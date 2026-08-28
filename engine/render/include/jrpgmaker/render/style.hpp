@@ -82,6 +82,12 @@ struct RenderPlanValidation {
     std::string error;
 };
 
+struct RenderPlanBuildResult {
+    std::optional<RenderPlan> plan;
+    std::optional<plugin::PluginError> error;
+    explicit operator bool() const { return plan.has_value(); }
+};
+
 struct RenderMeshBinding {
     rhi::BufferHandle vertex_buffer = rhi::BufferHandle::kInvalid;
     rhi::BufferHandle index_buffer = rhi::BufferHandle::kInvalid;
@@ -145,5 +151,8 @@ public:
 protected:
     IRenderStyleAdapter() = default;
 };
+
+[[nodiscard]] RenderPlanBuildResult BuildRenderPlan(const IRenderStyleAdapter& adapter,
+                                                    const SceneSnapshot& snapshot);
 
 } // namespace jrpgmaker::render

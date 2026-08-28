@@ -14,16 +14,22 @@ jobs:
         include:
           - os: windows-latest
             preset: win-debug
+            triplet: x64-windows
           - os: windows-latest
             preset: win-release
+            triplet: x64-windows
           - os: ubuntu-latest
             preset: linux-debug
+            triplet: x64-linux
           - os: ubuntu-latest
             preset: linux-release
+            triplet: x64-linux
           - os: macos-latest
             preset: mac-debug
+            triplet: arm64-osx
           - os: macos-latest
             preset: mac-release
+            triplet: arm64-osx
     runs-on: ${{ matrix.os }}
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
@@ -67,6 +73,26 @@ jobs:
           configurePreset: '${{ matrix.preset }}'
           buildPreset: '${{ matrix.preset }}'
           testPreset: '${{ matrix.preset }}'
+
+      - name: Build installed SDK consumer fixture
+        shell: pwsh
+        run: |
+          $sdk = Join-Path $env:RUNNER_TEMP "jrpgmaker-sdk-${{ matrix.preset }}"
+          $consumer = Join-Path $env:RUNNER_TEMP "jrpgmaker-sdk-consumer-${{ matrix.preset }}"
+          cmake --install "./build/${{ matrix.preset }}" --prefix $sdk
+          cmake -S ./tests/fixtures/sdk_consumer -B $consumer -DCMAKE_PREFIX_PATH=$sdk -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DCMAKE_BUILD_TYPE=Release
+          cmake --build $consumer --config Release --parallel
+
+      - name: Assemble deterministic release package
+        shell: pwsh
+        run: |
+          $one = Join-Path $env:RUNNER_TEMP "jrpgmaker-release-one-${{ matrix.preset }}"
+          $two = Join-Path $env:RUNNER_TEMP "jrpgmaker-release-two-${{ matrix.preset }}"
+          pwsh ./tools/ci/package_release.ps1 -BuildRoot "./build/${{ matrix.preset }}" -ProjectRoot . -OutputRoot $one
+          pwsh ./tools/ci/package_release.ps1 -BuildRoot "./build/${{ matrix.preset }}" -ProjectRoot . -OutputRoot $two
+          $hashOne = (Get-FileHash (Join-Path $one 'release-manifest.json')).Hash
+          $hashTwo = (Get-FileHash (Join-Path $two 'release-manifest.json')).Hash
+          if ($hashOne -ne $hashTwo) { throw 'release manifest is not deterministic' }
 
   format:
     timeout-minutes: 30
