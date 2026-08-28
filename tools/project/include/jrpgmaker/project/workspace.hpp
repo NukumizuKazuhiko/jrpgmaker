@@ -136,6 +136,7 @@ public:
     [[nodiscard]] WorkspaceResult Open();
     [[nodiscard]] DiagnosticSet Diagnose(const ProjectSnapshot& snapshot) const;
     [[nodiscard]] EditResult Apply(const EditCommand& command);
+    [[nodiscard]] const nlohmann::json& CurrentDocument() const { return working_document_; }
     [[nodiscard]] SavePlan PrepareSave(std::uint64_t expected_revision) const;
     [[nodiscard]] CommitResult Commit(const SaveToken& token);
     [[nodiscard]] MigrationResult Migrate(std::uint32_t target_schema = 1) const;
