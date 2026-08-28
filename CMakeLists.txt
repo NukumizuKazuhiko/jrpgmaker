@@ -35,6 +35,7 @@ add_subdirectory(tools/eventlint)
 add_subdirectory(tools/project)
 add_subdirectory(tools/projecttool)
 add_subdirectory(tools/editorlint)
+add_subdirectory(tools/editor)
 
 if(JRPGMAKER_BUILD_TESTS)
   enable_testing()
