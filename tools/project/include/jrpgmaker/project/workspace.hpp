@@ -80,6 +80,14 @@ struct CommitResult {
     explicit operator bool() const { return diagnostics.empty(); }
 };
 
+struct MigrationResult {
+    std::uint32_t from_schema = 0;
+    std::uint32_t to_schema = 0;
+    bool changed = false;
+    std::vector<Diagnostic> diagnostics;
+    explicit operator bool() const { return diagnostics.empty(); }
+};
+
 class ProjectWorkspace final {
 public:
     explicit ProjectWorkspace(std::filesystem::path root);
@@ -89,6 +97,7 @@ public:
     [[nodiscard]] EditResult Apply(const EditCommand& command);
     [[nodiscard]] SavePlan PrepareSave(std::uint64_t expected_revision) const;
     [[nodiscard]] CommitResult Commit(const SaveToken& token);
+    [[nodiscard]] MigrationResult Migrate(std::uint32_t target_schema = 1) const;
 
 private:
     std::filesystem::path root_;

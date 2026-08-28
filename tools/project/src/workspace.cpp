@@ -267,4 +267,17 @@ CommitResult ProjectWorkspace::Commit(const SaveToken& token) {
     return result;
 }
 
+MigrationResult ProjectWorkspace::Migrate(std::uint32_t target_schema) const {
+    MigrationResult result;
+    if (!snapshot_.has_value()) {
+        Add(result.diagnostics, "project.workspace.not_open", "workspace");
+        return result;
+    }
+    result.from_schema = snapshot_->manifest.schema;
+    result.to_schema = target_schema;
+    if (target_schema != 1 || result.from_schema != target_schema)
+        Add(result.diagnostics, "project.migrate.unsupported_schema", "schema");
+    return result;
+}
+
 } // namespace jrpgmaker::project

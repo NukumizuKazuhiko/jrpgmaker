@@ -290,11 +290,17 @@ bool EditProject(const std::filesystem::path& root, const std::filesystem::path&
 }
 
 bool MigrateProject(const std::filesystem::path& root) {
-    ProjectSnapshot snapshot;
-    if (!LoadSnapshot(root, snapshot))
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto opened = workspace.Open();
+    if (!opened) {
+        for (const auto& diagnostic : opened.diagnostics)
+            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
         return false;
-    if (snapshot.manifest.schema != 1) {
-        std::cerr << "unsupported project schema for migration\n";
+    }
+    const auto migration = workspace.Migrate();
+    if (!migration) {
+        for (const auto& diagnostic : migration.diagnostics)
+            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
         return false;
     }
     std::cout << root.string() << ": schema 1 requires no migration\n";

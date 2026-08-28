@@ -97,3 +97,16 @@ TEST_CASE("project workspace commits through a temporary file and backup", "[pro
     std::error_code error;
     std::filesystem::remove_all(root, error);
 }
+
+TEST_CASE("project workspace reports schema one migration as a no-op", "[project][editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    REQUIRE(workspace.Open());
+    const auto migration = workspace.Migrate();
+    REQUIRE(migration);
+    REQUIRE(migration.from_schema == 1);
+    REQUIRE(migration.to_schema == 1);
+    REQUIRE_FALSE(migration.changed);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
