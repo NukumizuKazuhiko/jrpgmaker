@@ -9,7 +9,7 @@ target_sources(
           text_layout_test.cpp font_shaper_test.cpp lua_binding_test.cpp widget_test.cpp
           animation_test.cpp character_controller_test.cpp pathfinding_test.cpp camera_rig_test.cpp
           interaction_test.cpp map_data_test.cpp render_style_test.cpp render_style_adapters_test.cpp
-          cutscene_audio_ui_test.cpp dialog_presentation_test.cpp
+          cutscene_audio_ui_test.cpp dialog_presentation_test.cpp editor_resources_test.cpp
           plugin_test.cpp battle_plugins_test.cpp calendar_test.cpp save_test.cpp schedule_test.cpp p7_vertical_slice_test.cpp
           vertical_slice_test.cpp localization_test.cpp p12_acceptance_test.cpp)
 target_sources(jrpgmaker_unit_tests PRIVATE input_actions_test.cpp)
