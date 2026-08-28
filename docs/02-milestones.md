@@ -129,6 +129,8 @@
 - **测试**：未知 validator、插件数据损坏、跨文件悬空引用、同插件多文件错误聚合、warning/error 退出码、单文件和总字节数上界。
 - **数据**：提交最小 `project_demo.json` 和两个战斗插件的数据 fixture；actor/skill/buff 等仅允许出现在插件目录。
 - **停止条件**：错误在作者期可定位到插件 ID、文件和字段路径；`eventlint` 或后继统一 CLI 可一次校验项目与插件数据。
+
+**当前进度（2026-08-28）**：`IPlugin::ValidateData`、有界数据读取、两个样例插件私有 schema 校验和 `eventlint --check-project` 已闭合；插件 validator 不进入 `engine/domain`，坏数据按插件/文件/路径聚合并返回非零。Windows 相关测试与项目 lint 已通过。
 - **建议提交**：`feat(plugin): add delegated data validation`。
 
 #### P5-3 战斗会话 seam
@@ -148,7 +150,7 @@
 - **停止条件**：app 无具体战斗按键、菜单或结果分支；同一输入/presentation seam 可被两个插件消费。
 - **建议提交**：`feat(plugin): add extension input and presentation contracts`。
 
-**当前进度（2026-08-28）**：输入 action map 已由 core 解析并由 app 按配置构建 SDL 绑定，覆盖移动、确认、保存和读取；battle 输出已升级为带 payload 预算的通用 `PresentationCommand`。core parser、按键映射数据和 presentation 空/超预算回归测试已落地；完整 UI draw/view model 与独立相机/转场命令队列仍属于后续 presentation 扩展，不伪装为本轮已完成。
+**当前进度（2026-08-28）**：输入 action map 已由 core 解析并由 app 按配置构建 SDL 绑定，覆盖移动、确认、保存和读取；battle 输出已升级为带 payload 预算的通用 `PresentationCommand`，已有 UI/dialog projection、相机状态和动画请求均通过结构化状态消费。core parser、按键映射数据、按下/释放边沿和 presentation 空/超预算回归测试已落地；P5-4 合同闭环，具体 UI 绘制实现仍由 render/ui 消费层按项目需要扩展。
 
 #### P5-5 遭遇与项目事件闭环
 
@@ -295,7 +297,7 @@
 - **验收**：一次 CLI 命令校验项目、插件私有数据、跨文件引用和资源依赖；坏数据按文件/字段路径聚合并以非零退出；只修改数据即可替换日期、对话、输入、地图、材质和插件；相同输入生成稳定清单与派生物摘要；Windows 优先并完成 Linux/macOS CI。
 - **停止条件**：P5-2/P5-4 的未完成合同已落地，数据 lint 不再依赖 app 运行时兜底，所有提交资源都有可追溯 owner、版本和预算。
 
-**当前进度（2026-08-28，P9-1）**：`eventlint --check-project <project.json> <project-root>` 已接入项目 manifest、样例插件 manifest、插件私有 validator、有界数据读取器和 `input_actions.json` 解析；demo 项目实跑返回 clean。两个样例 battle 插件分别验证自己的私有 encounter schema，错误包含插件 ID、文件和字段路径；core 输入合同和 battle `PresentationCommand` 已接入 app/插件 seam。Windows 定向 P9 测试 21/21 断言通过；完整资源依赖清单、i18n/CJK 文本表和派生物构建仍是 P9 后续切片，不能据此宣称整个 P9 完成。
+**当前进度（2026-08-28，P9-2）**：`eventlint --check-project <project.json> <project-root>` 已统一校验项目 manifest、插件私有 validator、输入 action、事件脚本、中文/UTF-8 本地化覆盖、资源预算和 glTF 外部 URI 依赖；demo 项目实跑返回 clean。资源清单、文本表、插件数据和项目路径均为版本化数据，错误包含插件/文件/字段路径。Windows 全量 `ctest` **225/225**、P9 定向 27/27 断言、私有头审计和 `git diff --check` 已通过；派生物缓存、确定性构建摘要和发布打包仍属于 P9 收尾切片，不能据此宣称 P9 全部完成。
 
 ## P10 项目装配与编辑器工具
 

@@ -11,7 +11,7 @@ target_sources(
           interaction_test.cpp map_data_test.cpp render_style_test.cpp render_style_adapters_test.cpp
           cutscene_audio_ui_test.cpp
           plugin_test.cpp battle_plugins_test.cpp calendar_test.cpp save_test.cpp schedule_test.cpp p7_vertical_slice_test.cpp
-          vertical_slice_test.cpp)
+          vertical_slice_test.cpp localization_test.cpp)
 target_sources(jrpgmaker_unit_tests PRIVATE input_actions_test.cpp)
 target_link_libraries(jrpgmaker_unit_tests PRIVATE jrpgmaker::core jrpgmaker::domain jrpgmaker::audio jrpgmaker::rhi
                                                 jrpgmaker::shaders jrpgmaker::assetimport

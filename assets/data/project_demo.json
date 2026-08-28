@@ -4,6 +4,9 @@
     "render_style": "sample.unlit",
     "battle_plugin": "sample.instant",
     "input_actions": "assets/data/input_actions.json",
+    "event_script": "assets/data/events_demo.json",
+    "localization": "assets/data/localization_en.json",
+    "resource_manifest": "assets/data/resources_demo.json",
     "material_document": "assets/data/material_demo.json",
     "plugins": [
         "sample.unlit",

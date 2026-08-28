@@ -49,6 +49,9 @@ struct ProjectManifest {
     std::vector<std::string> data_roots;
     std::string material_document = "assets/data/material_demo.json";
     std::string input_actions = "assets/data/input_actions.json";
+    std::string event_script = "assets/data/events_demo.json";
+    std::string localization = "assets/data/localization_en.json";
+    std::string resource_manifest = "assets/data/resources_demo.json";
 };
 
 struct ProjectManifestParseResult {

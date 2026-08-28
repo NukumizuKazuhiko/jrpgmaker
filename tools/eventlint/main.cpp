@@ -19,6 +19,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -30,6 +31,7 @@
 #include "jrpgmaker/domain/event_script.hpp"
 #include "jrpgmaker/domain/flag_trigger.hpp"
 #include "jrpgmaker/domain/interaction.hpp"
+#include "jrpgmaker/domain/localization.hpp"
 #include "jrpgmaker/domain/schedule.hpp"
 #include "jrpgmaker/domain/vertical_slice.hpp"
 #include "jrpgmaker/plugin/plugin.hpp"
@@ -270,6 +272,83 @@ bool CheckEncounterReferences(const std::filesystem::path& encounter_path,
     }
 }
 
+bool IsSafeResourcePath(const std::string& path) {
+    return !path.empty() && path.find("..") == std::string::npos && path.front() != '/' &&
+           path.front() != '\\';
+}
+
+bool CheckResourceUris(const nlohmann::json& node, const std::filesystem::path& resource_path) {
+    if (node.is_object()) {
+        for (auto it = node.begin(); it != node.end(); ++it) {
+            if (it.key() == "uri" && it.value().is_string()) {
+                const std::string uri = it.value().get<std::string>();
+                if (uri.starts_with("data:"))
+                    continue;
+                if (!IsSafeResourcePath(uri) ||
+                    !std::filesystem::is_regular_file(resource_path.parent_path() / uri)) {
+                    std::cerr << resource_path.string()
+                              << ": resource URI is missing or unsafe: " << uri << '\n';
+                    return false;
+                }
+            }
+            if (!CheckResourceUris(it.value(), resource_path))
+                return false;
+        }
+    } else if (node.is_array()) {
+        for (const auto& value : node) {
+            if (!CheckResourceUris(value, resource_path))
+                return false;
+        }
+    }
+    return true;
+}
+
+bool CheckResourceManifest(const std::filesystem::path& manifest_path,
+                           const std::filesystem::path& project_root) {
+    const nlohmann::json document = LoadJson(manifest_path);
+    if (document.is_null())
+        return false;
+    if (!document.is_object() || document.value("schema", 0) != 1 ||
+        !document.contains("resources") || !document["resources"].is_array() ||
+        document["resources"].empty() || document["resources"].size() > 4096) {
+        std::cerr << manifest_path.string()
+                  << ": resource manifest requires schema 1 and 1..4096 resources\n";
+        return false;
+    }
+    std::unordered_set<std::string> ids;
+    bool ok = true;
+    for (const auto& resource : document["resources"]) {
+        if (!resource.is_object() || !resource.contains("id") || !resource["id"].is_string() ||
+            resource["id"].get<std::string>().empty() || !resource.contains("kind") ||
+            !resource["kind"].is_string() || resource["kind"].get<std::string>().empty() ||
+            !resource.contains("path") || !resource["path"].is_string() ||
+            !IsSafeResourcePath(resource["path"].get<std::string>()) ||
+            !resource.contains("max_bytes") || !resource["max_bytes"].is_number_unsigned() ||
+            resource["max_bytes"].get<std::uint64_t>() == 0 ||
+            resource["max_bytes"].get<std::uint64_t>() > 64u * 1024u * 1024u ||
+            !ids.insert(resource["id"].get<std::string>()).second) {
+            std::cerr << manifest_path.string() << ": invalid or duplicate resource entry\n";
+            ok = false;
+            continue;
+        }
+        const auto path = project_root / resource["path"].get<std::string>();
+        std::error_code error;
+        const auto size = std::filesystem::file_size(path, error);
+        if (error || size > resource["max_bytes"].get<std::uint64_t>()) {
+            std::cerr << manifest_path.string() << ": resource exceeds budget or is missing: "
+                      << resource["path"].get<std::string>() << '\n';
+            ok = false;
+            continue;
+        }
+        if (resource["kind"] == "gltf") {
+            const auto gltf = LoadJson(path);
+            if (gltf.is_null() || !CheckResourceUris(gltf, path))
+                ok = false;
+        }
+    }
+    return ok;
+}
+
 bool CheckProject(const std::filesystem::path& project_path,
                   const std::filesystem::path& project_root) {
     const nlohmann::json project_document = LoadJson(project_path);
@@ -331,6 +410,42 @@ bool CheckProject(const std::filesystem::path& project_path,
             ok = false;
         }
     }
+
+    const auto events_path = project_root / project_result.manifest->event_script;
+    const auto events_document = LoadJson(events_path);
+    const auto localization_path = project_root / project_result.manifest->localization;
+    const auto localization_document = LoadJson(localization_path);
+    if (events_document.is_null() || localization_document.is_null()) {
+        ok = false;
+    } else {
+        try {
+            const auto script = jrpgmaker::domain::ParseEventScript(events_document);
+            if (!LintParsedScript(events_path, script))
+                ok = false;
+            const auto table_result =
+                jrpgmaker::domain::ParseLocalizationTable(localization_document);
+            if (!table_result) {
+                std::cerr << localization_path.string() << ": localization: " << table_result.error
+                          << '\n';
+                ok = false;
+            } else {
+                for (const auto& issue :
+                     jrpgmaker::domain::ValidateLocalizationCoverage(script, *table_result.table)) {
+                    std::cerr << localization_path.string() << ": localization: " << issue.key
+                              << ": " << issue.message << '\n';
+                    ok = false;
+                }
+            }
+        } catch (const std::exception& error) {
+            std::cerr << events_path.string()
+                      << ": project event/localization lint error: " << error.what() << '\n';
+            ok = false;
+        }
+    }
+
+    const auto resource_path = project_root / project_result.manifest->resource_manifest;
+    if (!CheckResourceManifest(resource_path, project_root))
+        ok = false;
     if (ok)
         std::cout << project_path.string() << ": project data clean\n";
     return ok;

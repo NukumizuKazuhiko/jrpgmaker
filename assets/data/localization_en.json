@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "locale": "en",
+  "strings": {
+    "intro.welcome": "Welcome.",
+    "alice.greeting.first": "Hello.",
+    "alice.ask.help": "Will you help?",
+    "alice.opt.yes": "Yes",
+    "alice.opt.no": "No",
+    "alice.help.reply": "Thank you.",
+    "chest.opened": "The chest is open.",
+    "alice.reward.line": "You did well.",
+    "chest.west.echo": "An echo answers."
+  }
+}
