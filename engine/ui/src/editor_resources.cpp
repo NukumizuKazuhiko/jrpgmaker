@@ -119,7 +119,7 @@ bool ParseLayoutNode(const nlohmann::json& document, EditorLayoutNode& node,
 }
 
 bool ValidHexColor(const std::string& value) {
-    if (value.size() != 7 && value.size() != 9 || value.front() != '#')
+    if ((value.size() != 7 && value.size() != 9) || value.front() != '#')
         return false;
     return std::all_of(value.begin() + 1, value.end(), [](unsigned char c) {
         return std::isxdigit(c) != 0;

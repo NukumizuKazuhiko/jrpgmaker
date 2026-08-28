@@ -150,7 +150,8 @@ TEST_CASE("document adapter registry rejects duplicates and validates documents"
     jrpgmaker::project::DocumentAdapterRegistry registry;
     auto adapter = jrpgmaker::project::DocumentAdapter{
         .type_id = "calendar",
-        .fields = {{.path = "/id", .value_type = "string", .label_key = "editor.calendar.id"}},
+        .fields = {{.path = "/id", .value_type = "string", .label_key = "editor.calendar.id",
+                    .recipe = "", .required = false, .read_only = false}},
         .validate = [](const nlohmann::json& document) {
             if (!document.is_object())
                 return std::vector<jrpgmaker::project::Diagnostic>{{"document.object_required", "/"}};

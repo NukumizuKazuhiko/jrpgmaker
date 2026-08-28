@@ -293,7 +293,7 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
 }
 
 EditResult ProjectWorkspace::Apply(const EditCommand& command) {
-    EditResult result{.revision = revision_};
+    EditResult result{.revision = revision_, .changes = {}, .diagnostics = {}};
     if (!snapshot_.has_value()) {
         Add(result.diagnostics, "project.workspace.not_open", "workspace");
         return result;
@@ -352,7 +352,7 @@ SavePlan ProjectWorkspace::PrepareSave(std::uint64_t expected_revision) const {
 }
 
 CommitResult ProjectWorkspace::Commit(const SaveToken& token) {
-    CommitResult result{.revision = revision_};
+    CommitResult result{.revision = revision_, .backup = {}, .diagnostics = {}};
     if (!snapshot_.has_value()) {
         Add(result.diagnostics, "project.workspace.not_open", "workspace");
         return result;

@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
         return 1;
     const auto input_map = jrpgmaker::editor::BuildInputMap(resources.bundle->action_map);
 
-    if (argc == 2 && !smoke || argc == 3) {
+    if ((argc == 2 && !smoke) || argc == 3) {
         const auto project_argument = std::filesystem::path(argv[1]);
         jrpgmaker::project::ProjectWorkspace workspace{project_argument};
         const auto opened = workspace.Open();

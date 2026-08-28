@@ -6,13 +6,14 @@ namespace jrpgmaker::editor {
 
 FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
                                     const nlohmann::json& document) {
-    FormProjection projection{.document_id = adapter.type_id};
+    FormProjection projection{.document_id = adapter.type_id, .fields = {}};
     projection.fields.reserve(adapter.fields.size());
     for (const auto& descriptor : adapter.fields) {
         FormFieldProjection field{.path = descriptor.path,
                                   .label_key = descriptor.label_key,
                                   .recipe = descriptor.recipe,
                                   .value_type = descriptor.value_type,
+                                  .value = nullptr,
                                   .required = descriptor.required,
                                   .read_only = descriptor.read_only};
         const auto pointer = nlohmann::json::json_pointer(descriptor.path);
@@ -27,7 +28,8 @@ FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
 
 PreviewProjection BuildWorkspacePreview(const project::DiagnosticSet& diagnosis) {
     PreviewProjection projection{.valid = diagnosis.diagnostics.empty(),
-                                 .diagnostics = diagnosis.diagnostics};
+                                 .diagnostics = diagnosis.diagnostics,
+                                 .metrics = {}};
     if (!projection.valid)
         return projection;
     projection.metrics = {

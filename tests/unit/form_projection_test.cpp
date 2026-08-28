@@ -6,7 +6,8 @@ TEST_CASE("form projection exposes adapter metadata and current values", "[edito
     const jrpgmaker::project::DocumentAdapter adapter{
         .type_id = "test.document",
         .fields = {{"/name", "string", "editor.test.name", "text", true, false},
-                   {"/missing", "integer", "editor.test.missing", "number", false, true}}};
+                   {"/missing", "integer", "editor.test.missing", "number", false, true}},
+        .validate = {}};
     const auto projection = jrpgmaker::editor::BuildFormProjection(
         adapter, nlohmann::json{{"name", "sample"}});
 
@@ -19,7 +20,8 @@ TEST_CASE("form projection exposes adapter metadata and current values", "[edito
 }
 
 TEST_CASE("workspace preview exposes only structured diagnosis metrics", "[editor]") {
-    const jrpgmaker::project::DiagnosticSet diagnosis{.event_count = 2,
+    const jrpgmaker::project::DiagnosticSet diagnosis{.diagnostics = {},
+                                                       .event_count = 2,
                                                        .interaction_count = 1,
                                                        .collision_count = 3,
                                                        .navigation_width = 8,

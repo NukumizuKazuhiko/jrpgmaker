@@ -59,7 +59,7 @@ std::optional<std::size_t> Flatten(const ui::EditorLayoutNode& source,
 std::optional<ShellProjection> BuildShellProjection(const ui::EditorLayout& layout) {
     if (layout.id.empty())
         return std::nullopt;
-    ShellProjection projection{.layout_id = layout.id};
+    ShellProjection projection{.layout_id = layout.id, .nodes = {}};
     if (!Flatten(layout.root, projection))
         return std::nullopt;
     return projection;

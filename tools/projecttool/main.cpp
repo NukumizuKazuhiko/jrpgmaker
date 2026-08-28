@@ -27,16 +27,6 @@ namespace {
 constexpr std::size_t kMaxFiles = 4096;
 constexpr std::uintmax_t kMaxBytes = 64u * 1024u * 1024u;
 
-struct ProjectSnapshot {
-    std::filesystem::path root;
-    jrpgmaker::plugin::ProjectManifest manifest;
-};
-
-bool IsSafeRelativePath(const std::string& path) {
-    return !path.empty() && path.find("..") == std::string::npos && path.front() != '/' &&
-           path.front() != '\\';
-}
-
 bool CopyTreeBounded(const std::filesystem::path& source, const std::filesystem::path& target,
                      std::size_t& file_count, std::uintmax_t& total_bytes) {
     std::error_code error;
@@ -140,62 +130,6 @@ bool CreateProject(const std::filesystem::path& output,
     std::cout << output.string() << ": project created (" << file_count << " files, " << total_bytes
               << " bytes)\n";
     return true;
-}
-
-bool LoadSnapshot(const std::filesystem::path& root, ProjectSnapshot& snapshot) {
-    const auto manifest_path = root / "project.json";
-    std::ifstream file(manifest_path);
-    if (!file.is_open()) {
-        std::cerr << manifest_path.string() << ": cannot open project manifest\n";
-        return false;
-    }
-    try {
-        nlohmann::json document;
-        file >> document;
-        const auto result = jrpgmaker::plugin::ParseProjectManifest(document);
-        if (!result) {
-            std::cerr << manifest_path.string() << ": " << result.error->code << ": "
-                      << result.error->message << " (" << result.error->path << ")\n";
-            return false;
-        }
-        snapshot = {.root = root, .manifest = *result.manifest};
-        return true;
-    } catch (const std::exception& error) {
-        std::cerr << manifest_path.string() << ": parse error: " << error.what() << '\n';
-        return false;
-    }
-}
-
-bool LoadJsonDocument(const std::filesystem::path& path, nlohmann::json& document);
-
-bool ValidateSnapshot(const ProjectSnapshot& snapshot) {
-    const auto& manifest = snapshot.manifest;
-    std::vector<std::string> paths = manifest.data_roots;
-    paths.push_back(manifest.material_document);
-    paths.push_back(manifest.input_actions);
-    paths.push_back(manifest.event_script);
-    paths.push_back(manifest.localization);
-    paths.push_back(manifest.resource_manifest);
-    bool ok = true;
-    for (const auto& relative : paths) {
-        if (!IsSafeRelativePath(relative) || !std::filesystem::exists(snapshot.root / relative)) {
-            std::cerr << "project.json: missing or unsafe reference: " << relative << '\n';
-            ok = false;
-        }
-    }
-    nlohmann::json material;
-    const auto material_path = snapshot.root / manifest.material_document;
-    if (ok && (!LoadJsonDocument(material_path, material) || !material.is_object() ||
-               material.value("style_plugin_id", std::string{}) != manifest.render_style)) {
-        std::cerr << material_path.string() << ": style_plugin_id must match render_style '"
-                  << manifest.render_style << "'\n";
-        ok = false;
-    }
-    if (ok) {
-        std::cout << snapshot.root.string() << ": project manifest clean (id=" << manifest.id
-                  << ", plugins=" << manifest.plugins.size() << ")\n";
-    }
-    return ok;
 }
 
 bool OpenProject(const std::filesystem::path& root, bool validate) {

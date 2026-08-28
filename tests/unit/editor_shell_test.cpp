@@ -24,8 +24,17 @@ TEST_CASE("editor input map is built from the action resource", "[editor]") {
 TEST_CASE("editor shell projection preserves layout hierarchy and metadata", "[editor]") {
     jrpgmaker::ui::EditorLayout layout;
     layout.id = "editor.workspace";
-    layout.root = {.type = "SplitPane", .id = "root", .label_key = "editor.window.title",
-                   .recipe = "panel", .children = {{.type = "WorkspaceTree", .id = "tree"}}};
+    layout.root = {.type = "SplitPane",
+                   .id = "root",
+                   .label_key = "editor.window.title",
+                   .recipe = "panel",
+                   .bounds = {},
+                   .children = {{.type = "WorkspaceTree",
+                                 .id = "tree",
+                                 .label_key = "",
+                                 .recipe = "",
+                                 .bounds = {},
+                                 .children = {}}}};
     const auto projection = jrpgmaker::editor::BuildShellProjection(layout);
     REQUIRE(projection.has_value());
     REQUIRE(projection->layout_id == "editor.workspace");
@@ -41,7 +50,8 @@ TEST_CASE("editor shell projection produces draw primitives from layout bounds",
                    .id = "root",
                    .label_key = "editor.window.title",
                    .recipe = "panel",
-                   .bounds = {0.0f, 0.0f, 100.0f, 50.0f}};
+                   .bounds = {0.0f, 0.0f, 100.0f, 50.0f},
+                   .children = {}};
     const auto projection = jrpgmaker::editor::BuildShellProjection(layout);
     REQUIRE(projection.has_value());
     const auto draw_list = jrpgmaker::editor::BuildShellDrawList(*projection);
