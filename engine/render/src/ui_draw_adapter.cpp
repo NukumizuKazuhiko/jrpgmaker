@@ -1,6 +1,8 @@
 #include "jrpgmaker/render/ui_draw_adapter.hpp"
 
 #include <cmath>
+#include <limits>
+#include <stdexcept>
 #include <string_view>
 #include <variant>
 
@@ -99,6 +101,65 @@ UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list, const ui::EditorTh
                                                       base, base + 2, base + 3});
     }
     return packet;
+}
+
+UiGpuBatch UploadUiDrawPacket(rhi::IDevice& device, const UiDrawPacket& packet) {
+    if (!packet.ok())
+        throw std::invalid_argument("ui draw packet contains diagnostics");
+    if (packet.vertices.empty() || packet.indices.empty())
+        return {};
+    if (packet.indices.size() > std::numeric_limits<std::uint32_t>::max())
+        throw std::length_error("ui draw packet index count exceeds uint32");
+
+    UiGpuBatch batch;
+    try {
+        batch.vertex_buffer = device.CreateBuffer(rhi::BufferDesc{
+            .size_bytes = static_cast<std::uint64_t>(packet.vertices.size() * sizeof(UiVertex)),
+            .usage = rhi::BufferUsage::kVertex});
+        if (batch.vertex_buffer == rhi::BufferHandle::kInvalid)
+            throw std::runtime_error("ui vertex buffer creation failed");
+        device.MapWrite(batch.vertex_buffer, packet.vertices.data(),
+                        static_cast<std::uint64_t>(packet.vertices.size() * sizeof(UiVertex)));
+
+        batch.index_buffer = device.CreateBuffer(rhi::BufferDesc{
+            .size_bytes = static_cast<std::uint64_t>(packet.indices.size() * sizeof(std::uint32_t)),
+            .usage = rhi::BufferUsage::kIndex});
+        if (batch.index_buffer == rhi::BufferHandle::kInvalid)
+            throw std::runtime_error("ui index buffer creation failed");
+        device.MapWrite(batch.index_buffer, packet.indices.data(),
+                        static_cast<std::uint64_t>(packet.indices.size() * sizeof(std::uint32_t)));
+        batch.index_count = static_cast<std::uint32_t>(packet.indices.size());
+        return batch;
+    } catch (...) {
+        DestroyUiGpuBatch(device, batch);
+        throw;
+    }
+}
+
+void RecordUiDrawPacket(rhi::ICommandList& command_list, rhi::PipelineHandle pipeline,
+                        const UiGpuBatch& batch) {
+    if (batch.empty())
+        return;
+    if (pipeline == rhi::PipelineHandle::kInvalid ||
+        batch.vertex_buffer == rhi::BufferHandle::kInvalid ||
+        batch.index_buffer == rhi::BufferHandle::kInvalid)
+        throw std::invalid_argument("ui draw batch has invalid handles");
+    command_list.SetPipeline(pipeline);
+    command_list.SetVertexBuffer(batch.vertex_buffer, sizeof(UiVertex));
+    command_list.SetIndexBuffer(batch.index_buffer, true);
+    command_list.DrawIndexed(batch.index_count, 1);
+}
+
+void DestroyUiGpuBatch(rhi::IDevice& device, UiGpuBatch& batch) {
+    if (batch.index_buffer != rhi::BufferHandle::kInvalid) {
+        device.DestroyBuffer(batch.index_buffer);
+        batch.index_buffer = rhi::BufferHandle::kInvalid;
+    }
+    if (batch.vertex_buffer != rhi::BufferHandle::kInvalid) {
+        device.DestroyBuffer(batch.vertex_buffer);
+        batch.vertex_buffer = rhi::BufferHandle::kInvalid;
+    }
+    batch.index_count = 0;
 }
 
 } // namespace jrpgmaker::render
