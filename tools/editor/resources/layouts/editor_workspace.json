@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "editor.workspace",
+  "root": {
+    "type": "SplitPane",
+    "id": "workspace.root",
+    "label_key": "editor.window.title",
+    "recipe": "panel",
+    "children": [
+      {"type": "WorkspaceTree", "id": "workspace.tree", "label_key": "editor.workspace.tree", "recipe": "panel"},
+      {"type": "SplitPane", "id": "workspace.content", "recipe": "panel", "children": [
+        {"type": "DocumentTabs", "id": "workspace.tabs", "recipe": "panel"},
+        {"type": "DiagnosticPanel", "id": "workspace.diagnostics", "label_key": "editor.workspace.diagnostics", "recipe": "panel"}
+      ]}
+    ]
+  }
+}

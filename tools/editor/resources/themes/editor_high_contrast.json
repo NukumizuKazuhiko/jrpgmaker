@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "id": "editor.high-contrast",
+  "colors": {
+    "canvas": "#000000",
+    "panel": "#1F2326",
+    "raised": "#FFFFFF",
+    "input": "#000000",
+    "selection": "#00FFFF",
+    "overlay": "#000000",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#FFFFFF",
+    "text_disabled": "#B5B8BB",
+    "text_accent": "#00FFFF",
+    "text_warning": "#FFFF00",
+    "text_error": "#FF0000",
+    "text_success": "#00FF00",
+    "border_subtle": "#FFFFFF",
+    "border_strong": "#FFFFFF",
+    "focus_ring": "#00FFFF",
+    "invalid": "#FF0000"
+  },
+  "dimensions": {"space.sm": 8, "space.md": 12, "radius.md": 4, "stroke.sm": 2, "font.body": 16},
+  "semantic_tokens": {
+    "surface.canvas": "canvas", "surface.panel": "panel", "surface.raised": "raised", "surface.input": "input",
+    "surface.selection": "selection", "surface.overlay": "overlay", "text.primary": "text_primary",
+    "text.secondary": "text_secondary", "text.disabled": "text_disabled", "text.accent": "text_accent",
+    "text.warning": "text_warning", "text.error": "text_error", "text.success": "text_success",
+    "border.subtle": "border_subtle", "border.strong": "border_strong", "focus.ring": "focus_ring", "border.invalid": "invalid"
+  },
+  "recipes": {
+    "panel": {"normal": "surface.panel", "hover": "surface.raised", "pressed": "surface.raised", "focused": "focus.ring", "disabled": "surface.panel"},
+    "button": {"normal": "surface.panel", "hover": "surface.raised", "pressed": "surface.selection", "focused": "focus.ring", "disabled": "text.disabled"},
+    "input": {"normal": "surface.input", "hover": "surface.raised", "pressed": "surface.input", "focused": "focus.ring", "disabled": "text.disabled"}
+  }
+}

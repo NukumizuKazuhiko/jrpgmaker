@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "id": "editor.desktop",
+  "default_locale": "zh-CN",
+  "locale_fallbacks": ["en"],
+  "default_theme": "editor.default",
+  "default_layout": "editor.workspace",
+  "available_locales": ["zh-CN", "en"],
+  "available_themes": ["editor.default", "editor.high-contrast"]
+}

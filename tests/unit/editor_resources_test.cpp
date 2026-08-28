@@ -1,8 +1,21 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <fstream>
+#include <filesystem>
+
+#include <nlohmann/json.hpp>
+
 #include "jrpgmaker/ui/editor_resources.hpp"
 
 namespace {
+
+nlohmann::json ReadJson(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    REQUIRE(input.good());
+    nlohmann::json document;
+    input >> document;
+    return document;
+}
 
 nlohmann::json Manifest() {
     return {{"schema", 1}, {"id", "editor.desktop"}, {"default_locale", "zh-CN"},
@@ -52,4 +65,50 @@ TEST_CASE("editor resources reject layout node overflow", "[ui][editor]") {
     const auto layout = jrpgmaker::ui::ParseEditorLayout(
         nlohmann::json{{"schema", 1}, {"id", "editor.workspace"}, {"root", node}});
     REQUIRE_FALSE(layout);
+}
+
+TEST_CASE("editor theme resolves semantic tokens and recipe states", "[ui][editor]") {
+    nlohmann::json document = {
+        {"schema", 1},
+        {"id", "editor.default"},
+        {"colors", {{"canvas", "#1F2326"}, {"panel", "#343635"}, {"accent", "#26CDCB"}}},
+        {"dimensions", {{"space.md", 8.0}, {"radius.md", 4.0}}},
+        {"semantic_tokens", {{"surface.canvas", "canvas"}, {"surface.panel", "panel"},
+                              {"text.accent", "accent"}}}};
+    document["recipes"]["panel"] = {{"normal", "surface.panel"}, {"hover", "surface.panel"},
+                                        {"pressed", "surface.panel"}, {"focused", "surface.panel"},
+                                        {"disabled", "surface.panel"}};
+    const auto theme = jrpgmaker::ui::ParseEditorTheme(document);
+    REQUIRE(theme);
+    REQUIRE(theme.value.colors.at("accent").g == 205);
+    REQUIRE(theme.value.recipes.at("panel").states.size() == 5);
+}
+
+TEST_CASE("editor theme rejects invalid color and missing recipe state", "[ui][editor]") {
+    auto document = nlohmann::json{{"schema", 1}, {"id", "editor.high-contrast"},
+                                   {"colors", {{"canvas", "not-a-color"}}},
+                                   {"dimensions", {{"space.md", 8.0}}},
+                                   {"semantic_tokens", {{"surface.canvas", "canvas"}}}};
+    document["recipes"]["panel"] = {{"normal", "surface.canvas"}};
+    const auto theme = jrpgmaker::ui::ParseEditorTheme(document);
+    REQUIRE_FALSE(theme);
+    REQUIRE_FALSE(theme.errors.empty());
+}
+
+TEST_CASE("committed editor resources form a valid startup set", "[ui][editor]") {
+    const auto root = std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR);
+    const auto manifest = jrpgmaker::ui::ParseEditorManifest(ReadJson(root / "editor.json"));
+    REQUIRE(manifest);
+    const auto locale = jrpgmaker::ui::ParseEditorLocale(
+        ReadJson(root / "locales/zh-CN.json"), manifest.value);
+    const auto theme = jrpgmaker::ui::ParseEditorTheme(
+        ReadJson(root / "themes/editor_default.json"));
+    const auto high_contrast = jrpgmaker::ui::ParseEditorTheme(
+        ReadJson(root / "themes/editor_high_contrast.json"));
+    const auto layout = jrpgmaker::ui::ParseEditorLayout(
+        ReadJson(root / "layouts/editor_workspace.json"));
+    REQUIRE(locale);
+    REQUIRE(theme);
+    REQUIRE(high_contrast);
+    REQUIRE(layout);
 }

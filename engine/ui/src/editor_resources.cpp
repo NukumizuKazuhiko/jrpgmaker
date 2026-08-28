@@ -1,8 +1,10 @@
 #include "jrpgmaker/ui/editor_resources.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <functional>
+#include <optional>
 #include <unordered_set>
 
 namespace jrpgmaker::ui {
@@ -94,6 +96,29 @@ bool ParseLayoutNode(const nlohmann::json& document, EditorLayoutNode& node,
     return true;
 }
 
+bool ValidHexColor(const std::string& value) {
+    if (value.size() != 7 && value.size() != 9 || value.front() != '#')
+        return false;
+    return std::all_of(value.begin() + 1, value.end(), [](unsigned char c) {
+        return std::isxdigit(c) != 0;
+    });
+}
+
+std::optional<EditorColor> ParseColor(const std::string& value) {
+    if (!ValidHexColor(value))
+        return std::nullopt;
+    auto component = [&value](std::size_t offset) {
+        return static_cast<std::uint8_t>(std::stoul(value.substr(offset, 2), nullptr, 16));
+    };
+    return EditorColor{component(1), component(3), component(5),
+                       value.size() == 9 ? component(7) : static_cast<std::uint8_t>(255)};
+}
+
+bool IsFiniteNonNegative(const nlohmann::json& value) {
+    return value.is_number() && std::isfinite(value.get<double>()) && value.get<double>() >= 0.0 &&
+           value.get<double>() <= 4096.0;
+}
+
 } // namespace
 
 EditorResourceParseResult<EditorManifest> ParseEditorManifest(const nlohmann::json& document) {
@@ -157,6 +182,86 @@ EditorResourceParseResult<EditorLocale> ParseEditorLocale(const nlohmann::json& 
     }
     if (bytes > kMaxEditorStringBytes)
         Error(result.errors, "editor.locale.byte_limit", "/strings");
+    return result;
+}
+
+EditorResourceParseResult<EditorTheme> ParseEditorTheme(const nlohmann::json& document) {
+    EditorResourceParseResult<EditorTheme> result;
+    if (!document.is_object() || document.value("schema", 0) != 1)
+        Error(result.errors, "editor.theme.schema", "/schema");
+    ManifestId(document, "id", result.value.id, result.errors);
+
+    const auto* colors = document.contains("colors") ? &document["colors"] : nullptr;
+    if (colors == nullptr || !colors->is_object()) {
+        Error(result.errors, "editor.theme.colors_required", "/colors");
+    } else if (colors->size() > kMaxEditorThemeEntries) {
+        Error(result.errors, "editor.theme.entry_limit", "/colors");
+    } else {
+        for (auto it = colors->begin(); it != colors->end(); ++it) {
+            if (!ValidId(it.key()) || !it.value().is_string()) {
+                Error(result.errors, "editor.theme.invalid_color", "/colors/" + it.key());
+                continue;
+            }
+            const auto color = ParseColor(it.value().get<std::string>());
+            if (!color)
+                Error(result.errors, "editor.theme.invalid_color", "/colors/" + it.key());
+            else
+                result.value.colors.emplace(it.key(), *color);
+        }
+    }
+
+    const auto* dimensions = document.contains("dimensions") ? &document["dimensions"] : nullptr;
+    if (dimensions == nullptr || !dimensions->is_object()) {
+        Error(result.errors, "editor.theme.dimensions_required", "/dimensions");
+    } else if (dimensions->size() > kMaxEditorThemeEntries) {
+        Error(result.errors, "editor.theme.entry_limit", "/dimensions");
+    } else {
+        for (auto it = dimensions->begin(); it != dimensions->end(); ++it) {
+            if (!ValidId(it.key()) || !IsFiniteNonNegative(it.value())) {
+                Error(result.errors, "editor.theme.invalid_dimension", "/dimensions/" + it.key());
+                continue;
+            }
+            result.value.dimensions.emplace(it.key(), it.value().get<float>());
+        }
+    }
+
+    const auto* semantic = document.contains("semantic_tokens") ? &document["semantic_tokens"] : nullptr;
+    if (semantic == nullptr || !semantic->is_object()) {
+        Error(result.errors, "editor.theme.semantic_tokens_required", "/semantic_tokens");
+    } else {
+        for (auto it = semantic->begin(); it != semantic->end(); ++it) {
+            if (!ValidId(it.key()) || !it.value().is_string() ||
+                !result.value.colors.contains(it.value().get<std::string>()))
+                Error(result.errors, "editor.theme.invalid_semantic_token", "/semantic_tokens/" + it.key());
+            else
+                result.value.semantic_tokens.emplace(it.key(), it.value().get<std::string>());
+        }
+    }
+
+    const auto* recipes = document.contains("recipes") ? &document["recipes"] : nullptr;
+    if (recipes == nullptr || !recipes->is_object()) {
+        Error(result.errors, "editor.theme.recipes_required", "/recipes");
+    } else if (recipes->size() > kMaxEditorThemeEntries) {
+        Error(result.errors, "editor.theme.entry_limit", "/recipes");
+    } else {
+        constexpr const char* states[] = {"normal", "hover", "pressed", "focused", "disabled"};
+        for (auto recipe = recipes->begin(); recipe != recipes->end(); ++recipe) {
+            if (!ValidId(recipe.key()) || !recipe.value().is_object()) {
+                Error(result.errors, "editor.theme.invalid_recipe", "/recipes/" + recipe.key());
+                continue;
+            }
+            EditorThemeRecipe parsed;
+            for (const char* state : states) {
+                if (!recipe.value().contains(state) || !recipe.value()[state].is_string() ||
+                    !result.value.semantic_tokens.contains(recipe.value()[state].get<std::string>()))
+                    Error(result.errors, "editor.theme.recipe_state_invalid",
+                          "/recipes/" + recipe.key() + "/" + state);
+                else
+                    parsed.states.emplace(state, recipe.value()[state].get<std::string>());
+            }
+            result.value.recipes.emplace(recipe.key(), std::move(parsed));
+        }
+    }
     return result;
 }
 

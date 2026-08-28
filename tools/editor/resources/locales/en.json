@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "locale": "en",
+  "strings": {
+    "editor.window.title": "JRPGMaker Editor",
+    "editor.action.open": "Open Project",
+    "editor.action.save": "Save Project",
+    "editor.project.id": "Project ID",
+    "editor.project.render_style": "Render Style Plugin",
+    "editor.diagnostic.count": "{count} diagnostics found",
+    "editor.workspace.tree": "Project Resources",
+    "editor.workspace.inspector": "Inspector",
+    "editor.workspace.diagnostics": "Diagnostics"
+  }
+}

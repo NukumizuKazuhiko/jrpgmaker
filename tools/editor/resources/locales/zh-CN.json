@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "locale": "zh-CN",
+  "strings": {
+    "editor.window.title": "JRPGMaker 编辑器",
+    "editor.action.open": "打开项目",
+    "editor.action.save": "保存项目",
+    "editor.project.id": "项目 ID",
+    "editor.project.render_style": "渲染风格插件",
+    "editor.diagnostic.count": "发现 {count} 项诊断",
+    "editor.workspace.tree": "项目资源",
+    "editor.workspace.inspector": "属性",
+    "editor.workspace.diagnostics": "诊断"
+  }
+}

@@ -32,6 +32,26 @@ struct EditorLocale {
     std::unordered_map<std::string, std::string> strings;
 };
 
+struct EditorColor {
+    std::uint8_t r = 0;
+    std::uint8_t g = 0;
+    std::uint8_t b = 0;
+    std::uint8_t a = 255;
+};
+
+struct EditorThemeRecipe {
+    std::unordered_map<std::string, std::string> states;
+};
+
+struct EditorTheme {
+    std::uint32_t schema = 1;
+    std::string id;
+    std::unordered_map<std::string, EditorColor> colors;
+    std::unordered_map<std::string, float> dimensions;
+    std::unordered_map<std::string, std::string> semantic_tokens;
+    std::unordered_map<std::string, EditorThemeRecipe> recipes;
+};
+
 struct EditorLayoutNode {
     std::string type;
     std::string id;
@@ -56,11 +76,14 @@ struct EditorResourceParseResult {
 inline constexpr std::size_t kMaxEditorLocaleEntries = 4096;
 inline constexpr std::size_t kMaxEditorLayoutNodes = 256;
 inline constexpr std::size_t kMaxEditorStringBytes = 256 * 1024;
+inline constexpr std::size_t kMaxEditorThemeEntries = 256;
 
 [[nodiscard]] EditorResourceParseResult<EditorManifest>
 ParseEditorManifest(const nlohmann::json& document);
 [[nodiscard]] EditorResourceParseResult<EditorLocale>
 ParseEditorLocale(const nlohmann::json& document, const EditorManifest& manifest);
+[[nodiscard]] EditorResourceParseResult<EditorTheme>
+ParseEditorTheme(const nlohmann::json& document);
 [[nodiscard]] EditorResourceParseResult<EditorLayout>
 ParseEditorLayout(const nlohmann::json& document);
 
