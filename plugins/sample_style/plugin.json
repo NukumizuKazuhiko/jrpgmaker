@@ -4,6 +4,6 @@
     "type": "render_style",
     "version": 1,
     "engine_contract": 1,
-    "data_roots": ["data"],
+    "data_roots": ["plugins/sample_style/data"],
     "capabilities": ["render_plan"]
 }

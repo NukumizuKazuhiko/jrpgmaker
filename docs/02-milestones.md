@@ -139,7 +139,7 @@
 - **停止条件**：测试中的两个行为不同 adapter 可通过相同 seam 运行，删除其中任一个不影响 engine 构建。
 - **建议提交**：`feat(plugin): add battle session seam`。
 
-**当前进度（2026-08-27）**：`engine/plugin/battle.hpp` 提供有界 `BattleLaunchContext`、`BattleFrameInput`、`BattleFrameOutput`、`BattleSnapshot` 与结构化校验；`sample_instant` 和 `sample_turn_based` 均通过同一 seam，app 不解释插件规则。Windows 定向与全量 ctest **209/209** 通过。
+**当前进度（2026-08-28）**：`engine/plugin/battle.hpp` 提供有界 `BattleLaunchContext`、`BattleFrameInput`、`BattleFrameOutput`、`BattleSnapshot` 与结构化校验；`PresentationCommand{id,payload}` 作为通用 presentation seam，payload 总预算 64 KiB；`sample_instant` 和 `sample_turn_based` 各自校验私有 encounter schema，app 不解释插件规则。输入合同新增 `engine/core/input_actions.hpp` 与 `assets/data/input_actions.json`，SDL 只把配置中的物理键转换为稳定 action id。Windows 定向测试和 demo 项目 lint 已通过；全量门禁待本轮结束后更新。
 
 #### P5-4 输入与 presentation 通用合同
 
@@ -147,6 +147,8 @@
 - **测试**：按下/释放边沿、逻辑 tick、缓冲容量、未知 action、UI 命令生命周期、相机/转场命令顺序和预算超限。
 - **停止条件**：app 无具体战斗按键、菜单或结果分支；同一输入/presentation seam 可被两个插件消费。
 - **建议提交**：`feat(plugin): add extension input and presentation contracts`。
+
+**当前进度（2026-08-28）**：输入 action map 已由 core 解析并由 app 按配置构建 SDL 绑定，覆盖移动、确认、保存和读取；battle 输出已升级为带 payload 预算的通用 `PresentationCommand`。core parser、按键映射数据和 presentation 空/超预算回归测试已落地；完整 UI draw/view model 与独立相机/转场命令队列仍属于后续 presentation 扩展，不伪装为本轮已完成。
 
 #### P5-5 遭遇与项目事件闭环
 
@@ -293,7 +295,7 @@
 - **验收**：一次 CLI 命令校验项目、插件私有数据、跨文件引用和资源依赖；坏数据按文件/字段路径聚合并以非零退出；只修改数据即可替换日期、对话、输入、地图、材质和插件；相同输入生成稳定清单与派生物摘要；Windows 优先并完成 Linux/macOS CI。
 - **停止条件**：P5-2/P5-4 的未完成合同已落地，数据 lint 不再依赖 app 运行时兜底，所有提交资源都有可追溯 owner、版本和预算。
 
-**当前进度（2026-08-28，P9-0）**：`engine/plugin` 已提供 `IPlugin::ValidateData` 与宿主聚合入口。validator 通过受限 `read_file` 读取 manifest 声明的数据根，单文件 256 KiB、总读取 1 MiB、最多 32 次读取；宿主将异常、路径越界和插件 issue 统一转换为带插件 ID/字段路径的结构化错误。Windows 定向单测覆盖正常读取与越界拒绝；统一 `eventlint --check-project` 接线、插件样例 validator 和 P5-4 输入/presentation 合同仍未完成，不能据此宣称 P9 或 P5-2 闭环。
+**当前进度（2026-08-28，P9-1）**：`eventlint --check-project <project.json> <project-root>` 已接入项目 manifest、样例插件 manifest、插件私有 validator、有界数据读取器和 `input_actions.json` 解析；demo 项目实跑返回 clean。两个样例 battle 插件分别验证自己的私有 encounter schema，错误包含插件 ID、文件和字段路径；core 输入合同和 battle `PresentationCommand` 已接入 app/插件 seam。Windows 定向 P9 测试 21/21 断言通过；完整资源依赖清单、i18n/CJK 文本表和派生物构建仍是 P9 后续切片，不能据此宣称整个 P9 完成。
 
 ## P10 项目装配与编辑器工具
 

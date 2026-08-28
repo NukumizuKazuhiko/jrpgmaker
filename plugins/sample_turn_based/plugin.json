@@ -4,6 +4,6 @@
     "type": "battle",
     "version": 1,
     "engine_contract": 1,
-    "data_roots": ["data"],
+    "data_roots": ["plugins/sample_turn_based/data"],
     "capabilities": ["action_sequence"]
 }

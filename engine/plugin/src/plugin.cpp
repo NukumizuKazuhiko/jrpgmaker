@@ -179,6 +179,16 @@ ProjectManifestParseResult ParseProjectManifest(const nlohmann::json& document) 
         }
         project.material_document = document["material_document"].get<std::string>();
     }
+    if (document.contains("input_actions")) {
+        if (!document["input_actions"].is_string() ||
+            !IsSafeRelativePath(document["input_actions"].get<std::string>())) {
+            return {.manifest = std::nullopt,
+                    .error = PluginError{"project.input_actions",
+                                         "input_actions must be a safe relative path",
+                                         "input_actions"}};
+        }
+        project.input_actions = document["input_actions"].get<std::string>();
+    }
     return {.manifest = std::move(project), .error = std::nullopt};
 }
 

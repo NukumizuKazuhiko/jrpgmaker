@@ -1,5 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstddef>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
 #include "jrpgmaker/domain/encounter.hpp"
 #include "jrpgmaker/domain/event_runner.hpp"
 #include "jrpgmaker/plugin/battle.hpp"
@@ -43,6 +49,24 @@ TEST_CASE("battle sample sessions reject invalid launch contexts", "[plugin][bat
     REQUIRE_FALSE(created);
     REQUIRE(created.error.has_value());
     REQUIRE(created.error->code == "battle.encounter");
+}
+
+TEST_CASE("sample battle validators reject malformed private data", "[plugin][p9]") {
+    const jrpgmaker::plugin::PluginManifest manifest{
+        .id = "sample.instant", .type = jrpgmaker::plugin::PluginType::kBattle};
+    const jrpgmaker::plugin::PluginValidationContext context{
+        .manifest = manifest, .read_file = [](std::string_view) {
+            const std::string invalid = R"json({"schema":1,"encounters":[{}]})json";
+            std::vector<std::byte> bytes;
+            bytes.reserve(invalid.size());
+            for (const char value : invalid)
+                bytes.push_back(static_cast<std::byte>(value));
+            return jrpgmaker::plugin::PluginDataReadResult{.bytes = std::move(bytes), .error = {}};
+        }};
+    const jrpgmaker::plugins::sample_instant::Adapter plugin;
+    const auto result = plugin.ValidateData(context);
+    REQUIRE(result.issues.size() == 1);
+    REQUIRE(result.issues.front().code == "sample.instant.data");
 }
 
 TEST_CASE("encounter result enters EventRunner without event bus reentry",

@@ -11,6 +11,8 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -24,6 +26,7 @@
 #include "jrpgmaker/core/camera_rig.hpp"
 #include "jrpgmaker/core/character_controller.hpp"
 #include "jrpgmaker/core/cutscene.hpp"
+#include "jrpgmaker/core/input_actions.hpp"
 #include "jrpgmaker/core/map_data.hpp"
 #include "jrpgmaker/core/stage.hpp"
 #include "jrpgmaker/core/version.hpp"
@@ -144,6 +147,35 @@ struct InputState {
     bool save_requested = false;
     bool load_requested = false;
 
+    void UpdateAction(std::string_view action_id, bool is_down, bool is_repeat) {
+        int& pressed_count = pressed_actions[std::string(action_id)];
+        if (is_down) {
+            if (is_repeat)
+                return;
+            ++pressed_count;
+        } else {
+            pressed_count = std::max(0, pressed_count - 1);
+        }
+        const bool active = pressed_count > 0;
+        if (action_id == "move.forward")
+            forward = active;
+        else if (action_id == "move.backward")
+            backward = active;
+        else if (action_id == "move.left")
+            left = active;
+        else if (action_id == "move.right")
+            right = active;
+        else if (action_id == "extension.confirm") {
+            confirm_pressed = active;
+            if (is_down && !is_repeat)
+                confirm_requested = true;
+        } else if (action_id == "project.save" && is_down && !is_repeat) {
+            save_requested = true;
+        } else if (action_id == "project.load" && is_down && !is_repeat) {
+            load_requested = true;
+        }
+    }
+
     void UpdateMovement() {
         glm::vec2 axes{static_cast<float>(right) - static_cast<float>(left),
                        static_cast<float>(backward) - static_cast<float>(forward)};
@@ -152,6 +184,9 @@ struct InputState {
         }
         movement = {axes.x, 0.0f, axes.y};
     }
+
+private:
+    std::unordered_map<std::string, int> pressed_actions;
 };
 
 struct SkinnedVertex {
@@ -217,8 +252,25 @@ std::vector<SkinnedVertex> BuildSkinnedVertices(const jrpgmaker::core::MeshData&
     return vertices;
 }
 
+using InputBindings = std::unordered_map<SDL_Keycode, std::vector<std::string>>;
+
+InputBindings BuildInputBindings(const jrpgmaker::core::InputActionMap& action_map) {
+    InputBindings bindings;
+    for (const auto& action : action_map.actions) {
+        for (const std::string& key_name : action.keys) {
+            const SDL_Keycode key = SDL_GetKeyFromName(key_name.c_str());
+            if (key == SDLK_UNKNOWN) {
+                throw std::runtime_error("input action uses unknown SDL key: " + key_name);
+            }
+            bindings[key].push_back(action.id);
+        }
+    }
+    return bindings;
+}
+
 void RunMainLoop(jrpgmaker::rhi::ISwapchain* swapchain, jrpgmaker::core::StageRunner& stages,
-                 InputState& input, SdlAudioOutput& audio_output) {
+                 InputState& input, SdlAudioOutput& audio_output,
+                 const InputBindings& input_bindings) {
     constexpr double kFixedDelta = 1.0 / 60.0;
     double accumulator = 0.0;
     std::uint64_t last_counter = SDL_GetPerformanceCounter();
@@ -234,35 +286,11 @@ void RunMainLoop(jrpgmaker::rhi::ISwapchain* swapchain, jrpgmaker::core::StageRu
                 running = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) {
                 const bool is_down = event.type == SDL_EVENT_KEY_DOWN;
-                switch (event.key.key) {
-                case SDLK_W:
-                    input.forward = is_down;
-                    break;
-                case SDLK_S:
-                    input.backward = is_down;
-                    break;
-                case SDLK_A:
-                    input.left = is_down;
-                    break;
-                case SDLK_D:
-                    input.right = is_down;
-                    break;
-                case SDLK_E:
-                    input.confirm_pressed = is_down;
-                    if (is_down && !event.key.repeat) {
-                        input.confirm_requested = true;
+                const auto binding = input_bindings.find(event.key.key);
+                if (binding != input_bindings.end()) {
+                    for (const std::string& action_id : binding->second) {
+                        input.UpdateAction(action_id, is_down, event.key.repeat);
                     }
-                    break;
-                case SDLK_F5:
-                    if (is_down && !event.key.repeat)
-                        input.save_requested = true;
-                    break;
-                case SDLK_F9:
-                    if (is_down && !event.key.repeat)
-                        input.load_requested = true;
-                    break;
-                default:
-                    break;
                 }
             } else if (event.type == SDL_EVENT_WINDOW_RESIZED) {
                 swapchain->Resize(event.window.data1, event.window.data2);
@@ -384,6 +412,12 @@ auto main() -> int {
         if (!project_result) {
             throw std::runtime_error("invalid project manifest: " + project_result.error->message);
         }
+        const auto input_action_map = jrpgmaker::core::ParseInputActionMap(
+            ReadJsonFile(project_result.manifest->input_actions));
+        if (!input_action_map) {
+            throw std::runtime_error("invalid input action map: " + input_action_map.error);
+        }
+        const InputBindings input_bindings = BuildInputBindings(*input_action_map.map);
         jrpgmaker::plugin::PluginRegistry plugin_registry;
         const auto registration_error = jrpgmaker::plugins::RegisterSamplePlugins(
             plugin_registry, ReadPluginManifest("plugins/sample_unlit/plugin.json"),
@@ -1077,7 +1111,7 @@ auto main() -> int {
             });
 
         std::cout << "jrpgmaker " << jrpgmaker::core::version() << " running\n";
-        RunMainLoop(swapchain.get(), stages, input, audio_output);
+        RunMainLoop(swapchain.get(), stages, input, audio_output, input_bindings);
 
         // DestroyXxx requires the GPU to be idle (docs/01 lifecycle contract):
         // the last submitted command list and the shared allocator must not be

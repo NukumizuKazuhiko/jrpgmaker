@@ -45,9 +45,16 @@ std::optional<PluginError> ValidateBattleOutput(const BattleFrameOutput& output)
     if (output.presentation_commands.size() > kMaxBattlePresentationCommands) {
         return Invalid("battle.presentation", "frame contains too many presentation commands");
     }
-    for (const std::string& command : output.presentation_commands) {
-        if (command.empty())
+    std::size_t presentation_bytes = 0;
+    for (const PresentationCommand& command : output.presentation_commands) {
+        if (command.id.empty())
             return Invalid("battle.presentation", "presentation command is empty");
+        if (presentation_bytes > kMaxBattlePayloadBytes ||
+            command.payload.size() > kMaxBattlePayloadBytes - presentation_bytes) {
+            return Invalid("battle.presentation",
+                           "presentation command payload exceeds the 64 KiB limit");
+        }
+        presentation_bytes += command.payload.size();
     }
     if (output.opaque_payload.size() > kMaxBattlePayloadBytes) {
         return Invalid("battle.payload", "output payload exceeds the 64 KiB limit");

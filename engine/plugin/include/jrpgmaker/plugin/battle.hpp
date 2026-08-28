@@ -26,10 +26,15 @@ struct BattleFrameInput {
     bool cancel_requested = false;
 };
 
+struct PresentationCommand {
+    std::string id;
+    std::vector<std::byte> payload;
+};
+
 struct BattleFrameOutput {
     bool finished = false;
     std::string result_key;
-    std::vector<std::string> presentation_commands;
+    std::vector<PresentationCommand> presentation_commands;
     std::vector<std::byte> opaque_payload;
 };
 

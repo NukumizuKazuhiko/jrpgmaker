@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "actions": [
+    {"id": "move.forward", "keys": ["W"]},
+    {"id": "move.backward", "keys": ["S"]},
+    {"id": "move.left", "keys": ["A"]},
+    {"id": "move.right", "keys": ["D"]},
+    {"id": "extension.confirm", "keys": ["E"]},
+    {"id": "project.save", "keys": ["F5"]},
+    {"id": "project.load", "keys": ["F9"]}
+  ]
+}

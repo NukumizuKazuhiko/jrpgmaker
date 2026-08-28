@@ -310,6 +310,21 @@ TEST_CASE("battle seam supports opaque actions and deterministic completion",
     REQUIRE(session.Snapshot().finished);
 }
 
+TEST_CASE("battle presentation commands are generic and budgeted", "[plugin][p9]") {
+    jrpgmaker::plugin::BattleFrameOutput output{
+        .finished = false,
+        .result_key = {},
+        .presentation_commands = {{.id = "ui.dialog.open", .payload = {}}},
+        .opaque_payload = {}};
+    REQUIRE_FALSE(jrpgmaker::plugin::ValidateBattleOutput(output));
+    output.presentation_commands.front().id.clear();
+    REQUIRE(jrpgmaker::plugin::ValidateBattleOutput(output).has_value());
+    output.presentation_commands.front().id = "ui.dialog.open";
+    output.presentation_commands.front().payload.resize(jrpgmaker::plugin::kMaxBattlePayloadBytes +
+                                                        1);
+    REQUIRE(jrpgmaker::plugin::ValidateBattleOutput(output).has_value());
+}
+
 TEST_CASE("battle seam rejects invalid and over-budget values", "[plugin][battle][p5]") {
     REQUIRE(jrpgmaker::plugin::ValidateBattleLaunch({}).has_value());
     REQUIRE(jrpgmaker::plugin::ValidateBattleInput({.delta_seconds = -1.0,

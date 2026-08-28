@@ -23,6 +23,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "jrpgmaker/core/input_actions.hpp"
 #include "jrpgmaker/core/map_data.hpp"
 #include "jrpgmaker/domain/encounter.hpp"
 #include "jrpgmaker/domain/event_lint.hpp"
@@ -31,6 +32,8 @@
 #include "jrpgmaker/domain/interaction.hpp"
 #include "jrpgmaker/domain/schedule.hpp"
 #include "jrpgmaker/domain/vertical_slice.hpp"
+#include "jrpgmaker/plugin/plugin.hpp"
+#include "jrpgmaker/plugins/register.hpp"
 
 namespace {
 
@@ -267,6 +270,72 @@ bool CheckEncounterReferences(const std::filesystem::path& encounter_path,
     }
 }
 
+bool CheckProject(const std::filesystem::path& project_path,
+                  const std::filesystem::path& project_root) {
+    const nlohmann::json project_document = LoadJson(project_path);
+    if (project_document.is_null())
+        return false;
+
+    const auto project_result = jrpgmaker::plugin::ParseProjectManifest(project_document);
+    if (!project_result) {
+        std::cerr << project_path.string() << ": " << project_result.error->message << '\n';
+        return false;
+    }
+
+    const auto read_manifest = [&project_root](const char* directory) {
+        const auto path = project_root / "plugins" / directory / "plugin.json";
+        const auto result = jrpgmaker::plugin::ParseManifest(LoadJson(path));
+        if (!result)
+            throw std::invalid_argument(path.string() + ": " + result.error->message);
+        return *result.manifest;
+    };
+
+    jrpgmaker::plugin::PluginRegistry registry;
+    try {
+        const auto unlit = read_manifest("sample_unlit");
+        const auto style = read_manifest("sample_style");
+        const auto instant = read_manifest("sample_instant");
+        const auto turn_based = read_manifest("sample_turn_based");
+        if (const auto error = jrpgmaker::plugins::RegisterSamplePlugins(registry, unlit, style);
+            error.has_value()) {
+            std::cerr << "plugin registration error: " << error->message << '\n';
+            return false;
+        }
+        if (const auto error =
+                jrpgmaker::plugins::RegisterSampleBattlePlugins(registry, instant, turn_based);
+            error.has_value()) {
+            std::cerr << "battle plugin registration error: " << error->message << '\n';
+            return false;
+        }
+    } catch (const std::exception& error) {
+        std::cerr << "plugin manifest error: " << error.what() << '\n';
+        return false;
+    }
+
+    bool ok = true;
+    for (const auto& issue : jrpgmaker::plugin::ValidateProjectPluginData(*project_result.manifest,
+                                                                          registry, project_root)) {
+        std::cerr << project_path.string() << ": " << issue.code << ": " << issue.path << ": "
+                  << issue.message << '\n';
+        ok = false;
+    }
+
+    const auto input_path = project_root / project_result.manifest->input_actions;
+    const auto input_document = LoadJson(input_path);
+    if (input_document.is_null()) {
+        ok = false;
+    } else {
+        const auto input_result = jrpgmaker::core::ParseInputActionMap(input_document);
+        if (!input_result) {
+            std::cerr << input_path.string() << ": input actions: " << input_result.error << '\n';
+            ok = false;
+        }
+    }
+    if (ok)
+        std::cout << project_path.string() << ": project data clean\n";
+    return ok;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -277,7 +346,8 @@ int main(int argc, char** argv) {
             << "       eventlint --check-schedule <calendar.json> <schedule.json> <events.json>\n"
             << "       eventlint --check-cutscene <cutscene.json> <events.json>\n"
             << "       eventlint --check-encounter <encounter.json> <events.json>\n"
-            << "       eventlint --check-vertical-slice <slice.json> <events.json>\n";
+            << "       eventlint --check-vertical-slice <slice.json> <events.json>\n"
+            << "       eventlint --check-project <project.json> <project-root>\n";
         return 2;
     }
 
@@ -287,6 +357,14 @@ int main(int argc, char** argv) {
             return 2;
         }
         return CheckTriggerReferences(argv[2], argv[3]) ? 0 : 1;
+    }
+
+    if (std::string(argv[1]) == "--check-project") {
+        if (argc != 4) {
+            std::cerr << "eventlint --check-project requires <project.json> <project-root>\n";
+            return 2;
+        }
+        return CheckProject(argv[2], argv[3]) ? 0 : 1;
     }
 
     if (std::string(argv[1]) == "--check-schedule") {
