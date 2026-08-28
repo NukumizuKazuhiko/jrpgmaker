@@ -1,5 +1,7 @@
 # P11 插件发布与排障
 
+本文只负责发布和运维；插件的权威行为规范见 [插件系统规范](11-plugin-system.md)，开发入口见 [插件 SDK 与发布合同](05-plugin-sdk.md)。
+
 ## 兼容性矩阵
 
 | 项目 | 当前合同 | 失败行为 |
@@ -22,6 +24,8 @@
 发布包由 `tools/ci/package_release.ps1` 生成，输入一个已完成的构建目录和项目根目录。它只复制宿主可执行文件及其顶层运行库（`.dll`/`.so`/`.dylib`），不会把 `CMakeFiles`、对象文件或 CMake 元数据装入运行包；同时复制项目 assets、插件 manifest 和插件私有 `data`，并生成 `release-manifest.json`。装配前会严格检查 manifest 的 schema、id、type、version、engine contract、data roots 和 capabilities，且要求 contract 等于当前 SDK contract。清单按相对路径排序并记录文件大小与 SHA-256；文件数和总大小均有上界，已有输出目录会被拒绝以避免覆盖。
 
 开发者 SDK 不混入运行时发布包；使用构建目录执行 `cmake --install` 可得到 `jrpgmakerConfig.cmake`、公共头和 `jrpgmaker::plugin` target，外部插件工程通过 `find_package(jrpgmaker CONFIG REQUIRED)` 消费。
+
+P13 编辑器扩展资源不进入游戏运行包。独立编辑器包可以复制已登记插件的 `plugin.editor.json`、字段描述、图标和 `locales/`，但必须生成独立的 editor resource manifest；运行包仍只包含运行时 `plugin.json`、私有 data 和宿主所需二进制。
 
 Windows、Linux、macOS 应分别使用对应的 release 构建目录，并对两个空输出目录生成的 `release-manifest.json` 做字节或 SHA-256 比较。CI 的六平台 build-test 矩阵会执行该检查。
 

@@ -32,6 +32,7 @@
 | `docs/08-editor-plan.md` | P13 编辑器边界、阶段与停止条件 |
 | `docs/09-editor-interface-catalog.md` | P13 GUI 所需接口、共享工作区 seam 与数据 adapter 目录 |
 | `docs/10-editor-ui-system.md` | P13 组件、主题、布局、i18n 与可访问性合同 |
+| `docs/11-plugin-system.md` | 插件身份、类型、生命周期、数据、错误、能力、编辑器扩展和验收规范 |
 
 规则：新增真源文档必须先登记进 `docs/README.md`；未登记或已归档的文档不得作为事实依据。
 

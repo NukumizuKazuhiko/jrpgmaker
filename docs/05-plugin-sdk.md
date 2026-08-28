@@ -2,6 +2,14 @@
 
 本文是当前源码级插件 SDK 的公开入口。插件是构建期注册的 C++20 目标，不提供跨编译器 DLL ABI、热加载或沙箱脚本接口。
 
+权威规则按以下顺序读取：
+
+1. [插件系统规范](11-plugin-system.md)：身份、类型、生命周期、数据、错误、能力、安全边界和编辑器扩展。
+2. 本文：最小工程、SDK 消费方式和验收命令。
+3. [插件发布与排障](06-plugin-release.md)：兼容矩阵、装配内容和运行问题定位。
+
+源码、公开头和本文冲突时以当前源码为事实证据，并同步修正文档；插件不得只依赖参考实现中的私有约定。
+
 ## 最小插件
 
 `templates/plugin_minimal/` 是可复制的最小工程。插件只应依赖 `jrpgmaker/plugin/plugin.hpp`（战斗插件再依赖 `battle.hpp`），由宿主工程把工厂注册到 `PluginRegistry`。插件不能 include SDL、D3D12、Vulkan 或 `engine/domain` 的私有实现。
@@ -33,6 +41,8 @@
 ## 注册与替换
 
 项目只保存插件 id。渲染风格和战斗规则分别通过 `CreateProjectRenderStyle` 与 `CreateProjectBattlePlugin` 创建，因此替换实现不需要改 domain 业务分支或 RHI 后端。样例注册器仅用于测试和演示；生产宿主应生成或维护自己的注册函数。
+
+插件 id、capability、错误 code、presentation command id 和 result key 的命名与兼容规则见 [插件系统规范](11-plugin-system.md)。编辑器扩展不是运行时插件类型：它通过相邻的 `plugin.editor.json` 和可选 editor SDK Adapter 声明，删除后不得影响项目 lint、app 或发布包。
 
 ## 验收
 

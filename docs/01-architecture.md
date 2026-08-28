@@ -148,6 +148,8 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 
 ### 通用插件宿主合同
 
+完整的插件身份、命名、manifest、生命周期、数据/错误边界、战斗/渲染 seam 和 P13 editor sidecar 规范统一登记于 [插件系统规范](11-plugin-system.md)；本节只保留架构摘要。
+
 - 插件清单必须声明 `schema`、稳定 `id`、`type`、`version`、`engine_contract`、能力和数据入口；重复 ID、未知类型、合同版本不兼容、缺失工厂或缺失数据文件在装配期报错。
 - P5/P6 采用源码级 CMake target + 构建期注册。`app` 只按项目清单请求类型化工厂，不得按具体插件 ID 分支；插件不得依赖 `engine/*/src` 或任何 D3D12/Vulkan 后端头。
 - 通用 host 只拥有发现、注册、创建、销毁、validator 调度和结构化错误。插件私有 schema 与 payload 对 host 不透明；host 不提供万能字符串回调或无界消息队列。

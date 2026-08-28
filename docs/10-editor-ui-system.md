@@ -146,7 +146,7 @@ status: StatusBar
 | `DiagnosticPanel` | `DiagnosticSet` | filter/navigate-to-field command |
 | `DiffPanel` | `ChangeSet` | accept/cancel/save command |
 | `PreviewPanel` | `PreviewSnapshot` | refresh/run-project command |
-| `PluginPanelHost` | editor extension descriptors | namespaced plugin command |
+| `PluginPanelHost` | [插件系统规范](11-plugin-system.md) 定义的 editor extension descriptors | namespaced plugin command |
 
 这些模块只做 projection 和命令映射，不直接打开文件、解析 JSON、调用 plugin 私有类型或生成自然语言。
 

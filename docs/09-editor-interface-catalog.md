@@ -55,7 +55,7 @@ interface 规则：
 | 项目 manifest | `plugin::ParseProjectManifest`、`ValidateProjectPlugins`、`ValidateProjectDataRoots`、`ValidateProjectPluginData` | 项目概览、插件选择、文档发现 | 可复用；由 workspace 统一调度 |
 | 插件 manifest/实例 | `plugin::ParseManifest`、`ValidatePluginManifest`、`PluginRegistry` | 插件状态与私有数据入口 | 可复用；错误统一映射为 `Diagnostic` |
 | 渲染资源 catalog | `render::ParseRenderResourceCatalog` | 资源树与引用诊断 | 可复用 |
-| 材质实例 | `IRenderStyleAdapter::ValidateMaterial` | opaque JSON 表单与保存阻断 | validator 可复用；字段描述 seam 在 P13-4 提供 |
+| 材质实例 | `IRenderStyleAdapter::ValidateMaterial` | opaque JSON 表单与保存阻断 | validator 可复用；字段描述按 [插件系统规范](11-plugin-system.md) 的 editor sidecar 提供 |
 | glTF/纹理导入 | `assetimport` 公开导入接口、render 资源预算 | 资源诊断/只读预览 | 第一闭环只读；导入命令后续接线 |
 
 ### Core 数据
@@ -113,7 +113,7 @@ interface 规则：
 - 修改：把类型化 `EditCommand` 应用到候选文档；未知字段、只读字段和类型漂移立即拒绝。
 - 验证：单文档 parser 后执行跨文档 validator；插件私有 adapter 最终仍调用插件 validator。
 
-文档类型由 project manifest 引用和 adapter 声明解析，禁止继续由 GUI 根据文件名写 if/else。未知但合法的插件私有文档可只读显示并运行 validator；没有字段描述时不得退化为无约束自由 JSON 保存。
+文档类型由 project manifest 引用和 adapter 声明解析，禁止继续由 GUI 根据文件名写 if/else。未知但合法的插件私有文档可只读显示并运行 validator；没有字段描述时不得退化为无约束自由 JSON 保存。插件 editor sidecar、字段描述和资源 namespace 的完整合同见 [插件系统规范](11-plugin-system.md)。
 
 ## 预览与进程 seam
 

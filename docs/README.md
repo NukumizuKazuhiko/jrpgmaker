@@ -17,6 +17,7 @@
 | 08 | [编辑器 GUI 计划](08-editor-plan.md) | P13 开发者项目编辑器的边界、owner、实施阶段和验收 | 当前 |
 | 09 | [编辑器接口目录](09-editor-interface-catalog.md) | GUI 所需的现有接口、待抽取 seam、结构化工作区模型和数据 adapter 清单 | 当前 |
 | 10 | [编辑器 UI 系统合同](10-editor-ui-system.md) | GUI 组件目录、主题文件、i18n、布局清单、状态与可访问性合同 | 当前 |
+| 11 | [插件系统规范](11-plugin-system.md) | 插件 manifest、注册、生命周期、数据/错误边界、战斗/渲染 seam 与编辑器扩展合同 | 当前 |
 
 根目录 [AGENTS.md](../AGENTS.md) 为项目宪法适配层，独立维护，不入本索引编号序列。
 
