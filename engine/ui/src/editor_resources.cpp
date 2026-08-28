@@ -4,8 +4,12 @@
 #include <cmath>
 #include <cctype>
 #include <functional>
+#include <fstream>
 #include <optional>
+#include <set>
+#include <string_view>
 #include <unordered_set>
+#include <utility>
 
 namespace jrpgmaker::ui {
 namespace {
@@ -117,6 +121,68 @@ std::optional<EditorColor> ParseColor(const std::string& value) {
 bool IsFiniteNonNegative(const nlohmann::json& value) {
     return value.is_number() && std::isfinite(value.get<double>()) && value.get<double>() >= 0.0 &&
            value.get<double>() <= 4096.0;
+}
+
+} // namespace
+
+namespace {
+
+void StartupError(std::vector<EditorStartupDiagnostic>& diagnostics, std::string code,
+                  std::string path) {
+    diagnostics.push_back({std::move(code), std::move(path)});
+}
+
+bool ReadJson(const std::filesystem::path& path, nlohmann::json& document,
+              std::vector<EditorStartupDiagnostic>& diagnostics) {
+    std::ifstream input(path);
+    if (!input.is_open()) {
+        StartupError(diagnostics, "editor.startup.file_open", path.string());
+        return false;
+    }
+    try {
+        input >> document;
+    } catch (const std::exception&) {
+        StartupError(diagnostics, "editor.startup.file_json", path.string());
+        return false;
+    }
+    return true;
+}
+
+std::string ResourceFileName(std::string id) {
+    std::replace(id.begin(), id.end(), '.', '_');
+    std::replace(id.begin(), id.end(), '-', '_');
+    return id + ".json";
+}
+
+void AddResourceErrors(const std::vector<EditorResourceError>& errors,
+                       const std::filesystem::path& path,
+                       std::vector<EditorStartupDiagnostic>& diagnostics) {
+    for (const auto& error : errors)
+        StartupError(diagnostics, error.code, path.string() + error.path);
+}
+
+std::set<std::string> PlaceholderNames(std::string_view value, bool& valid) {
+    std::set<std::string> names;
+    for (std::size_t index = 0; index < value.size(); ++index) {
+        if (value[index] != '{')
+            continue;
+        if (index + 1 < value.size() && value[index + 1] == '{') {
+            ++index;
+            continue;
+        }
+        const auto end = value.find('}', index + 1);
+        if (end == std::string_view::npos || end == index + 1) {
+            valid = false;
+            continue;
+        }
+        const auto name = value.substr(index + 1, end - index - 1);
+        if (name.find('{') != std::string_view::npos || name.find('}') != std::string_view::npos)
+            valid = false;
+        else
+            names.emplace(name);
+        index = end;
+    }
+    return names;
 }
 
 } // namespace
@@ -276,6 +342,79 @@ EditorResourceParseResult<EditorLayout> ParseEditorLayout(const nlohmann::json& 
         std::unordered_set<std::string> ids;
         std::size_t count = 0;
         ParseLayoutNode(document["root"], result.value.root, ids, count, result.errors, "/root");
+    }
+    return result;
+}
+
+EditorStartupResult LoadEditorResources(const std::filesystem::path& root) {
+    EditorStartupResult result;
+    nlohmann::json manifest_document;
+    if (!ReadJson(root / "editor.json", manifest_document, result.diagnostics))
+        return result;
+    const auto manifest = ParseEditorManifest(manifest_document);
+    AddResourceErrors(manifest.errors, root / "editor.json", result.diagnostics);
+    if (!manifest)
+        return result;
+
+    std::unordered_map<std::string, EditorLocale> locales;
+    for (const auto& locale_id : manifest.value.available_locales) {
+        nlohmann::json document;
+        const auto path = root / "locales" / (locale_id + ".json");
+        if (!ReadJson(path, document, result.diagnostics))
+            continue;
+        const auto parsed = ParseEditorLocale(document, manifest.value);
+        AddResourceErrors(parsed.errors, path, result.diagnostics);
+        if (parsed)
+            locales.emplace(locale_id, parsed.value);
+    }
+    nlohmann::json theme_document;
+    const auto theme_path = root / "themes" / ResourceFileName(manifest.value.default_theme);
+    const auto theme_read = ReadJson(theme_path, theme_document, result.diagnostics);
+    const auto theme = theme_read ? ParseEditorTheme(theme_document)
+                                  : EditorResourceParseResult<EditorTheme>{};
+    if (theme_read)
+        AddResourceErrors(theme.errors, theme_path, result.diagnostics);
+
+    nlohmann::json layout_document;
+    const auto layout_path = root / "layouts" / ResourceFileName(manifest.value.default_layout);
+    const auto layout_read = ReadJson(layout_path, layout_document, result.diagnostics);
+    const auto layout = layout_read ? ParseEditorLayout(layout_document)
+                                    : EditorResourceParseResult<EditorLayout>{};
+    if (layout_read)
+        AddResourceErrors(layout.errors, layout_path, result.diagnostics);
+
+    const auto locale_it = locales.find(manifest.value.default_locale);
+    if (locale_it == locales.end())
+        StartupError(result.diagnostics, "editor.startup.default_locale_unavailable",
+                     manifest.value.default_locale);
+    else {
+        bool placeholders_valid = true;
+        const auto& baseline = locale_it->second.strings;
+        for (const auto& [locale_id, locale] : locales) {
+            if (locale.strings.size() != baseline.size())
+                StartupError(result.diagnostics, "editor.locale.key_set_mismatch", locale_id);
+            for (const auto& [key, text] : baseline) {
+                const auto translated = locale.strings.find(key);
+                if (translated == locale.strings.end()) {
+                    StartupError(result.diagnostics, "editor.locale.key_missing", locale_id + "/" + key);
+                    continue;
+                }
+                bool base_valid = true;
+                bool translated_valid = true;
+                const auto base_names = PlaceholderNames(text, base_valid);
+                const auto translated_names = PlaceholderNames(translated->second, translated_valid);
+                if (!base_valid || !translated_valid || base_names != translated_names)
+                    StartupError(result.diagnostics, "editor.locale.placeholder_mismatch",
+                                 locale_id + "/" + key);
+            }
+        }
+        placeholders_valid = placeholders_valid && !baseline.empty();
+        if (!placeholders_valid)
+            StartupError(result.diagnostics, "editor.locale.empty", manifest.value.default_locale);
+    }
+
+    if (result.diagnostics.empty() && theme_read && theme && layout_read && layout) {
+        result.bundle = EditorResourceBundle{manifest.value, locale_it->second, theme.value, layout.value};
     }
     return result;
 }

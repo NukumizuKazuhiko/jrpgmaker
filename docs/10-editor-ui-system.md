@@ -176,7 +176,7 @@ status: StatusBar
 ## P13-0 交付顺序
 
 1. 先定义 `EditorStartupDiagnostic`、`LocalizedText`、theme/i18n/layout 值对象与 parser。当前已实现 editor manifest/locale/layout/theme 的独立值对象与有界 parser；启动诊断聚合仍待补齐。
-2. 提交默认/高对比 theme、`zh-CN`/`en` locale 和 workspace layout fixture，并建立资源 lint。当前资源 fixture 已提交并由 editor 资源合同测试实读验证；独立 lint 命令仍待补齐。
+2. 提交默认/高对比 theme、`zh-CN`/`en` locale 和 workspace layout fixture，并建立资源 lint。当前资源 fixture 已提交并由 editor 资源合同测试实读验证；`jrpgmaker_editorlint <editor-resource-root>` 已提供独立 lint 入口。
 3. 扩展 `engine/ui` 的事件、焦点、命令和 DrawList seam；保留现有 Widget/Text 测试。
 4. 完成 `tools/project` 工作区 seam 后，才允许 `tools/editor` 用这些资源创建窗口。
 

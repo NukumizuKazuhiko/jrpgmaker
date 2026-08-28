@@ -38,6 +38,9 @@ jrpgmaker_projecttool preview <project-root>
 
 ```text
 jrpgmaker_eventlint --check-project <project.json> <project-root>
+
+# 校验编辑器安装资源
+jrpgmaker_editorlint <editor-resource-root>
 ```
 
 ## 启动与输入

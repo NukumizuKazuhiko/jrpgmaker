@@ -34,6 +34,7 @@ add_subdirectory(tools/goldenimage)
 add_subdirectory(tools/eventlint)
 add_subdirectory(tools/project)
 add_subdirectory(tools/projecttool)
+add_subdirectory(tools/editorlint)
 
 if(JRPGMAKER_BUILD_TESTS)
   enable_testing()
@@ -46,4 +47,7 @@ if(JRPGMAKER_BUILD_TESTS)
            COMMAND jrpgmaker_goldenimage compare-project-style
                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/style_accent_64x64.ppm"
                    "${CMAKE_CURRENT_SOURCE_DIR}/assets/data/project_accent.json" 1)
+  add_test(NAME editor_resources_lint
+           COMMAND jrpgmaker_editorlint
+                   "${CMAKE_CURRENT_SOURCE_DIR}/tools/editor/resources")
 endif()

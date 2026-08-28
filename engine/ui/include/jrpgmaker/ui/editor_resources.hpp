@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -66,6 +68,24 @@ struct EditorLayout {
     EditorLayoutNode root;
 };
 
+struct EditorResourceBundle {
+    EditorManifest manifest;
+    EditorLocale locale;
+    EditorTheme theme;
+    EditorLayout layout;
+};
+
+struct EditorStartupDiagnostic {
+    std::string code;
+    std::string path;
+};
+
+struct EditorStartupResult {
+    std::optional<EditorResourceBundle> bundle;
+    std::vector<EditorStartupDiagnostic> diagnostics;
+    explicit operator bool() const { return bundle.has_value() && diagnostics.empty(); }
+};
+
 template <typename T>
 struct EditorResourceParseResult {
     T value{};
@@ -86,5 +106,7 @@ ParseEditorLocale(const nlohmann::json& document, const EditorManifest& manifest
 ParseEditorTheme(const nlohmann::json& document);
 [[nodiscard]] EditorResourceParseResult<EditorLayout>
 ParseEditorLayout(const nlohmann::json& document);
+
+[[nodiscard]] EditorStartupResult LoadEditorResources(const std::filesystem::path& root);
 
 } // namespace jrpgmaker::ui

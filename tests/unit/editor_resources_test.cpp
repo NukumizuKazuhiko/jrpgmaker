@@ -112,3 +112,12 @@ TEST_CASE("committed editor resources form a valid startup set", "[ui][editor]")
     REQUIRE(high_contrast);
     REQUIRE(layout);
 }
+
+TEST_CASE("editor startup loader aggregates a complete resource bundle", "[ui][editor]") {
+    const auto result = jrpgmaker::ui::LoadEditorResources(
+        std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(result);
+    REQUIRE(result.bundle->manifest.default_theme == "editor.default");
+    REQUIRE(result.bundle->locale.locale == "zh-CN");
+    REQUIRE(result.bundle->layout.id == "editor.workspace");
+}

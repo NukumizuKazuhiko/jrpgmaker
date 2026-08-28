@@ -1,0 +1,3 @@
+add_executable(jrpgmaker_editorlint main.cpp)
+target_link_libraries(jrpgmaker_editorlint PRIVATE jrpgmaker::ui)
+target_compile_features(jrpgmaker_editorlint PRIVATE cxx_std_20)
