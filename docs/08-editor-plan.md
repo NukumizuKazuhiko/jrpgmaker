@@ -50,6 +50,7 @@
 
 - 新增独立 `tools/editor` 可执行目标，使用 SDL3 窗口、已验证的 editor theme/layout/i18n 资源，并通过 `ProjectWorkspace` 完成可选项目打开与诊断；SDL 事件只由 host 消费，业务语义仍由 workspace/domain 提供。
 - `editor::EditorSession` 统一持有工作区打开状态、字段选择、诊断/预览 projection、revision 和 dirty 状态；GUI 动作通过该 adapter 进入 `ProjectWorkspace::Apply` 与 `PrepareSave`/`Commit`。
+- `PreviewProcess` 通过参数数组启动独立 runtime，Windows 使用 `CreateProcess`、Linux 使用 `posix_spawn`，编辑器只消费有界运行状态，不共享 runtime 的 ECS/RHI 或可变文件句柄。
 - `tools/editor` 的 layout 已转换为独立 shell projection，输入映射使用不依赖 SDL 的 `InputMap` 合同；具体 key binding 由后续版本化 editor action 资源提供。
 - editor action map 已纳入启动 manifest，由 `engine/ui` 有界解析并由 host 构造 `InputMap`；重复 key 和非法 action 资源在启动阶段拒绝。
 - `engine/ui` 已提供有界后端无关 `DrawList`（矩形 recipe/state 与 i18n key），`render::BuildUiDrawPacket` 已将矩形编译为主题驱动的 NDC 顶点/索引上传包，并由 `UploadUiDrawPacket`/`RecordUiDrawPacket` 接入 RHI buffer/indexed draw；editor host 已完成 SDL 窗口、D3D12/Vulkan swapchain、UI pipeline 和一帧实际提交，裁剪、glyph run 和 z-order 仍待实现。

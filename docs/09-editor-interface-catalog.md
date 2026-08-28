@@ -126,6 +126,7 @@ interface 规则：
 
 - `BuildPreview` 只返回结构化摘要：地图尺寸、碰撞/交互/相机区域数量、事件和资源状态、可选场景快照引用。
 - 真正运行项目由独立 process Adapter 发起，参数数组传递，不拼 shell 字符串；捕获 exit code、启动错误和有界日志。
+- `editor::PreviewProcess` 是该 process Adapter 的最小实现：只接收已解析的 executable/project root，拒绝空路径和非普通文件/目录，提供 `Start`/`Poll`/`Stop` 与结构化状态。
 - GUI 不嵌入 app 主循环，不共享可变 ECS、RHI device 或插件 session；编辑器崩溃不得带走项目运行进程，反之亦然。
 
 ## 完成门禁

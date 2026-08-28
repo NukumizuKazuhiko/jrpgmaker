@@ -134,6 +134,6 @@ TEST_CASE("editor startup loader aggregates a complete resource bundle", "[ui][e
     REQUIRE(result);
     REQUIRE(result.bundle->manifest.default_theme == "editor.default");
     REQUIRE(result.bundle->locale.locale == "zh-CN");
-    REQUIRE(result.bundle->action_map.actions.size() == 7);
+    REQUIRE(result.bundle->action_map.actions.size() == 8);
     REQUIRE(result.bundle->layout.id == "editor.workspace");
 }

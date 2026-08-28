@@ -4,7 +4,8 @@
 
 namespace jrpgmaker::editor {
 
-EditorSession::EditorSession(std::filesystem::path root) : workspace_(std::move(root), adapters_) {}
+EditorSession::EditorSession(std::filesystem::path root)
+    : root_(root), workspace_(std::move(root), adapters_) {}
 
 void EditorSession::SetDiagnostics(std::vector<project::Diagnostic> diagnostics) {
     state_.diagnostics = std::move(diagnostics);
@@ -115,5 +116,13 @@ bool EditorSession::Save() {
     SetDiagnostics({});
     return true;
 }
+
+bool EditorSession::StartPreview(const std::filesystem::path& executable) {
+    if (!state_.open)
+        return false;
+    return preview_process_.Start(executable, root_);
+}
+
+void EditorSession::PollPreview() { preview_process_.Poll(); }
 
 } // namespace jrpgmaker::editor

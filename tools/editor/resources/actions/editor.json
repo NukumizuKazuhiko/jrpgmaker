@@ -8,6 +8,7 @@
     "select_next": ["Down"],
     "select_previous": ["Up"],
     "confirm": ["Enter"],
-    "cancel": ["Escape"]
+    "cancel": ["Escape"],
+    "preview": ["F6"]
   }
 }

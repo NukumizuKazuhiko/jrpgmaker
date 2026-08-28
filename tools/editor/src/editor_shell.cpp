@@ -46,7 +46,8 @@ InputMap BuildInputMap(const ui::EditorActionMap& resource) {
         {"open", EditorAction::kOpen},           {"save", EditorAction::kSave},
         {"refresh", EditorAction::kRefresh},     {"select_next", EditorAction::kSelectNext},
         {"select_previous", EditorAction::kSelectPrevious},
-        {"confirm", EditorAction::kConfirm},     {"cancel", EditorAction::kCancel}};
+        {"confirm", EditorAction::kConfirm},     {"cancel", EditorAction::kCancel},
+        {"preview", EditorAction::kPreview}};
     for (const auto& [id, keys] : resource.actions) {
         const auto action = actions.find(id);
         if (action == actions.end())

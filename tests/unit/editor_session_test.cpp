@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "jrpgmaker/editor/editor_session.hpp"
+#include "jrpgmaker/editor/preview_process.hpp"
 
 namespace {
 
@@ -72,4 +73,11 @@ TEST_CASE("editor session field navigation wraps deterministically", "[editor]")
     REQUIRE(session.state().selected_field == 0);
     std::error_code error;
     std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor preview process rejects unsafe launch inputs", "[editor]") {
+    jrpgmaker::editor::PreviewProcess process;
+    REQUIRE_FALSE(process.Start({}, std::filesystem::temp_directory_path()));
+    REQUIRE_FALSE(process.state().running);
+    REQUIRE(process.state().error == "editor.preview.executable_or_project_invalid");
 }

@@ -197,6 +197,9 @@ int main(int argc, char** argv) {
                     if (!session->Save())
                         for (const auto& diagnostic : session->state().diagnostics)
                             std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+                } else if (*action == jrpgmaker::editor::EditorAction::kPreview) {
+                    if (!session->StartPreview(JRPGMAKER_RUNTIME_EXECUTABLE))
+                        std::cerr << "editor.preview.process_start_failed\n";
                 } else if (*action == jrpgmaker::editor::EditorAction::kSelectNext) {
                     ui_dirty = session->SelectNext() || ui_dirty;
                 } else if (*action == jrpgmaker::editor::EditorAction::kSelectPrevious) {
@@ -210,6 +213,8 @@ int main(int argc, char** argv) {
                     ui_dirty = true;
             }
         }
+        if (session != nullptr)
+            session->PollPreview();
         if (ui_dirty) {
             device->WaitForGpuIdle();
             jrpgmaker::render::DestroyUiGpuBatch(*device, gpu_batch);
