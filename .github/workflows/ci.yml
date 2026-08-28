@@ -79,13 +79,14 @@ jobs:
         run: |
           $sdk = Join-Path $env:RUNNER_TEMP "jrpgmaker-sdk-${{ matrix.preset }}"
           $consumer = Join-Path $env:RUNNER_TEMP "jrpgmaker-sdk-consumer-${{ matrix.preset }}"
-          cmake --install "./build/${{ matrix.preset }}" --prefix $sdk
+          $consumerConfig = if ("${{ matrix.preset }}" -like "*-debug") { "Debug" } else { "Release" }
+          cmake --install "./build/${{ matrix.preset }}" --config $consumerConfig --prefix $sdk
           $packageConfig = Get-ChildItem -LiteralPath $sdk -Recurse -Filter 'jrpgmakerConfig.cmake' -File | Select-Object -First 1
           if ($null -eq $packageConfig) { throw "installed SDK package config is missing under: $sdk" }
           $packageDir = $packageConfig.DirectoryName
           $vcpkgPrefix = Join-Path (Join-Path (Join-Path (Get-Location) 'build/${{ matrix.preset }}') 'vcpkg_installed') '${{ matrix.triplet }}'
-          cmake -S ./tests/fixtures/sdk_consumer -B $consumer -DCMAKE_PREFIX_PATH="$packageDir;$sdk;$vcpkgPrefix" -Djrpgmaker_DIR="$packageDir" -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_INSTALLED_DIR="$(Split-Path $vcpkgPrefix -Parent)" -DCMAKE_BUILD_TYPE=Release
-          cmake --build $consumer --config Release --parallel
+          cmake -S ./tests/fixtures/sdk_consumer -B $consumer -DCMAKE_PREFIX_PATH="$packageDir;$sdk;$vcpkgPrefix" -Djrpgmaker_DIR="$packageDir" -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_INSTALLED_DIR="$(Split-Path $vcpkgPrefix -Parent)" -DCMAKE_BUILD_TYPE=$consumerConfig -DCMAKE_CONFIGURATION_TYPES=$consumerConfig
+          cmake --build $consumer --config $consumerConfig --parallel
 
       - name: Assemble deterministic release package
         shell: pwsh
