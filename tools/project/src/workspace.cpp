@@ -59,7 +59,7 @@ const std::vector<std::string>& EditableManifestFields() {
     static const std::vector<std::string> fields = {
         "id",           "render_style",      "battle_plugin", "plugins",
         "data_roots",   "material_document", "input_actions", "event_script",
-        "localization", "resource_manifest"};
+        "localization", "resource_manifest", "navigation", "collision", "camera", "interaction"};
     return fields;
 }
 
@@ -155,7 +155,11 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
                    {"/input_actions", "path", "editor.project.input", "resource", true, false},
                    {"/event_script", "path", "editor.project.events", "resource", true, false},
                    {"/localization", "path", "editor.project.localization", "resource", true, false},
-                   {"/resource_manifest", "path", "editor.project.resources", "resource", true, false}},
+                   {"/resource_manifest", "path", "editor.project.resources", "resource", true, false},
+                   {"/navigation", "path", "editor.project.navigation", "resource", true, false},
+                   {"/collision", "path", "editor.project.collision", "resource", true, false},
+                   {"/camera", "path", "editor.project.camera", "resource", true, false},
+                   {"/interaction", "path", "editor.project.interaction", "resource", true, false}},
         .validate = ValidateManifestAdapter});
     return registry;
 }
@@ -197,12 +201,11 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
     nlohmann::json camera_document;
     nlohmann::json interaction_document;
     const auto event_path = snapshot.root / snapshot.manifest.event_script;
-    const auto data_directory = event_path.parent_path();
     if (!Read(event_path, events_document, result.diagnostics) ||
-        !Read(data_directory / "navigation_demo.json", navigation_document, result.diagnostics) ||
-        !Read(data_directory / "collision_demo.json", collision_document, result.diagnostics) ||
-        !Read(data_directory / "camera_demo.json", camera_document, result.diagnostics) ||
-        !Read(data_directory / "interaction_demo.json", interaction_document, result.diagnostics))
+        !Read(snapshot.root / snapshot.manifest.navigation, navigation_document, result.diagnostics) ||
+        !Read(snapshot.root / snapshot.manifest.collision, collision_document, result.diagnostics) ||
+        !Read(snapshot.root / snapshot.manifest.camera, camera_document, result.diagnostics) ||
+        !Read(snapshot.root / snapshot.manifest.interaction, interaction_document, result.diagnostics))
         return result;
     try {
         const auto events = domain::ParseEventScript(events_document);

@@ -52,7 +52,7 @@ interface 规则：
 
 | 数据 | 当前 owner/interface | GUI 用法 | 状态/动作 |
 |---|---|---|---|
-| 项目 manifest | `plugin::ParseProjectManifest`、`ValidateProjectPlugins`、`ValidateProjectDataRoots`、`ValidateProjectPluginData` | 项目概览、插件选择、文档发现 | 可复用；由 workspace 统一调度 |
+| 项目 manifest | `plugin::ParseProjectManifest`、`ValidateProjectPlugins`、`ValidateProjectDataRoots`、`ValidateProjectPluginData` | 项目概览、插件选择、文档发现 | 可复用；由 workspace 统一调度；`navigation`/`collision`/`camera`/`interaction` 路径显式声明，禁止按目录和文件名推断 |
 | 插件 manifest/实例 | `plugin::ParseManifest`、`ValidatePluginManifest`、`PluginRegistry` | 插件状态与私有数据入口 | 可复用；错误统一映射为 `Diagnostic` |
 | 渲染资源 catalog | `render::ParseRenderResourceCatalog` | 资源树与引用诊断 | 可复用 |
 | 材质实例 | `IRenderStyleAdapter::ValidateMaterial` | opaque JSON 表单与保存阻断 | validator 可复用；字段描述按 [插件系统规范](11-plugin-system.md) 的 editor sidecar 提供 |

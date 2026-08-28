@@ -1,7 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
+#include <string>
 
 #include <nlohmann/json.hpp>
 
@@ -34,6 +36,39 @@ TEST_CASE("project workspace opens and diagnoses the committed demo", "[project]
     REQUIRE(diagnosed.event_count > 0);
     REQUIRE(diagnosed.navigation_width > 0);
     REQUIRE(diagnosed.camera_region_count > 0);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("project workspace discovers map documents from manifest paths", "[project][editor]") {
+    const auto root = MakeFixture();
+    nlohmann::json manifest;
+    {
+        std::ifstream input(root / "project.json");
+        input >> manifest;
+    }
+    const auto data = root / "assets/data";
+    const std::array<std::pair<const char*, const char*>, 4> paths = {
+        std::pair{"navigation", "assets/data/navigation_custom.json"},
+        std::pair{"collision", "assets/data/collision_custom.json"},
+        std::pair{"camera", "assets/data/camera_custom.json"},
+        std::pair{"interaction", "assets/data/interaction_custom.json"}};
+    for (const auto& [field, path] : paths) {
+        const auto source = data / (std::string(field) + "_demo.json");
+        std::filesystem::copy_file(source, root / path,
+                                    std::filesystem::copy_options::overwrite_existing);
+        manifest[field] = path;
+    }
+    {
+        std::ofstream output(root / "project.json", std::ios::trunc);
+        output << manifest.dump(2) << '\n';
+    }
+
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.Diagnose(*opened.snapshot));
+
     std::error_code error;
     std::filesystem::remove_all(root, error);
 }

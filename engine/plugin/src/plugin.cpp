@@ -236,7 +236,8 @@ ProjectManifestParseResult ParseProjectManifest(const nlohmann::json& document) 
         }
         project.input_actions = document["input_actions"].get<std::string>();
     }
-    for (const char* field : {"event_script", "localization", "resource_manifest"}) {
+    for (const char* field : {"event_script", "localization", "resource_manifest", "navigation",
+                              "collision", "camera", "interaction"}) {
         if (!document.contains(field))
             continue;
         if (!document[field].is_string() ||
@@ -248,8 +249,16 @@ ProjectManifestParseResult ParseProjectManifest(const nlohmann::json& document) 
             project.event_script = document[field].get<std::string>();
         else if (std::string(field) == "localization")
             project.localization = document[field].get<std::string>();
-        else
+        else if (std::string(field) == "resource_manifest")
             project.resource_manifest = document[field].get<std::string>();
+        else if (std::string(field) == "navigation")
+            project.navigation = document[field].get<std::string>();
+        else if (std::string(field) == "collision")
+            project.collision = document[field].get<std::string>();
+        else if (std::string(field) == "camera")
+            project.camera = document[field].get<std::string>();
+        else
+            project.interaction = document[field].get<std::string>();
     }
     return {.manifest = std::move(project), .error = std::nullopt};
 }

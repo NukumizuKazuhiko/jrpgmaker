@@ -58,6 +58,10 @@ struct ProjectManifest {
     std::string event_script = "assets/data/events_demo.json";
     std::string localization = "assets/data/localization_en.json";
     std::string resource_manifest = "assets/data/resources_demo.json";
+    std::string navigation = "assets/data/navigation_demo.json";
+    std::string collision = "assets/data/collision_demo.json";
+    std::string camera = "assets/data/camera_demo.json";
+    std::string interaction = "assets/data/interaction_demo.json";
 };
 
 struct ProjectManifestParseResult {
