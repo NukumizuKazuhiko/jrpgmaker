@@ -36,7 +36,15 @@ if (-not (Test-Path -LiteralPath $app -PathType Leaf)) {
     throw "built application is missing: $app"
 }
 New-Item -ItemType Directory -Path (Join-Path $output 'bin') | Out-Null
-Copy-Item -Path (Join-Path $build 'app/*') -Destination (Join-Path $output 'bin') -Recurse
+$runtimeFiles = @(Get-ChildItem -LiteralPath (Join-Path $build 'app') -File |
+    Where-Object {
+        $_.Name -eq $resolvedExecutableName -or
+        @('.dll', '.so', '.dylib') -contains $_.Extension.ToLowerInvariant()
+    })
+if ($runtimeFiles.Count -eq 0) {
+    throw "no application runtime files found under: $(Join-Path $build 'app')"
+}
+Copy-Item -LiteralPath $runtimeFiles.FullName -Destination (Join-Path $output 'bin')
 Copy-Item -LiteralPath (Join-Path $project 'assets') -Destination $output -Recurse
 
 $pluginOutput = Join-Path $output 'plugins'
