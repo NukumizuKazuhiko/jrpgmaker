@@ -48,6 +48,33 @@ TEST_CASE("vulkan backend survives repeated submit and wait cycles", "[rhi][vulk
     device->DestroyCommandList(command_list);
 }
 
+TEST_CASE("vulkan device releases resources still owned at destruction", "[rhi][vulkan]") {
+    std::unique_ptr<IDevice> device = CreateDevice(Backend::kVulkan);
+    REQUIRE(device != nullptr);
+
+    const BufferHandle buffer = device->CreateBuffer({64, BufferUsage::kVertex});
+    REQUIRE(buffer != BufferHandle::kInvalid);
+    const TextureHandle texture = device->CreateTexture(
+        TextureDesc{.width = 4,
+                    .height = 4,
+                    .format = Format::kR8G8B8A8Unorm,
+                    .usage = TextureUsage::kRenderTarget | TextureUsage::kReadBack});
+    REQUIRE(texture != TextureHandle::kInvalid);
+
+    ICommandList* command_list = device->CreateCommandList();
+    REQUIRE(command_list != nullptr);
+    command_list->Begin();
+    command_list->BeginRendering(texture, ClearColor{0.0f, 0.0f, 0.0f, 1.0f}, true);
+    command_list->EndRendering();
+    command_list->End();
+    device->Submit(*command_list);
+    device->WaitForGpuIdle();
+    device->DestroyCommandList(command_list);
+
+    REQUIRE(device->MapReadBack(texture).data != nullptr);
+    device.reset();
+}
+
 TEST_CASE("vulkan backend rejects draws without a bound pipeline", "[rhi][vulkan][draw-contract]") {
     const std::unique_ptr<IDevice> device = CreateDevice(Backend::kVulkan);
     REQUIRE(device != nullptr);

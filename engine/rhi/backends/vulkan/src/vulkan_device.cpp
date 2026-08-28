@@ -252,21 +252,21 @@ VulkanDevice::~VulkanDevice() {
             vkDestroyDescriptorSetLayout(device_, sample_set_layout_, nullptr);
         }
         for (const auto& [key, entry] : read_backs_) {
-            vkFreeMemory(device_, entry.memory, nullptr);
             vkDestroyBuffer(device_, entry.buffer, nullptr);
+            vkFreeMemory(device_, entry.memory, nullptr);
         }
         for (const auto& [key, entry] : buffers_) {
             vkUnmapMemory(device_, entry.memory);
-            vkFreeMemory(device_, entry.memory, nullptr);
             vkDestroyBuffer(device_, entry.buffer, nullptr);
+            vkFreeMemory(device_, entry.memory, nullptr);
         }
         for (const auto& [key, entry] : textures_) {
             if (entry.is_swapchain) {
                 continue;
             }
             vkDestroyImageView(device_, entry.view, nullptr);
-            vkFreeMemory(device_, entry.memory, nullptr);
             vkDestroyImage(device_, entry.image, nullptr);
+            vkFreeMemory(device_, entry.memory, nullptr);
         }
         vkDestroyCommandPool(device_, command_pool_, nullptr);
         vkDestroyFence(device_, fence_, nullptr);

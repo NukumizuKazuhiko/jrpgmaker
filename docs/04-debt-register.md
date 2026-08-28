@@ -64,3 +64,4 @@
 | P3-9 | `TextBlock` 对未加载字体或零像素高度缺少输入保护，可能产生除零/无效布局 | 已修复：无效字体度量或零高度返回零尺寸，并有 widget 回归测试 | 2026-08-26 |
 | P3-10 | `FlagTriggerSystem` 每次 `FlagChanged` 都线性扫描全部 trigger | 已修复：构造期建立不可变 flag→event 索引，查询降为均摊 O(1) | 2026-08-26 |
 | P3-11 | Lua `log()` 空操作导致脚本诊断消息被吞掉 | 已修复：接入 domain 的 `std::clog` 诊断出口 | 2026-08-26 |
+| （P12 全仓审计）Vulkan 设备兜底析构先释放仍绑定于 buffer/image 的内存，再销毁对象，违反 Vulkan 生命周期要求 | 2026-08-28 调整为 readback/buffer 的 `destroy buffer → free memory`、texture 的 `destroy view → destroy image → free memory`；新增设备析构接管未显式释放 buffer、texture 和 readback 的 Vulkan 回归测试 | 已关闭 |
