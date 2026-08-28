@@ -5,6 +5,7 @@
 
 #include <array>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include "jrpgmaker/editor/editor_shell.hpp"
 #include "jrpgmaker/project/workspace.hpp"
@@ -60,16 +61,19 @@ int main(int argc, char** argv) {
         return 1;
     const auto input_map = jrpgmaker::editor::BuildInputMap(resources.bundle->action_map);
 
+    std::unique_ptr<jrpgmaker::project::ProjectWorkspace> workspace;
+    std::optional<jrpgmaker::project::ProjectSnapshot> snapshot;
     if ((argc == 2 && !smoke) || argc == 3) {
         const auto project_argument = std::filesystem::path(argv[1]);
-        jrpgmaker::project::ProjectWorkspace workspace{project_argument};
-        const auto opened = workspace.Open();
+        workspace = std::make_unique<jrpgmaker::project::ProjectWorkspace>(project_argument);
+        const auto opened = workspace->Open();
         if (!opened) {
             for (const auto& diagnostic : opened.diagnostics)
                 std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
             return 1;
         }
-        const auto diagnosed = workspace.Diagnose(*opened.snapshot);
+        snapshot = opened.snapshot;
+        const auto diagnosed = workspace->Diagnose(*snapshot);
         if (!diagnosed) {
             for (const auto& diagnostic : diagnosed.diagnostics)
                 std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
@@ -164,7 +168,33 @@ int main(int argc, char** argv) {
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
                 running = false;
             else if (event.type == SDL_EVENT_KEY_DOWN)
-                (void) input_map.Translate(SDL_GetKeyName(event.key.key), true);
+            {
+                const auto modifiers = SDL_GetModState();
+                const auto action = input_map.Translate(
+                    SDL_GetKeyName(event.key.key), true, (modifiers & SDL_KMOD_CTRL) != 0,
+                    (modifiers & SDL_KMOD_SHIFT) != 0, (modifiers & SDL_KMOD_ALT) != 0);
+                if (!action || workspace == nullptr)
+                    continue;
+                if (*action == jrpgmaker::editor::EditorAction::kRefresh) {
+                    if (snapshot) {
+                        const auto diagnosed = workspace->Diagnose(*snapshot);
+                        if (!diagnosed)
+                            for (const auto& diagnostic : diagnosed.diagnostics)
+                                std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+                    }
+                } else if (*action == jrpgmaker::editor::EditorAction::kSave) {
+                    const auto plan = workspace->PrepareSave(snapshot ? snapshot->revision : 0);
+                    if (!plan) {
+                        for (const auto& diagnostic : plan.diagnostics)
+                            std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+                    } else if (plan.token) {
+                        const auto committed = workspace->Commit(*plan.token);
+                        if (!committed)
+                            for (const auto& diagnostic : committed.diagnostics)
+                                std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+                    }
+                }
+            }
         }
         const auto target = swapchain->AcquireTexture();
         command_list->Begin();

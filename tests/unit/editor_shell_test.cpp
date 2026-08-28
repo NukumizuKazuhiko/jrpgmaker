@@ -10,6 +10,9 @@ TEST_CASE("editor input map translates only pressed configured keys", "[editor]"
     REQUIRE(input.Translate("Ctrl+S", true) == jrpgmaker::editor::EditorAction::kSave);
     REQUIRE_FALSE(input.Translate("Ctrl+S", false).has_value());
     REQUIRE_FALSE(input.Translate("Ctrl+O", true).has_value());
+    REQUIRE(input.Translate("S", true, true, false, false) ==
+            jrpgmaker::editor::EditorAction::kSave);
+    REQUIRE_FALSE(input.Translate("S", true, false, false, false).has_value());
 }
 
 TEST_CASE("editor input map is built from the action resource", "[editor]") {

@@ -35,6 +35,8 @@ public:
     [[nodiscard]] bool Add(KeyBinding binding);
     [[nodiscard]] std::optional<EditorAction> Translate(std::string_view key_name,
                                                         bool pressed) const;
+    [[nodiscard]] std::optional<EditorAction> Translate(std::string_view key_name, bool pressed,
+                                                        bool control, bool shift, bool alt) const;
 
 private:
     std::unordered_map<std::string, EditorAction> bindings_;

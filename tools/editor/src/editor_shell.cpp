@@ -4,6 +4,22 @@
 
 namespace jrpgmaker::editor {
 
+namespace {
+
+std::string BindingName(std::string_view key_name, bool control, bool shift, bool alt) {
+    std::string result;
+    if (control)
+        result += "Ctrl+";
+    if (shift)
+        result += "Shift+";
+    if (alt)
+        result += "Alt+";
+    result += key_name;
+    return result;
+}
+
+} // namespace
+
 bool InputMap::Add(KeyBinding binding) {
     if (binding.key_name.empty() || bindings_.size() >= kMaxBindings ||
         bindings_.contains(binding.key_name))
@@ -17,6 +33,11 @@ std::optional<EditorAction> InputMap::Translate(std::string_view key_name, bool 
         return std::nullopt;
     const auto it = bindings_.find(std::string(key_name));
     return it == bindings_.end() ? std::nullopt : std::optional<EditorAction>(it->second);
+}
+
+std::optional<EditorAction> InputMap::Translate(std::string_view key_name, bool pressed,
+                                                bool control, bool shift, bool alt) const {
+    return Translate(BindingName(key_name, control, shift, alt), pressed);
 }
 
 InputMap BuildInputMap(const ui::EditorActionMap& resource) {
