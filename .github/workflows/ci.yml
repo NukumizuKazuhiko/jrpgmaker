@@ -86,10 +86,15 @@ jobs:
           $packageDir = $packageConfig.DirectoryName
           $vcpkgPrefix = Join-Path (Join-Path (Join-Path (Get-Location) 'build/${{ matrix.preset }}') 'vcpkg_installed') '${{ matrix.triplet }}'
           $buildTypeArg = "-DCMAKE_BUILD_TYPE={0}" -f $consumerConfig
-          $compilerArgs = @()
-          if ($env:RUNNER_OS -eq 'Windows') { $compilerArgs += '-DCMAKE_CXX_COMPILER=cl.exe' }
-          cmake -S ./tests/fixtures/sdk_consumer -B $consumer -G Ninja -DCMAKE_PREFIX_PATH="$packageDir;$sdk;$vcpkgPrefix" -Djrpgmaker_DIR="$packageDir" -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_INSTALLED_DIR="$(Split-Path $vcpkgPrefix -Parent)" $buildTypeArg @compilerArgs
-          cmake --build $consumer --parallel
+          if ($env:RUNNER_OS -eq 'Windows') {
+            $generatorArgs = @('-G', 'Visual Studio 18 2026', '-A', 'x64')
+            $buildArgs = @('--config', $consumerConfig)
+          } else {
+            $generatorArgs = @('-G', 'Ninja')
+            $buildArgs = @()
+          }
+          cmake -S ./tests/fixtures/sdk_consumer -B $consumer @generatorArgs -DCMAKE_PREFIX_PATH="$packageDir;$sdk;$vcpkgPrefix" -Djrpgmaker_DIR="$packageDir" -DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_INSTALLED_DIR="$(Split-Path $vcpkgPrefix -Parent)" $buildTypeArg
+          cmake --build $consumer @buildArgs --parallel
 
       - name: Assemble deterministic release package
         shell: pwsh
