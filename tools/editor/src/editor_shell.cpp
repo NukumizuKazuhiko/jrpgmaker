@@ -116,4 +116,30 @@ ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds
     return draw_list;
 }
 
+ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect bounds,
+                                  float row_height) {
+    ui::DrawList draw_list;
+    if (!(row_height > 0.0f))
+        return draw_list;
+    if (!projection.valid) {
+        for (std::size_t index = 0; index < projection.diagnostics.size(); ++index) {
+            const ui::Rect row{bounds.x, bounds.y + row_height * static_cast<float>(index), bounds.width,
+                               row_height};
+            (void) draw_list.Add(ui::DrawRect{row, "input", "disabled"});
+            if (!projection.diagnostics[index].code.empty())
+                (void) draw_list.Add(ui::DrawText{row, projection.diagnostics[index].code});
+        }
+        return draw_list;
+    }
+    for (std::size_t index = 0; index < projection.metrics.size(); ++index) {
+        const auto& metric = projection.metrics[index];
+        const ui::Rect row{bounds.x, bounds.y + row_height * static_cast<float>(index), bounds.width,
+                           row_height};
+        (void) draw_list.Add(ui::DrawRect{row, "panel", "normal"});
+        if (!metric.label_key.empty())
+            (void) draw_list.Add(ui::DrawText{row, metric.label_key});
+    }
+    return draw_list;
+}
+
 } // namespace jrpgmaker::editor

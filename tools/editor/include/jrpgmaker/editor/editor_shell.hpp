@@ -68,4 +68,7 @@ BuildShellProjection(const ui::EditorLayout& layout);
 [[nodiscard]] ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds,
                                               float row_height, std::size_t selected_field);
 
+[[nodiscard]] ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection,
+                                                 ui::Rect bounds, float row_height);
+
 } // namespace jrpgmaker::editor
