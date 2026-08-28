@@ -20,6 +20,7 @@
 #include "jrpgmaker/domain/schedule.hpp"
 #include "jrpgmaker/domain/vertical_slice.hpp"
 #include "jrpgmaker/plugin/plugin.hpp"
+#include "jrpgmaker/project/workspace.hpp"
 
 namespace {
 
@@ -198,12 +199,27 @@ bool ValidateSnapshot(const ProjectSnapshot& snapshot) {
 }
 
 bool OpenProject(const std::filesystem::path& root, bool validate) {
-    ProjectSnapshot snapshot;
-    if (!LoadSnapshot(root, snapshot))
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto opened = workspace.Open();
+    if (!opened) {
+        for (const auto& diagnostic : opened.diagnostics)
+            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
         return false;
+    }
+    const auto& snapshot = *opened.snapshot;
     std::cout << root.string() << ": opened project id=" << snapshot.manifest.id
               << " render_style=" << snapshot.manifest.render_style << '\n';
-    return !validate || ValidateSnapshot(snapshot);
+    if (!validate)
+        return true;
+    const auto diagnosed = workspace.Diagnose(snapshot);
+    if (!diagnosed) {
+        for (const auto& diagnostic : diagnosed.diagnostics)
+            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        return false;
+    }
+    std::cout << root.string() << ": project manifest clean (id=" << snapshot.manifest.id
+              << ", plugins=" << snapshot.manifest.plugins.size() << ")\n";
+    return true;
 }
 
 const std::vector<std::string>& EditableFields() {
@@ -354,33 +370,25 @@ bool MigrateProject(const std::filesystem::path& root) {
 }
 
 bool DiagnoseProject(const std::filesystem::path& root) {
-    ProjectSnapshot snapshot;
-    if (!LoadSnapshot(root, snapshot) || !ValidateSnapshot(snapshot))
-        return false;
-    try {
-        const auto read = [&root](const char* name) {
-            nlohmann::json document;
-            if (!LoadJsonDocument(root / "assets/data" / name, document))
-                throw std::invalid_argument(std::string("cannot read ") + name);
-            return document;
-        };
-        const auto events = jrpgmaker::domain::ParseEventScript(read("events_demo.json"));
-        const auto navigation = jrpgmaker::core::ParseNavigationGrid(read("navigation_demo.json"));
-        const auto collision = jrpgmaker::core::ParseCollisionAabbs(read("collision_demo.json"));
-        const auto camera = jrpgmaker::core::ParseCameraRigData(read("camera_demo.json"));
-        const auto interactions =
-            jrpgmaker::domain::ParseInteractionPoints(read("interaction_demo.json"));
-        jrpgmaker::domain::ValidateInteractionTargets(interactions, events);
-        std::cout << root.string() << ": diagnostic snapshot events=" << events.events.size()
-                  << " interactions=" << interactions.size()
-                  << " collision_boxes=" << collision.size() << " navigation=" << navigation.width()
-                  << "x" << navigation.height() << " camera_regions=" << camera.fixed_regions.size()
-                  << '\n';
-        return true;
-    } catch (const std::exception& error) {
-        std::cerr << root.string() << ": diagnostic error: " << error.what() << '\n';
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto opened = workspace.Open();
+    if (!opened) {
+        for (const auto& diagnostic : opened.diagnostics)
+            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
         return false;
     }
+    const auto diagnosed = workspace.Diagnose(*opened.snapshot);
+    if (!diagnosed) {
+        for (const auto& diagnostic : diagnosed.diagnostics)
+            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        return false;
+    }
+    std::cout << root.string() << ": diagnostic snapshot events=" << diagnosed.event_count
+              << " interactions=" << diagnosed.interaction_count
+              << " collision_boxes=" << diagnosed.collision_count << " navigation="
+              << diagnosed.navigation_width << "x" << diagnosed.navigation_height
+              << " camera_regions=" << diagnosed.camera_region_count << '\n';
+    return true;
 }
 
 bool ValidateDataDocument(const std::filesystem::path& root, const std::filesystem::path& relative,
