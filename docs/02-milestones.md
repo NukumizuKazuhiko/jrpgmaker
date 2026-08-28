@@ -297,7 +297,7 @@
 - **验收**：一次 CLI 命令校验项目、插件私有数据、跨文件引用和资源依赖；坏数据按文件/字段路径聚合并以非零退出；只修改数据即可替换日期、对话、输入、地图、材质和插件；相同输入生成稳定清单与派生物摘要；Windows 优先并完成 Linux/macOS CI。
 - **停止条件**：P5-2/P5-4 的未完成合同已落地，数据 lint 不再依赖 app 运行时兜底，所有提交资源都有可追溯 owner、版本和预算。
 
-**当前进度（2026-08-28，P9-2）**：`eventlint --check-project <project.json> <project-root>` 已统一校验项目 manifest、插件私有 validator、输入 action、事件脚本、中文/UTF-8 本地化覆盖、资源预算和 glTF 外部 URI 依赖；demo 项目实跑返回 clean。资源清单、文本表、插件数据和项目路径均为版本化数据，错误包含插件/文件/字段路径。Windows 全量 `ctest` **225/225**、P9 定向 27/27 断言、私有头审计和 `git diff --check` 已通过；派生物缓存、确定性构建摘要和发布打包仍属于 P9 收尾切片，不能据此宣称 P9 全部完成。
+**当前进度（2026-08-28，P9-3）**：`eventlint --check-project <project.json> <project-root>` 已统一校验项目 manifest、插件私有 validator、输入 action、事件脚本、中文/UTF-8 本地化覆盖、资源预算和 glTF 外部 URI 依赖；`--build-resource-package` 生成含 owner/version、文件大小、FNV-1a 内容摘要和 `cache_key` 的确定性资源打包清单。demo 项目实跑返回 clean，打包清单连续两次生成字节一致，CI data-lint 已纳入重复生成比较。Windows 全量 `ctest` **225/225**、P9 定向 27/27 断言、私有头审计和 `git diff --check` 已通过；P9 内容生产管线闭环完成，二进制压缩归档与远端缓存服务不属于本阶段。
 
 ## P10 项目装配与编辑器工具
 

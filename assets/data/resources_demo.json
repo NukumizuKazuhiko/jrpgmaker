@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "resources": [
-    {"id": "character.scene", "kind": "gltf", "path": "assets/art/meshes/arm_skinned.gltf", "max_bytes": 1048576},
-    {"id": "triangle.albedo", "kind": "texture", "path": "assets/art/meshes/triangle_albedo.ppm", "max_bytes": 1048576}
+    {"owner": "project", "version": 1, "id": "character.scene", "kind": "gltf", "path": "assets/art/meshes/arm_skinned.gltf", "max_bytes": 1048576},
+    {"owner": "project", "version": 1, "id": "triangle.albedo", "kind": "texture", "path": "assets/art/meshes/triangle_albedo.ppm", "max_bytes": 1048576}
   ]
 }

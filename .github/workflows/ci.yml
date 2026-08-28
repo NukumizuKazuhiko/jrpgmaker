@@ -242,3 +242,7 @@ jobs:
           ./build/linux-debug/tools/eventlint/jrpgmaker_eventlint --check-triggers ./assets/data/events_demo.json ./assets/data/triggers_demo.json
           ./build/linux-debug/tools/eventlint/jrpgmaker_eventlint --check-map ./assets/data/navigation_demo.json ./assets/data/collision_demo.json ./assets/data/interaction_demo.json ./assets/data/camera_demo.json ./assets/data/events_demo.json
           ./build/linux-debug/tools/eventlint/jrpgmaker_eventlint --check-project ./assets/data/project_demo.json .
+          ./build/linux-debug/tools/eventlint/jrpgmaker_eventlint --build-resource-package ./assets/data/resources_demo.json . ./build/linux-debug/resources-package.json
+          cp ./build/linux-debug/resources-package.json ./build/linux-debug/resources-package-repeat.json
+          ./build/linux-debug/tools/eventlint/jrpgmaker_eventlint --build-resource-package ./assets/data/resources_demo.json . ./build/linux-debug/resources-package-repeat.json
+          cmp ./build/linux-debug/resources-package.json ./build/linux-debug/resources-package-repeat.json

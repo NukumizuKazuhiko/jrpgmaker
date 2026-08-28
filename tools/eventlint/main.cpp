@@ -14,11 +14,15 @@
 //   2  usage error
 
 #include <algorithm>
+#include <array>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <unordered_set>
 #include <vector>
 
@@ -277,6 +281,29 @@ bool IsSafeResourcePath(const std::string& path) {
            path.front() != '\\';
 }
 
+std::optional<std::uint64_t> HashFile(const std::filesystem::path& path, std::uintmax_t size) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open())
+        return std::nullopt;
+    std::uint64_t hash = 1469598103934665603ull;
+    std::array<char, 64 * 1024> buffer{};
+    std::uintmax_t remaining = size;
+    while (remaining > 0) {
+        const auto requested =
+            static_cast<std::streamsize>(std::min<std::uintmax_t>(remaining, buffer.size()));
+        file.read(buffer.data(), requested);
+        const auto read = file.gcount();
+        if (read != requested)
+            return std::nullopt;
+        for (std::streamsize index = 0; index < read; ++index) {
+            hash ^= static_cast<std::uint8_t>(buffer[static_cast<std::size_t>(index)]);
+            hash *= 1099511628211ull;
+        }
+        remaining -= static_cast<std::uintmax_t>(read);
+    }
+    return hash;
+}
+
 bool CheckResourceUris(const nlohmann::json& node, const std::filesystem::path& resource_path) {
     if (node.is_object()) {
         for (auto it = node.begin(); it != node.end(); ++it) {
@@ -316,12 +343,17 @@ bool CheckResourceManifest(const std::filesystem::path& manifest_path,
         return false;
     }
     std::unordered_set<std::string> ids;
+    std::vector<std::tuple<std::string, std::uintmax_t, std::uint64_t>> summary;
     bool ok = true;
     for (const auto& resource : document["resources"]) {
-        if (!resource.is_object() || !resource.contains("id") || !resource["id"].is_string() ||
-            resource["id"].get<std::string>().empty() || !resource.contains("kind") ||
-            !resource["kind"].is_string() || resource["kind"].get<std::string>().empty() ||
-            !resource.contains("path") || !resource["path"].is_string() ||
+        if (!resource.is_object() || !resource.contains("owner") ||
+            !resource["owner"].is_string() || resource["owner"].get<std::string>().empty() ||
+            !resource.contains("version") || !resource["version"].is_number_unsigned() ||
+            resource["version"].get<std::uint64_t>() == 0 || !resource.contains("id") ||
+            !resource["id"].is_string() || resource["id"].get<std::string>().empty() ||
+            !resource.contains("kind") || !resource["kind"].is_string() ||
+            resource["kind"].get<std::string>().empty() || !resource.contains("path") ||
+            !resource["path"].is_string() ||
             !IsSafeResourcePath(resource["path"].get<std::string>()) ||
             !resource.contains("max_bytes") || !resource["max_bytes"].is_number_unsigned() ||
             resource["max_bytes"].get<std::uint64_t>() == 0 ||
@@ -340,13 +372,91 @@ bool CheckResourceManifest(const std::filesystem::path& manifest_path,
             ok = false;
             continue;
         }
+        const auto hash = HashFile(path, size);
+        if (!hash.has_value()) {
+            std::cerr << manifest_path.string()
+                      << ": resource cannot be hashed: " << resource["path"].get<std::string>()
+                      << '\n';
+            ok = false;
+            continue;
+        }
+        summary.emplace_back(resource["id"].get<std::string>(), size, *hash);
         if (resource["kind"] == "gltf") {
             const auto gltf = LoadJson(path);
             if (gltf.is_null() || !CheckResourceUris(gltf, path))
                 ok = false;
         }
     }
+    std::sort(summary.begin(), summary.end(), [](const auto& left, const auto& right) {
+        return std::get<0>(left) < std::get<0>(right);
+    });
+    for (const auto& [id, size, hash] : summary) {
+        std::ostringstream formatted;
+        formatted << std::hex << std::setfill('0') << std::setw(16) << hash;
+        std::cout << "resource: " << id << " bytes=" << size << " hash=" << formatted.str() << '\n';
+    }
     return ok;
+}
+
+bool BuildResourcePackage(const std::filesystem::path& manifest_path,
+                          const std::filesystem::path& project_root,
+                          const std::filesystem::path& output_path) {
+    if (!CheckResourceManifest(manifest_path, project_root))
+        return false;
+    const auto document = LoadJson(manifest_path);
+    if (document.is_null())
+        return false;
+
+    std::vector<nlohmann::json> resources;
+    for (const auto& resource : document["resources"]) {
+        const std::string id = resource["id"].get<std::string>();
+        const std::string relative_path = resource["path"].get<std::string>();
+        const auto path = project_root / relative_path;
+        std::error_code error;
+        const auto size = std::filesystem::file_size(path, error);
+        const auto hash = HashFile(path, size);
+        if (error || !hash.has_value())
+            return false;
+        resources.push_back({{"owner", resource["owner"]},
+                             {"version", resource["version"]},
+                             {"id", id},
+                             {"kind", resource["kind"]},
+                             {"path", relative_path},
+                             {"bytes", size},
+                             {"hash", [&hash] {
+                                  std::ostringstream value;
+                                  value << std::hex << std::setfill('0') << std::setw(16) << *hash;
+                                  return value.str();
+                              }()}});
+    }
+    std::sort(resources.begin(), resources.end(),
+              [](const nlohmann::json& left, const nlohmann::json& right) {
+                  return left["id"].get<std::string>() < right["id"].get<std::string>();
+              });
+    std::uint64_t cache_hash = 1469598103934665603ull;
+    for (const auto& resource : resources) {
+        const std::string key_material = resource["owner"].get<std::string>() + "\n" +
+                                         std::to_string(resource["version"].get<std::uint64_t>()) +
+                                         "\n" + resource["id"].get<std::string>() + "\n" +
+                                         resource["path"].get<std::string>() + "\n" +
+                                         std::to_string(resource["bytes"].get<std::uintmax_t>()) +
+                                         "\n" + resource["hash"].get<std::string>() + "\n";
+        for (const unsigned char value : key_material) {
+            cache_hash ^= value;
+            cache_hash *= 1099511628211ull;
+        }
+    }
+    std::ostringstream cache_key;
+    cache_key << std::hex << std::setfill('0') << std::setw(16) << cache_hash;
+    const nlohmann::json package = {
+        {"schema", 1}, {"cache_key", cache_key.str()}, {"resources", resources}};
+    std::ofstream output(output_path, std::ios::binary | std::ios::trunc);
+    if (!output.is_open()) {
+        std::cerr << output_path.string() << ": cannot create resource package manifest\n";
+        return false;
+    }
+    output << package.dump(2) << '\n';
+    return static_cast<bool>(output);
 }
 
 bool CheckProject(const std::filesystem::path& project_path,
@@ -462,7 +572,9 @@ int main(int argc, char** argv) {
             << "       eventlint --check-cutscene <cutscene.json> <events.json>\n"
             << "       eventlint --check-encounter <encounter.json> <events.json>\n"
             << "       eventlint --check-vertical-slice <slice.json> <events.json>\n"
-            << "       eventlint --check-project <project.json> <project-root>\n";
+            << "       eventlint --check-project <project.json> <project-root>\n"
+            << "       eventlint --build-resource-package <resources.json> <project-root> "
+               "<output.json>\n";
         return 2;
     }
 
@@ -480,6 +592,16 @@ int main(int argc, char** argv) {
             return 2;
         }
         return CheckProject(argv[2], argv[3]) ? 0 : 1;
+    }
+
+    if (std::string(argv[1]) == "--build-resource-package") {
+        if (argc != 5) {
+            std::cerr
+                << "eventlint --build-resource-package requires <resources.json> <project-root> "
+                   "<output.json>\n";
+            return 2;
+        }
+        return BuildResourcePackage(argv[2], argv[3], argv[4]) ? 0 : 1;
     }
 
     if (std::string(argv[1]) == "--check-schedule") {
