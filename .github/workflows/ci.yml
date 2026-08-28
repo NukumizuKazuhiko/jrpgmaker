@@ -80,7 +80,9 @@ jobs:
           $sdk = Join-Path $env:RUNNER_TEMP "jrpgmaker-sdk-${{ matrix.preset }}"
           $consumer = Join-Path $env:RUNNER_TEMP "jrpgmaker-sdk-consumer-${{ matrix.preset }}"
           cmake --install "./build/${{ matrix.preset }}" --prefix $sdk
-          cmake -S ./tests/fixtures/sdk_consumer -B $consumer -DCMAKE_PREFIX_PATH=$sdk -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DCMAKE_BUILD_TYPE=Release
+          $packageDir = Join-Path $sdk "lib/cmake/jrpgmaker"
+          if (-not (Test-Path -LiteralPath (Join-Path $packageDir 'jrpgmakerConfig.cmake') -PathType Leaf)) { throw "installed SDK package config is missing: $packageDir" }
+          cmake -S ./tests/fixtures/sdk_consumer -B $consumer -DCMAKE_PREFIX_PATH=$sdk -Djrpgmaker_DIR=$packageDir -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DCMAKE_BUILD_TYPE=Release
           cmake --build $consumer --config Release --parallel
 
       - name: Assemble deterministic release package
