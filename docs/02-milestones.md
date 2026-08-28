@@ -308,7 +308,7 @@
 - **验收**：编辑器创建的最小项目可由 CLI 无界面构建并由 app 运行；CLI 创建/编辑/迁移的数据可被编辑器无损打开；非法引用、越界预算和不兼容 schema 在保存前可定位；编辑器崩溃或关闭不会破坏原始项目文件。
 - **停止条件**：至少一个完整参考项目可以从空项目创建、编辑、校验、构建、运行和迁移；编辑器不是运行时必需依赖，删除它不影响核心构建与测试。
 
-**当前进度（2026-08-28，P10-0 开发中）**：新增 `projecttool create/open/validate`。创建使用 64 MiB/4096 文件上界，将 `assets`、`plugins` 和项目 manifest 复制到暂存目录，成功后整体重命名；拒绝覆盖已有目录并拒绝模板符号链接。`open` 读取 `ProjectManifest` 快照，`validate` 检查 manifest 引用存在性；CI 继续用 `eventlint --check-project` 执行完整跨文件校验。下一步是补齐可审查 manifest 写回/diff 和从空项目运行的 CLI 门禁。
+**当前进度（2026-08-28，P10-0 已完成）**：新增 `projecttool create/open/validate`。创建使用 64 MiB/4096 文件上界，将 `assets`、`plugins` 和项目 manifest 复制到暂存目录，成功后整体重命名；拒绝覆盖已有目录、模板符号链接和半成品写入。`open` 读取 `ProjectManifest` 快照，`validate` 检查 manifest 引用存在性；CI 继续用 `eventlint --check-project` 执行完整跨文件校验。Windows 已验证创建、打开、校验、完整 lint 和覆盖保护；P10-1 再补齐 schema-aware manifest 写回、可审查 diff 和从空项目运行的 CLI 门禁。
 
 ## P11 插件生态与发布硬化
 
