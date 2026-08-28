@@ -338,7 +338,7 @@
 - **唯一 owner**：GUI 属于 `tools/editor` Adapter；项目数据语义仍由现有 core/domain/plugin 合同拥有，GUI 不得复制 JSON 合并、引用校验、插件 validator 或原子写回逻辑。
 - **非目标**：通用 3D 建模器、DCC、联网协作、云端格式、运行时 GUI 依赖和绕过插件私有校验的自由脚本编辑；不引入未登记的新 GUI 第三方依赖。
 - **验收**：Windows/Linux 可由 GUI 完成创建、打开、诊断、编辑、稳定 diff、校验、原子保存、构建、运行和迁移；CLI 与 GUI 对同一项目保持无损往返；编辑器删除后核心构建、测试和发布包不受影响。
-- **当前状态（2026-08-29）**：P13-0 已开始编码。`engine/ui` 已落地独立 editor manifest/locale/layout 值对象与 bounded loader，`tools/project` 已提供结构化 workspace `Open`/`Diagnose` seam，并由 `projecttool open/validate/diagnose/preview` 复用；覆盖 schema、id、locale namespace、重复布局 id、CJK UTF-8 文本和布局节点上界，Windows workspace 定向测试通过。完整文档 adapter registry、编辑/原子保存迁移、默认/高对比主题资源和实际 editor 窗口仍未完成，暂不进入 P13-1。
+- **当前状态（2026-08-29）**：P13-0 已开始编码。`engine/ui` 已落地独立 editor manifest/locale/layout 值对象与 bounded loader，`tools/project` 已提供结构化 workspace `Open`/`Diagnose`/`Apply`/`PrepareSave`/`Commit` seam，并由 `projecttool open/validate/diagnose/preview` 复用；覆盖 schema、id、locale namespace、重复布局 id、CJK UTF-8 文本、布局节点上界、revision 冲突和原子备份写回，Windows workspace 定向测试通过。完整文档 adapter registry、CLI diff/write 迁移、迁移器、默认/高对比主题资源和实际 editor 窗口仍未完成，暂不进入 P13-1。
 
 ---
 

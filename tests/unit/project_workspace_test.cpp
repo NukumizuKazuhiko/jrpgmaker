@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
+#include <fstream>
 
 #include <nlohmann/json.hpp>
 
@@ -44,4 +45,55 @@ TEST_CASE("project workspace returns bounded structured diagnostics", "[project]
     REQUIRE_FALSE(opened);
     REQUIRE_FALSE(opened.diagnostics.empty());
     REQUIRE(opened.diagnostics.front().code == "project.file.open");
+}
+
+TEST_CASE("project workspace applies an edit and prepares a stable save plan", "[project][editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    REQUIRE(workspace.Open());
+    const auto edit = workspace.Apply({"project.manifest", "/id", "project.edited"});
+    REQUIRE(edit);
+    REQUIRE(edit.revision == 1);
+    REQUIRE(edit.changes.size() == 1);
+    REQUIRE(edit.changes.front().field_path == "/id");
+    REQUIRE(edit.changes.front().before == "project.demo");
+    REQUIRE(edit.changes.front().after == "project.edited");
+    const auto plan = workspace.PrepareSave(edit.revision);
+    REQUIRE(plan);
+    REQUIRE(plan.token->revision == edit.revision);
+    REQUIRE(plan.changes.size() == 1);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("project workspace rejects stale save and preserves the source file", "[project][editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    REQUIRE(workspace.Open());
+    REQUIRE(workspace.Apply({"project.manifest", "/id", "project.edited"}));
+    const auto stale = workspace.PrepareSave(0);
+    REQUIRE_FALSE(stale);
+    REQUIRE(std::ifstream(root / "project.json").good());
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("project workspace commits through a temporary file and backup", "[project][editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    REQUIRE(workspace.Open());
+    const auto edit = workspace.Apply({"project.manifest", "/id", "project.committed"});
+    REQUIRE(edit);
+    const auto plan = workspace.PrepareSave(edit.revision);
+    REQUIRE(plan);
+    const auto committed = workspace.Commit(*plan.token);
+    REQUIRE(committed);
+    REQUIRE(committed.backup.filename() == "project.json.bak");
+    std::ifstream manifest(root / "project.json");
+    nlohmann::json document;
+    manifest >> document;
+    REQUIRE(document["id"] == "project.committed");
+    REQUIRE(std::filesystem::exists(committed.backup));
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
 }

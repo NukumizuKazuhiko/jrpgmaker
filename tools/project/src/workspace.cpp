@@ -1,5 +1,6 @@
 #include "jrpgmaker/project/workspace.hpp"
 
+#include <algorithm>
 #include <fstream>
 
 #include <nlohmann/json.hpp>
@@ -54,11 +55,46 @@ bool AddPath(const std::filesystem::path& root, const std::string& relative,
     return true;
 }
 
+const std::vector<std::string>& EditableManifestFields() {
+    static const std::vector<std::string> fields = {
+        "id",           "render_style",      "battle_plugin", "plugins",
+        "data_roots",   "material_document", "input_actions", "event_script",
+        "localization", "resource_manifest"};
+    return fields;
+}
+
+bool ValidateManifestDocument(const std::filesystem::path& root, const nlohmann::json& document,
+                              plugin::ProjectManifest& manifest,
+                              std::vector<Diagnostic>& diagnostics) {
+    const auto parsed = plugin::ParseProjectManifest(document);
+    if (!parsed) {
+        Add(diagnostics, parsed.error->code, parsed.error->path);
+        return false;
+    }
+    manifest = *parsed.manifest;
+    for (const auto& path : manifest.data_roots)
+        AddPath(root, path, diagnostics);
+    for (const auto& path : {manifest.material_document, manifest.input_actions,
+                             manifest.event_script, manifest.localization,
+                             manifest.resource_manifest})
+        AddPath(root, path, diagnostics);
+    nlohmann::json material;
+    if (diagnostics.empty() && Read(root / manifest.material_document, material, diagnostics) &&
+        (!material.is_object() ||
+         material.value("style_plugin_id", std::string{}) != manifest.render_style))
+        Add(diagnostics, "project.material.style_mismatch", manifest.material_document);
+    return diagnostics.empty();
+}
+
+void AddRevisionConflict(std::vector<Diagnostic>& diagnostics) {
+    Add(diagnostics, "project.save.revision_conflict", "revision");
+}
+
 } // namespace
 
 ProjectWorkspace::ProjectWorkspace(std::filesystem::path root) : root_(std::move(root)) {}
 
-WorkspaceResult ProjectWorkspace::Open() const {
+WorkspaceResult ProjectWorkspace::Open() {
     WorkspaceResult result;
     nlohmann::json document;
     std::vector<Diagnostic> diagnostics;
@@ -66,24 +102,16 @@ WorkspaceResult ProjectWorkspace::Open() const {
         result.diagnostics = std::move(diagnostics);
         return result;
     }
-    const auto parsed = plugin::ParseProjectManifest(document);
-    if (!parsed) {
-        Add(diagnostics, parsed.error->code, parsed.error->path);
+    plugin::ProjectManifest manifest;
+    if (!ValidateManifestDocument(root_, document, manifest, diagnostics)) {
         result.diagnostics = std::move(diagnostics);
         return result;
     }
-    const auto& manifest = *parsed.manifest;
-    for (const auto& path : manifest.data_roots)
-        AddPath(root_, path, diagnostics);
-    for (const auto& path : {manifest.material_document, manifest.input_actions,
-                             manifest.event_script, manifest.localization,
-                             manifest.resource_manifest})
-        AddPath(root_, path, diagnostics);
-    if (!diagnostics.empty()) {
-        result.diagnostics = std::move(diagnostics);
-        return result;
-    }
-    result.snapshot = ProjectSnapshot{root_, manifest};
+    revision_ = 0;
+    working_document_ = std::move(document);
+    pending_changes_.clear();
+    snapshot_ = ProjectSnapshot{root_, manifest, revision_};
+    result.snapshot = snapshot_;
     return result;
 }
 
@@ -118,6 +146,124 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
     } catch (const std::exception&) {
         Add(result.diagnostics, "project.diagnose.invalid_data", snapshot.manifest.event_script);
     }
+    return result;
+}
+
+EditResult ProjectWorkspace::Apply(const EditCommand& command) {
+    EditResult result{.revision = revision_};
+    if (!snapshot_.has_value()) {
+        Add(result.diagnostics, "project.workspace.not_open", "workspace");
+        return result;
+    }
+    if (command.document_id != "project.manifest") {
+        Add(result.diagnostics, "project.edit.document_unknown", command.document_id);
+        return result;
+    }
+    if (command.field_path.size() < 2 || command.field_path.front() != '/' ||
+        command.field_path.find('/', 1) != std::string::npos) {
+        Add(result.diagnostics, "project.edit.field_path_invalid", command.field_path);
+        return result;
+    }
+    const std::string field = command.field_path.substr(1);
+    if (std::find(EditableManifestFields().begin(), EditableManifestFields().end(), field) ==
+        EditableManifestFields().end()) {
+        Add(result.diagnostics, "project.edit.field_not_editable", command.field_path);
+        return result;
+    }
+    nlohmann::json candidate = working_document_;
+    const nlohmann::json before = candidate.contains(field) ? candidate[field] : nlohmann::json();
+    candidate[field] = command.value;
+    plugin::ProjectManifest manifest;
+    if (!ValidateManifestDocument(root_, candidate, manifest, result.diagnostics))
+        return result;
+    if (before == command.value)
+        return result;
+    working_document_ = std::move(candidate);
+    ++revision_;
+    snapshot_->manifest = std::move(manifest);
+    snapshot_->revision = revision_;
+    result.revision = revision_;
+    Change change{.document_id = command.document_id,
+                  .field_path = command.field_path,
+                  .before = before,
+                  .after = command.value,
+                  .sequence = pending_changes_.size()};
+    pending_changes_.push_back(change);
+    result.changes.push_back(std::move(change));
+    return result;
+}
+
+SavePlan ProjectWorkspace::PrepareSave(std::uint64_t expected_revision) const {
+    SavePlan result;
+    if (!snapshot_.has_value()) {
+        Add(result.diagnostics, "project.workspace.not_open", "workspace");
+        return result;
+    }
+    if (expected_revision != revision_) {
+        AddRevisionConflict(result.diagnostics);
+        return result;
+    }
+    result.token = SaveToken{revision_};
+    result.changes = pending_changes_;
+    return result;
+}
+
+CommitResult ProjectWorkspace::Commit(const SaveToken& token) {
+    CommitResult result{.revision = revision_};
+    if (!snapshot_.has_value()) {
+        Add(result.diagnostics, "project.workspace.not_open", "workspace");
+        return result;
+    }
+    if (token.revision != revision_) {
+        AddRevisionConflict(result.diagnostics);
+        return result;
+    }
+    if (pending_changes_.empty()) {
+        Add(result.diagnostics, "project.save.nothing_to_commit", "project.json");
+        return result;
+    }
+    const auto manifest_path = root_ / "project.json";
+    const auto temporary = root_ / ".project.json.tmp";
+    std::error_code error;
+    if (std::filesystem::exists(temporary, error)) {
+        Add(result.diagnostics, "project.save.temporary_exists", temporary.string());
+        return result;
+    }
+    for (std::size_t index = 0; index <= 8; ++index) {
+        const auto backup = index == 0 ? root_ / "project.json.bak"
+                                       : root_ / ("project.json.bak." + std::to_string(index));
+        if (std::filesystem::exists(backup, error))
+            continue;
+        {
+            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+            if (!output.is_open()) {
+                Add(result.diagnostics, "project.save.temporary_open", temporary.string());
+                return result;
+            }
+            output << working_document_.dump(2) << '\n';
+            if (!output.good()) {
+                std::filesystem::remove(temporary, error);
+                Add(result.diagnostics, "project.save.temporary_write", temporary.string());
+                return result;
+            }
+        }
+        std::filesystem::rename(manifest_path, backup, error);
+        if (error) {
+            std::filesystem::remove(temporary, error);
+            Add(result.diagnostics, "project.save.backup_create", manifest_path.string());
+            return result;
+        }
+        std::filesystem::rename(temporary, manifest_path, error);
+        if (error) {
+            std::filesystem::rename(backup, manifest_path, error);
+            Add(result.diagnostics, "project.save.commit", manifest_path.string());
+            return result;
+        }
+        result.backup = backup;
+        pending_changes_.clear();
+        return result;
+    }
+    Add(result.diagnostics, "project.save.backup_limit", manifest_path.string());
     return result;
 }
 

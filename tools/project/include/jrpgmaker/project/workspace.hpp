@@ -1,10 +1,13 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include "jrpgmaker/plugin/plugin.hpp"
 
@@ -18,6 +21,7 @@ struct Diagnostic {
 struct ProjectSnapshot {
     std::filesystem::path root;
     plugin::ProjectManifest manifest;
+    std::uint64_t revision = 0;
 };
 
 struct WorkspaceResult {
@@ -37,15 +41,61 @@ struct DiagnosticSet {
     explicit operator bool() const { return diagnostics.empty(); }
 };
 
+struct EditCommand {
+    std::string document_id;
+    std::string field_path;
+    nlohmann::json value;
+};
+
+struct Change {
+    std::string document_id;
+    std::string field_path;
+    nlohmann::json before;
+    nlohmann::json after;
+    std::size_t sequence = 0;
+};
+
+struct EditResult {
+    std::uint64_t revision = 0;
+    std::vector<Change> changes;
+    std::vector<Diagnostic> diagnostics;
+    explicit operator bool() const { return diagnostics.empty(); }
+};
+
+struct SaveToken {
+    std::uint64_t revision = 0;
+};
+
+struct SavePlan {
+    std::optional<SaveToken> token;
+    std::vector<Change> changes;
+    std::vector<Diagnostic> diagnostics;
+    explicit operator bool() const { return token.has_value() && diagnostics.empty(); }
+};
+
+struct CommitResult {
+    std::uint64_t revision = 0;
+    std::filesystem::path backup;
+    std::vector<Diagnostic> diagnostics;
+    explicit operator bool() const { return diagnostics.empty(); }
+};
+
 class ProjectWorkspace final {
 public:
     explicit ProjectWorkspace(std::filesystem::path root);
 
-    [[nodiscard]] WorkspaceResult Open() const;
+    [[nodiscard]] WorkspaceResult Open();
     [[nodiscard]] DiagnosticSet Diagnose(const ProjectSnapshot& snapshot) const;
+    [[nodiscard]] EditResult Apply(const EditCommand& command);
+    [[nodiscard]] SavePlan PrepareSave(std::uint64_t expected_revision) const;
+    [[nodiscard]] CommitResult Commit(const SaveToken& token);
 
 private:
     std::filesystem::path root_;
+    nlohmann::json working_document_;
+    std::optional<ProjectSnapshot> snapshot_;
+    std::vector<Change> pending_changes_;
+    std::uint64_t revision_ = 0;
 };
 
 } // namespace jrpgmaker::project
