@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <string_view>
 
 #include "jrpgmaker/editor/form_projection.hpp"
 #include "jrpgmaker/project/workspace.hpp"
@@ -29,6 +30,7 @@ public:
     [[nodiscard]] bool SelectNext();
     [[nodiscard]] bool SelectPrevious();
     [[nodiscard]] bool ApplySelected(nlohmann::json value);
+    [[nodiscard]] bool ApplySelectedText(std::string_view value);
     [[nodiscard]] bool Save();
 
     [[nodiscard]] const EditorSessionState& state() const { return state_; }

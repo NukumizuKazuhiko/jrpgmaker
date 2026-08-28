@@ -70,3 +70,16 @@ TEST_CASE("ui draw list is backend agnostic and bounded", "[ui][editor]") {
     REQUIRE(draw_list.size() == 2);
     REQUIRE(std::holds_alternative<jrpgmaker::ui::DrawRect>(draw_list.primitives().front()));
 }
+
+TEST_CASE("form draw projection emits focused theme states from adapter metadata", "[ui][editor]") {
+    const jrpgmaker::editor::FormProjection form{
+        .document_id = "project.manifest",
+        .fields = {{.path = "/id", .label_key = "editor.project.id", .recipe = "input",
+                    .value_type = "string", .value = "demo"},
+                   {.path = "/render_style", .label_key = "editor.project.render_style",
+                    .recipe = "input", .value_type = "string", .value = "unlit"}}};
+    const auto draw_list = jrpgmaker::editor::BuildFormDrawList(form, {10, 20, 100, 80}, 20, 1);
+    REQUIRE(draw_list.size() == 4);
+    const auto& focused = std::get<jrpgmaker::ui::DrawRect>(draw_list.primitives()[2]);
+    REQUIRE(focused.state == "focused");
+}

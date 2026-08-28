@@ -10,6 +10,7 @@
 
 #include "jrpgmaker/ui/editor_resources.hpp"
 #include "jrpgmaker/ui/draw_list.hpp"
+#include "jrpgmaker/editor/form_projection.hpp"
 
 namespace jrpgmaker::editor {
 
@@ -62,5 +63,8 @@ struct ShellProjection {
 BuildShellProjection(const ui::EditorLayout& layout);
 
 [[nodiscard]] ui::DrawList BuildShellDrawList(const ShellProjection& projection);
+
+[[nodiscard]] ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds,
+                                              float row_height, std::size_t selected_field);
 
 } // namespace jrpgmaker::editor

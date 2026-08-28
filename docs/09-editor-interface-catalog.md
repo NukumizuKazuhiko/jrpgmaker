@@ -114,6 +114,7 @@ interface 规则：
 - `editor::BuildWorkspacePreview` 将 `DiagnosticSet` 转为结构化预览指标；诊断失败时只返回诊断，不生成伪造指标，GUI 不得自行统计项目内容。
 - `editor::EditorSession` 持有 GUI 工作区状态，统一编排 `Open`/`Refresh`/字段选择/`Apply`/`Save`；它只把类型化字段值交给 `ProjectWorkspace`，不直接写文件或复制 validator 语义。
 - `editor::BuildShellDrawList` 消费布局节点的 bounds/recipe/label key，作为窗口绘制前的唯一 shell 几何投影入口。
+- `editor::BuildFormDrawList` 消费 `FormProjection`、布局 bounds、theme 提供的行高和当前焦点索引，输出控件矩形与 label key；它不拥有字段约束或自然语言。
 - editor host 只负责从 SDL 窗口取得平台句柄、创建 RHI 资源并消费 render packet；布局、主题和文案仍由版本化资源提供。
 - 修改：把类型化 `EditCommand` 应用到候选文档；未知字段、只读字段和类型漂移立即拒绝。
 - 验证：单文档 parser 后执行跨文档 validator；插件私有 adapter 最终仍调用插件 validator。

@@ -40,6 +40,17 @@ TEST_CASE("editor session applies selected adapter field and commits through wor
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("editor session routes string text input through the typed edit contract", "[editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.ApplySelectedText("project.text"));
+    REQUIRE(session.state().form.fields.front().value == "project.text");
+    REQUIRE(session.Save());
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("editor session treats an unchanged save as successful", "[editor]") {
     const auto root = MakeFixture();
     jrpgmaker::editor::EditorSession session(root);

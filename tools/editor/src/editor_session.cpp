@@ -78,6 +78,15 @@ bool EditorSession::ApplySelected(nlohmann::json value) {
     return true;
 }
 
+bool EditorSession::ApplySelectedText(std::string_view value) {
+    if (!state_.open || state_.form.fields.empty() || state_.selected_field >= state_.form.fields.size())
+        return false;
+    const auto& field = state_.form.fields[state_.selected_field];
+    if (field.read_only || field.value_type != "string")
+        return false;
+    return ApplySelected(std::string(value));
+}
+
 bool EditorSession::Save() {
     if (!state_.open || !snapshot_)
         return false;

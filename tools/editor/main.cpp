@@ -42,6 +42,14 @@ jrpgmaker::rhi::ClearColor ThemeClearColor(const jrpgmaker::ui::EditorTheme& the
             color->second.a * scale};
 }
 
+const jrpgmaker::editor::ShellNode* FindShellNode(
+    const jrpgmaker::editor::ShellProjection& projection, std::string_view id) {
+    for (const auto& node : projection.nodes)
+        if (node.id == id)
+            return &node;
+    return nullptr;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -87,6 +95,7 @@ int main(int argc, char** argv) {
         SDL_Quit();
         return 1;
     }
+    SDL_StartTextInput(window);
 
     std::unique_ptr<jrpgmaker::rhi::IDevice> device;
     jrpgmaker::rhi::ISwapchain* swapchain = nullptr;
@@ -131,7 +140,19 @@ int main(int argc, char** argv) {
             .color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm,
             .vertex_input = {attributes, 2, sizeof(jrpgmaker::render::UiVertex)}};
         pipeline = device->CreatePipeline(pipeline_desc);
-        const auto draw_list = jrpgmaker::editor::BuildShellDrawList(*shell);
+        auto draw_list = jrpgmaker::editor::BuildShellDrawList(*shell);
+        if (session != nullptr) {
+            const auto* form_node = FindShellNode(*shell, "workspace.form");
+            const auto row_height = resources.bundle->theme.dimensions.at("font.body") +
+                                    resources.bundle->theme.dimensions.at("space.sm");
+            if (form_node != nullptr) {
+                const auto form_draw_list = jrpgmaker::editor::BuildFormDrawList(
+                    session->state().form, form_node->bounds, row_height,
+                    session->state().selected_field);
+                for (const auto& primitive : form_draw_list.primitives())
+                    (void) draw_list.Add(primitive);
+            }
+        }
         const auto packet = jrpgmaker::render::BuildUiDrawPacket(
             draw_list, resources.bundle->theme, {1280.0f, 720.0f});
         if (!packet.ok())
@@ -154,6 +175,7 @@ int main(int argc, char** argv) {
     }
 
     bool running = true;
+    bool ui_dirty = false;
     SDL_Event event{};
     while (running) {
         while (SDL_PollEvent(&event)) {
@@ -175,8 +197,39 @@ int main(int argc, char** argv) {
                     if (!session->Save())
                         for (const auto& diagnostic : session->state().diagnostics)
                             std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+                } else if (*action == jrpgmaker::editor::EditorAction::kSelectNext) {
+                    ui_dirty = session->SelectNext() || ui_dirty;
+                } else if (*action == jrpgmaker::editor::EditorAction::kSelectPrevious) {
+                    ui_dirty = session->SelectPrevious() || ui_dirty;
                 }
+            } else if (event.type == SDL_EVENT_TEXT_INPUT && session != nullptr) {
+                if (!session->ApplySelectedText(event.text.text))
+                    for (const auto& diagnostic : session->state().diagnostics)
+                        std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+                else
+                    ui_dirty = true;
             }
+        }
+        if (ui_dirty) {
+            device->WaitForGpuIdle();
+            jrpgmaker::render::DestroyUiGpuBatch(*device, gpu_batch);
+            auto draw_list = jrpgmaker::editor::BuildShellDrawList(*shell);
+            const auto* form_node = FindShellNode(*shell, "workspace.form");
+            const auto row_height = resources.bundle->theme.dimensions.at("font.body") +
+                                    resources.bundle->theme.dimensions.at("space.sm");
+            if (session != nullptr && form_node != nullptr) {
+                const auto form_draw_list = jrpgmaker::editor::BuildFormDrawList(
+                    session->state().form, form_node->bounds, row_height,
+                    session->state().selected_field);
+                for (const auto& primitive : form_draw_list.primitives())
+                    (void) draw_list.Add(primitive);
+            }
+            const auto packet = jrpgmaker::render::BuildUiDrawPacket(
+                draw_list, resources.bundle->theme, {1280.0f, 720.0f});
+            if (!packet.ok())
+                throw std::runtime_error("editor.ui.draw_packet_invalid");
+            gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
+            ui_dirty = false;
         }
         const auto target = swapchain->AcquireTexture();
         command_list->Begin();

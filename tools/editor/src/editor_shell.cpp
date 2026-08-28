@@ -97,4 +97,22 @@ ui::DrawList BuildShellDrawList(const ShellProjection& projection) {
     return draw_list;
 }
 
+ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds,
+                               float row_height, std::size_t selected_field) {
+    ui::DrawList draw_list;
+    if (!(row_height > 0.0f) || projection.fields.size() > ui::kMaxEditorLayoutNodes)
+        return draw_list;
+    for (std::size_t index = 0; index < projection.fields.size(); ++index) {
+        const auto& field = projection.fields[index];
+        const ui::Rect row{bounds.x, bounds.y + row_height * static_cast<float>(index), bounds.width,
+                           row_height};
+        const auto state = index == selected_field ? "focused" : "normal";
+        const auto recipe = field.recipe.empty() ? "input" : field.recipe;
+        (void) draw_list.Add(ui::DrawRect{row, recipe, state});
+        if (!field.label_key.empty())
+            (void) draw_list.Add(ui::DrawText{row, field.label_key});
+    }
+    return draw_list;
+}
+
 } // namespace jrpgmaker::editor
