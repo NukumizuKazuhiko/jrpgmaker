@@ -112,6 +112,7 @@ interface 规则：
 - 投影：返回 `FieldDescriptor`/`CollectionDescriptor`，只描述字段类型、约束和 i18n key，不携带控件颜色或自然语言。
 - `editor::BuildFormProjection` 将 adapter 字段描述与 workspace 当前 JSON 合成为表单 projection；GUI 只消费 `path`、`value_type`、`label_key`、`recipe`、当前值和只读/必填状态，提交仍必须回到 `ProjectWorkspace::Apply`。
 - `editor::BuildWorkspacePreview` 将 `DiagnosticSet` 转为结构化预览指标；诊断失败时只返回诊断，不生成伪造指标，GUI 不得自行统计项目内容。
+- `editor::EditorSession` 持有 GUI 工作区状态，统一编排 `Open`/`Refresh`/字段选择/`Apply`/`Save`；它只把类型化字段值交给 `ProjectWorkspace`，不直接写文件或复制 validator 语义。
 - `editor::BuildShellDrawList` 消费布局节点的 bounds/recipe/label key，作为窗口绘制前的唯一 shell 几何投影入口。
 - editor host 只负责从 SDL 窗口取得平台句柄、创建 RHI 资源并消费 render packet；布局、主题和文案仍由版本化资源提供。
 - 修改：把类型化 `EditCommand` 应用到候选文档；未知字段、只读字段和类型漂移立即拒绝。

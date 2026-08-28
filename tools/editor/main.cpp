@@ -8,6 +8,7 @@
 #include <optional>
 #include <stdexcept>
 #include "jrpgmaker/editor/editor_shell.hpp"
+#include "jrpgmaker/editor/editor_session.hpp"
 #include "jrpgmaker/project/workspace.hpp"
 #include "jrpgmaker/render/ui_draw_adapter.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
@@ -61,21 +62,12 @@ int main(int argc, char** argv) {
         return 1;
     const auto input_map = jrpgmaker::editor::BuildInputMap(resources.bundle->action_map);
 
-    std::unique_ptr<jrpgmaker::project::ProjectWorkspace> workspace;
-    std::optional<jrpgmaker::project::ProjectSnapshot> snapshot;
+    std::unique_ptr<jrpgmaker::editor::EditorSession> session;
     if ((argc == 2 && !smoke) || argc == 3) {
         const auto project_argument = std::filesystem::path(argv[1]);
-        workspace = std::make_unique<jrpgmaker::project::ProjectWorkspace>(project_argument);
-        const auto opened = workspace->Open();
-        if (!opened) {
-            for (const auto& diagnostic : opened.diagnostics)
-                std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
-            return 1;
-        }
-        snapshot = opened.snapshot;
-        const auto diagnosed = workspace->Diagnose(*snapshot);
-        if (!diagnosed) {
-            for (const auto& diagnostic : diagnosed.diagnostics)
+        session = std::make_unique<jrpgmaker::editor::EditorSession>(project_argument);
+        if (!session->Open()) {
+            for (const auto& diagnostic : session->state().diagnostics)
                 std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
             return 1;
         }
@@ -173,26 +165,16 @@ int main(int argc, char** argv) {
                 const auto action = input_map.Translate(
                     SDL_GetKeyName(event.key.key), true, (modifiers & SDL_KMOD_CTRL) != 0,
                     (modifiers & SDL_KMOD_SHIFT) != 0, (modifiers & SDL_KMOD_ALT) != 0);
-                if (!action || workspace == nullptr)
+                if (!action || session == nullptr)
                     continue;
                 if (*action == jrpgmaker::editor::EditorAction::kRefresh) {
-                    if (snapshot) {
-                        const auto diagnosed = workspace->Diagnose(*snapshot);
-                        if (!diagnosed)
-                            for (const auto& diagnostic : diagnosed.diagnostics)
-                                std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
-                    }
-                } else if (*action == jrpgmaker::editor::EditorAction::kSave) {
-                    const auto plan = workspace->PrepareSave(snapshot ? snapshot->revision : 0);
-                    if (!plan) {
-                        for (const auto& diagnostic : plan.diagnostics)
+                    if (!session->Refresh())
+                        for (const auto& diagnostic : session->state().diagnostics)
                             std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
-                    } else if (plan.token) {
-                        const auto committed = workspace->Commit(*plan.token);
-                        if (!committed)
-                            for (const auto& diagnostic : committed.diagnostics)
-                                std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
-                    }
+                } else if (*action == jrpgmaker::editor::EditorAction::kSave) {
+                    if (!session->Save())
+                        for (const auto& diagnostic : session->state().diagnostics)
+                            std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
                 }
             }
         }
