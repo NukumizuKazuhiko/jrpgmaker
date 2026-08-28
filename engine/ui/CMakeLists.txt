@@ -7,7 +7,8 @@ target_sources(
                 FILES include/jrpgmaker/ui/dialog.hpp include/jrpgmaker/ui/text.hpp
                       include/jrpgmaker/ui/widget.hpp
                       include/jrpgmaker/ui/theme.hpp
-                      include/jrpgmaker/ui/editor_resources.hpp)
+                      include/jrpgmaker/ui/editor_resources.hpp
+                      include/jrpgmaker/ui/draw_list.hpp)
 
 target_include_directories(jrpgmaker_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

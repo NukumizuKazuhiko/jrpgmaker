@@ -51,6 +51,7 @@
 - 新增独立 `tools/editor` 可执行目标，使用 SDL3 窗口、已验证的 editor theme/layout/i18n 资源，并通过 `ProjectWorkspace` 完成可选项目打开与诊断；SDL 事件只由 host 消费，业务语义仍由 workspace/domain 提供。
 - `tools/editor` 的 layout 已转换为独立 shell projection，输入映射使用不依赖 SDL 的 `InputMap` 合同；具体 key binding 由后续版本化 editor action 资源提供。
 - editor action map 已纳入启动 manifest，由 `engine/ui` 有界解析并由 host 构造 `InputMap`；重复 key 和非法 action 资源在启动阶段拒绝。
+- `engine/ui` 已提供有界后端无关 `DrawList`（矩形 recipe/state 与 i18n key）；RHI render adapter、裁剪、glyph run 和 z-order 仍待实现。
 - 实现项目路径选择/命令行初始路径、工作区加载、状态栏和错误 projection。
 - 验收：空项目、正常项目和损坏项目均能显示结构化状态；关闭编辑器不修改文件。
 
