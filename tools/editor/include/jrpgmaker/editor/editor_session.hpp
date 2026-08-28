@@ -8,6 +8,7 @@
 
 #include "jrpgmaker/editor/form_projection.hpp"
 #include "jrpgmaker/project/workspace.hpp"
+#include "jrpgmaker/ui/interaction.hpp"
 
 namespace jrpgmaker::editor {
 
@@ -41,6 +42,7 @@ private:
 
     project::DocumentAdapterRegistry adapters_ = project::CreateDefaultDocumentAdapters();
     project::ProjectWorkspace workspace_;
+    ui::UiContext focus_context_;
     std::optional<project::ProjectSnapshot> snapshot_;
     EditorSessionState state_;
 };

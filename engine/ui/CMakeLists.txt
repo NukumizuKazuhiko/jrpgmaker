@@ -1,4 +1,4 @@
-add_library(jrpgmaker_ui src/dialog.cpp src/editor_resources.cpp src/text.cpp src/widget.cpp)
+add_library(jrpgmaker_ui src/dialog.cpp src/editor_resources.cpp src/interaction.cpp src/text.cpp src/widget.cpp)
 add_library(jrpgmaker::ui ALIAS jrpgmaker_ui)
 
 target_sources(
@@ -8,7 +8,8 @@ target_sources(
                       include/jrpgmaker/ui/widget.hpp
                       include/jrpgmaker/ui/theme.hpp
                       include/jrpgmaker/ui/editor_resources.hpp
-                      include/jrpgmaker/ui/draw_list.hpp)
+                      include/jrpgmaker/ui/draw_list.hpp
+                      include/jrpgmaker/ui/interaction.hpp)
 
 target_include_directories(jrpgmaker_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

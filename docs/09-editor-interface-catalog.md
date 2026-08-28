@@ -113,6 +113,7 @@ interface 规则：
 - `editor::BuildFormProjection` 将 adapter 字段描述与 workspace 当前 JSON 合成为表单 projection；GUI 只消费 `path`、`value_type`、`label_key`、`recipe`、当前值和只读/必填状态，提交仍必须回到 `ProjectWorkspace::Apply`。
 - `editor::BuildWorkspacePreview` 将 `DiagnosticSet` 转为结构化预览指标；诊断失败时只返回诊断，不生成伪造指标，GUI 不得自行统计项目内容。
 - `editor::EditorSession` 持有 GUI 工作区状态，统一编排 `Open`/`Refresh`/字段选择/`Apply`/`Save`；它只把类型化字段值交给 `ProjectWorkspace`，不直接写文件或复制 validator 语义。
+- 字段焦点由 `ui::UiContext` 按布局注册顺序管理；editor session 只把焦点 widget 映射为当前 projection 索引，不复制焦点环或 tab 排序规则。
 - `editor::BuildShellDrawList` 消费布局节点的 bounds/recipe/label key，作为窗口绘制前的唯一 shell 几何投影入口。
 - `editor::BuildFormDrawList` 消费 `FormProjection`、布局 bounds、theme 提供的行高和当前焦点索引，输出控件矩形与 label key；它不拥有字段约束或自然语言。
 - editor host 只负责从 SDL 窗口取得平台句柄、创建 RHI 资源并消费 render packet；布局、主题和文案仍由版本化资源提供。

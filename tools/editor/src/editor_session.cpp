@@ -30,6 +30,9 @@ bool EditorSession::Open() {
     state_ = {};
     state_.open = true;
     RebuildProjection();
+    focus_context_.ClearFocusables();
+    for (std::size_t index = 0; index < state_.form.fields.size(); ++index)
+        (void) focus_context_.RegisterFocusable(index + 1, index);
     SetDiagnostics(state_.preview.diagnostics);
     return state_.preview.valid;
 }
@@ -46,16 +49,19 @@ bool EditorSession::Refresh() {
 bool EditorSession::SelectNext() {
     if (!state_.open || state_.form.fields.empty())
         return false;
-    state_.selected_field = (state_.selected_field + 1) % state_.form.fields.size();
-    return true;
+    if (!focus_context_.MoveFocus(1))
+        return false;
+    state_.selected_field = static_cast<std::size_t>(focus_context_.focused_widget() - 1);
+    return state_.selected_field < state_.form.fields.size();
 }
 
 bool EditorSession::SelectPrevious() {
     if (!state_.open || state_.form.fields.empty())
         return false;
-    state_.selected_field =
-        state_.selected_field == 0 ? state_.form.fields.size() - 1 : state_.selected_field - 1;
-    return true;
+    if (!focus_context_.MoveFocus(-1))
+        return false;
+    state_.selected_field = static_cast<std::size_t>(focus_context_.focused_widget() - 1);
+    return state_.selected_field < state_.form.fields.size();
 }
 
 bool EditorSession::ApplySelected(nlohmann::json value) {
