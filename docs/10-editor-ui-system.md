@@ -19,6 +19,7 @@ C++ 可以实现通用控件行为，但不得硬编码以下内容：
 
 ```text
 editor.json                         # 启动清单：默认 theme/locale/layout 与 fallback 顺序
+actions/editor.json                 # 版本化 action id 到 key name 映射
 themes/editor_default.json          # 视觉 token + component recipes
 themes/editor_high_contrast.json    # 第二份合同 fixture
 layouts/editor_workspace.json       # 工作区区域和组件组合
@@ -153,7 +154,7 @@ status: StatusBar
 ## 输入、焦点与文本
 
 - SDL event 只在 editor host 转换为平台无关 `UiEvent`；控件不得 include SDL 头。
-- 键盘快捷键由版本化 editor action map 提供，不在 event loop 写 scancode 分支；保留系统级文本输入、IME 和窗口关闭事件的 Adapter 映射。
+- 键盘快捷键由版本化 `actions/editor.json` 提供，不在 event loop 写 scancode 分支；`tools/editor` 只把 SDL key name 映射到 action id，保留系统级文本输入、IME 和窗口关闭事件的 Adapter 映射。
 - 焦点顺序来自布局树和显式 `tab_index`，modal 使用 focus trap；Esc/Enter 等语义先映射为 action id。
 - `TextField` 必须使用 SDL 文本输入/IME composition，内部保存 UTF-8，光标移动按 grapheme/cluster 语义；CJK 测量复用 `Font`、`TextShaper`、`LineBreaker`。
 - 所有列表、日志、toast 和撤销栈有上界；超限返回诊断或淘汰最旧的 presentation-only 项，不丢项目变更真相。

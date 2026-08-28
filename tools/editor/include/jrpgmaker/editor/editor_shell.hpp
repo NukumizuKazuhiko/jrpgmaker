@@ -39,6 +39,8 @@ private:
     std::unordered_map<std::string, EditorAction> bindings_;
 };
 
+[[nodiscard]] InputMap BuildInputMap(const ui::EditorActionMap& resource);
+
 struct ShellNode {
     std::string id;
     std::string type;

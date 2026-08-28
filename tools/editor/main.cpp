@@ -33,6 +33,7 @@ int main(int argc, char** argv) {
     const auto shell = jrpgmaker::editor::BuildShellProjection(resources.bundle->layout);
     if (!shell)
         return 1;
+    const auto input_map = jrpgmaker::editor::BuildInputMap(resources.bundle->action_map);
 
     if (argc == 2 && !smoke || argc == 3) {
         const auto project_argument = std::filesystem::path(argv[1]);
@@ -66,6 +67,8 @@ int main(int argc, char** argv) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
                 running = false;
+            else if (event.type == SDL_EVENT_KEY_DOWN)
+                (void) input_map.Translate(SDL_GetKeyName(event.key.key), true);
         }
         if (smoke)
             break;

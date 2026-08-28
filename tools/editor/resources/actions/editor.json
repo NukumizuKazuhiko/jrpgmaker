@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "editor.actions",
+  "actions": {
+    "open": ["Ctrl+O"],
+    "save": ["Ctrl+S"],
+    "refresh": ["F5"],
+    "select_next": ["Down"],
+    "select_previous": ["Up"],
+    "confirm": ["Enter"],
+    "cancel": ["Escape"]
+  }
+}

@@ -24,6 +24,7 @@ struct EditorManifest {
     std::vector<std::string> locale_fallbacks;
     std::string default_theme;
     std::string default_layout;
+    std::string action_map = "actions/editor.json";
     std::vector<std::string> available_locales;
     std::vector<std::string> available_themes;
 };
@@ -32,6 +33,12 @@ struct EditorLocale {
     std::uint32_t schema = 1;
     std::string locale;
     std::unordered_map<std::string, std::string> strings;
+};
+
+struct EditorActionMap {
+    std::uint32_t schema = 1;
+    std::string id;
+    std::unordered_map<std::string, std::vector<std::string>> actions;
 };
 
 struct EditorColor {
@@ -71,6 +78,7 @@ struct EditorLayout {
 struct EditorResourceBundle {
     EditorManifest manifest;
     EditorLocale locale;
+    EditorActionMap action_map;
     EditorTheme theme;
     EditorLayout layout;
 };
@@ -102,6 +110,8 @@ inline constexpr std::size_t kMaxEditorThemeEntries = 256;
 ParseEditorManifest(const nlohmann::json& document);
 [[nodiscard]] EditorResourceParseResult<EditorLocale>
 ParseEditorLocale(const nlohmann::json& document, const EditorManifest& manifest);
+[[nodiscard]] EditorResourceParseResult<EditorActionMap>
+ParseEditorActionMap(const nlohmann::json& document);
 [[nodiscard]] EditorResourceParseResult<EditorTheme>
 ParseEditorTheme(const nlohmann::json& document);
 [[nodiscard]] EditorResourceParseResult<EditorLayout>

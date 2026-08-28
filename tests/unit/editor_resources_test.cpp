@@ -95,6 +95,18 @@ TEST_CASE("editor theme rejects invalid color and missing recipe state", "[ui][e
     REQUIRE_FALSE(theme.errors.empty());
 }
 
+TEST_CASE("editor action map rejects duplicate keys and parses resource actions", "[ui][editor]") {
+    const auto actions = jrpgmaker::ui::ParseEditorActionMap(nlohmann::json{
+        {"schema", 1}, {"id", "editor.actions"},
+        {"actions", {{"save", {"Ctrl+S"}}, {"open", {"Ctrl+O"}}}}});
+    REQUIRE(actions);
+    REQUIRE(actions.value.actions.at("save").front() == "Ctrl+S");
+    const auto duplicate = jrpgmaker::ui::ParseEditorActionMap(nlohmann::json{
+        {"schema", 1}, {"id", "editor.actions"},
+        {"actions", {{"save", {"Ctrl+S"}}, {"open", {"Ctrl+S"}}}}});
+    REQUIRE_FALSE(duplicate);
+}
+
 TEST_CASE("committed editor resources form a valid startup set", "[ui][editor]") {
     const auto root = std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR);
     const auto manifest = jrpgmaker::ui::ParseEditorManifest(ReadJson(root / "editor.json"));
@@ -107,10 +119,13 @@ TEST_CASE("committed editor resources form a valid startup set", "[ui][editor]")
         ReadJson(root / "themes/editor_high_contrast.json"));
     const auto layout = jrpgmaker::ui::ParseEditorLayout(
         ReadJson(root / "layouts/editor_workspace.json"));
+    const auto action_map = jrpgmaker::ui::ParseEditorActionMap(
+        ReadJson(root / "actions/editor.json"));
     REQUIRE(locale);
     REQUIRE(theme);
     REQUIRE(high_contrast);
     REQUIRE(layout);
+    REQUIRE(action_map);
 }
 
 TEST_CASE("editor startup loader aggregates a complete resource bundle", "[ui][editor]") {
@@ -119,5 +134,6 @@ TEST_CASE("editor startup loader aggregates a complete resource bundle", "[ui][e
     REQUIRE(result);
     REQUIRE(result.bundle->manifest.default_theme == "editor.default");
     REQUIRE(result.bundle->locale.locale == "zh-CN");
+    REQUIRE(result.bundle->action_map.actions.size() == 7);
     REQUIRE(result.bundle->layout.id == "editor.workspace");
 }

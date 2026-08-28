@@ -5,6 +5,7 @@
   "locale_fallbacks": ["en"],
   "default_theme": "editor.default",
   "default_layout": "editor.workspace",
+  "action_map": "actions/editor.json",
   "available_locales": ["zh-CN", "en"],
   "available_themes": ["editor.default", "editor.high-contrast"]
 }

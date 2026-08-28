@@ -123,6 +123,14 @@ bool IsFiniteNonNegative(const nlohmann::json& value) {
            value.get<double>() <= 4096.0;
 }
 
+bool SafeResourcePath(const nlohmann::json& value) {
+    if (!value.is_string())
+        return false;
+    const auto path = value.get<std::string>();
+    return !path.empty() && path.find("..") == std::string::npos && path.front() != '/' &&
+           path.front() != '\\';
+}
+
 } // namespace
 
 namespace {
@@ -201,7 +209,11 @@ EditorResourceParseResult<EditorManifest> ParseEditorManifest(const nlohmann::js
     if (document.contains("default_theme") && ValidId(document["default_theme"]))
         result.value.default_theme = document["default_theme"].get<std::string>();
     if (document.contains("default_layout") && ValidId(document["default_layout"]))
-        result.value.default_layout = document["default_layout"].get<std::string>();
+            result.value.default_layout = document["default_layout"].get<std::string>();
+    if (document.contains("action_map") && !SafeResourcePath(document["action_map"]))
+        Error(result.errors, "editor.manifest.invalid_action_map", "/action_map");
+    else if (document.contains("action_map"))
+        result.value.action_map = document["action_map"].get<std::string>();
     if (document.contains("locale_fallbacks") && document["locale_fallbacks"].is_array())
         for (const auto& value : document["locale_fallbacks"])
             if (ValidId(value)) result.value.locale_fallbacks.push_back(value.get<std::string>());
@@ -248,6 +260,40 @@ EditorResourceParseResult<EditorLocale> ParseEditorLocale(const nlohmann::json& 
     }
     if (bytes > kMaxEditorStringBytes)
         Error(result.errors, "editor.locale.byte_limit", "/strings");
+    return result;
+}
+
+EditorResourceParseResult<EditorActionMap>
+ParseEditorActionMap(const nlohmann::json& document) {
+    EditorResourceParseResult<EditorActionMap> result;
+    if (!document.is_object() || document.value("schema", 0) != 1)
+        Error(result.errors, "editor.action_map.schema", "/schema");
+    ManifestId(document, "id", result.value.id, result.errors);
+    const auto* actions = document.contains("actions") ? &document["actions"] : nullptr;
+    if (actions == nullptr || !actions->is_object()) {
+        Error(result.errors, "editor.action_map.actions_required", "/actions");
+        return result;
+    }
+    if (actions->size() > kMaxEditorThemeEntries)
+        Error(result.errors, "editor.action_map.entry_limit", "/actions");
+    std::unordered_set<std::string> keys;
+    for (auto it = actions->begin(); it != actions->end(); ++it) {
+        if (!ValidId(it.key()) || !it.value().is_array() || it.value().empty()) {
+            Error(result.errors, "editor.action_map.invalid_action", "/actions/" + it.key());
+            continue;
+        }
+        std::vector<std::string> names;
+        for (std::size_t index = 0; index < it.value().size(); ++index) {
+            const auto& key = it.value()[index];
+            if (!key.is_string() || key.get<std::string>().empty() ||
+                !keys.insert(key.get<std::string>()).second)
+                Error(result.errors, "editor.action_map.invalid_key",
+                      "/actions/" + it.key() + "/" + std::to_string(index));
+            else
+                names.push_back(key.get<std::string>());
+        }
+        result.value.actions.emplace(it.key(), std::move(names));
+    }
     return result;
 }
 
@@ -367,6 +413,13 @@ EditorStartupResult LoadEditorResources(const std::filesystem::path& root) {
         if (parsed)
             locales.emplace(locale_id, parsed.value);
     }
+    nlohmann::json action_map_document;
+    const auto action_map_path = root / manifest.value.action_map;
+    const auto action_map_read = ReadJson(action_map_path, action_map_document, result.diagnostics);
+    const auto action_map = action_map_read ? ParseEditorActionMap(action_map_document)
+                                            : EditorResourceParseResult<EditorActionMap>{};
+    if (action_map_read)
+        AddResourceErrors(action_map.errors, action_map_path, result.diagnostics);
     nlohmann::json theme_document;
     const auto theme_path = root / "themes" / ResourceFileName(manifest.value.default_theme);
     const auto theme_read = ReadJson(theme_path, theme_document, result.diagnostics);
@@ -413,8 +466,9 @@ EditorStartupResult LoadEditorResources(const std::filesystem::path& root) {
             StartupError(result.diagnostics, "editor.locale.empty", manifest.value.default_locale);
     }
 
-    if (result.diagnostics.empty() && theme_read && theme && layout_read && layout) {
-        result.bundle = EditorResourceBundle{manifest.value, locale_it->second, theme.value, layout.value};
+    if (result.diagnostics.empty() && action_map_read && action_map && theme_read && theme && layout_read && layout) {
+        result.bundle = EditorResourceBundle{manifest.value, locale_it->second, action_map.value, theme.value,
+                                            layout.value};
     }
     return result;
 }

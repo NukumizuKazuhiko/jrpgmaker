@@ -19,6 +19,23 @@ std::optional<EditorAction> InputMap::Translate(std::string_view key_name, bool 
     return it == bindings_.end() ? std::nullopt : std::optional<EditorAction>(it->second);
 }
 
+InputMap BuildInputMap(const ui::EditorActionMap& resource) {
+    InputMap result;
+    const std::unordered_map<std::string, EditorAction> actions = {
+        {"open", EditorAction::kOpen},           {"save", EditorAction::kSave},
+        {"refresh", EditorAction::kRefresh},     {"select_next", EditorAction::kSelectNext},
+        {"select_previous", EditorAction::kSelectPrevious},
+        {"confirm", EditorAction::kConfirm},     {"cancel", EditorAction::kCancel}};
+    for (const auto& [id, keys] : resource.actions) {
+        const auto action = actions.find(id);
+        if (action == actions.end())
+            continue;
+        for (const auto& key : keys)
+            (void) result.Add({key, action->second});
+    }
+    return result;
+}
+
 namespace {
 
 std::optional<std::size_t> Flatten(const ui::EditorLayoutNode& source,
