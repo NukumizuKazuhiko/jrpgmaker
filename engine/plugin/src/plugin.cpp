@@ -1,6 +1,7 @@
 #include "jrpgmaker/plugin/plugin.hpp"
 
 #include <algorithm>
+#include <fstream>
 #include <unordered_set>
 
 namespace jrpgmaker::plugin {
@@ -22,6 +23,12 @@ bool IsPositiveInteger(const nlohmann::json& value) {
 bool IsSafeRelativePath(const std::string& path) {
     return !path.empty() && path.find("..") == std::string::npos && path.front() != '/' &&
            path.front() != '\\';
+}
+
+bool IsInDataRoot(std::string_view path, std::string_view root) {
+    if (path == root)
+        return true;
+    return path.size() > root.size() && path.starts_with(root) && path[root.size()] == '/';
 }
 
 } // namespace
@@ -211,6 +218,103 @@ std::optional<PluginError> ValidateProjectDataRoots(const ProjectManifest& proje
         }
     }
     return std::nullopt;
+}
+
+std::vector<PluginError> ValidateProjectPluginData(const ProjectManifest& project,
+                                                   const PluginRegistry& registry,
+                                                   const std::filesystem::path& project_root) {
+    std::vector<PluginError> issues;
+    const auto append = [&issues](PluginError issue) {
+        if (issues.size() < 128u)
+            issues.push_back(std::move(issue));
+    };
+    if (const auto error = ValidateProjectPlugins(project, registry); error.has_value())
+        append(*error);
+    if (const auto error = ValidateProjectDataRoots(project, project_root); error.has_value())
+        append(*error);
+
+    for (const std::string& id : project.plugins) {
+        const auto manifest = registry.FindManifest(id);
+        if (!manifest.has_value())
+            continue;
+        const auto created = registry.Create(id, manifest->type);
+        if (!created) {
+            append(created.error.value_or(PluginError{
+                "plugin.validator.create", "plugin validator could not be created", id}));
+            continue;
+        }
+
+        std::size_t reads = 0;
+        std::size_t total_bytes = 0;
+        const auto read_file = [&, manifest = *manifest](std::string_view requested) {
+            PluginDataReadResult result;
+            const std::string relative(requested);
+            if (!IsSafeRelativePath(relative) ||
+                std::none_of(
+                    manifest.data_roots.begin(), manifest.data_roots.end(),
+                    [&](const std::string& root) { return IsInDataRoot(relative, root); })) {
+                result.error =
+                    PluginError{"plugin.validator.path", "data file is outside plugin roots",
+                                id + ":" + relative};
+                return result;
+            }
+            if (reads >= kMaxPluginValidationFiles) {
+                result.error = PluginError{"plugin.validator.file_budget",
+                                           "plugin validator file budget exceeded", id};
+                return result;
+            }
+            const std::filesystem::path path = project_root / std::filesystem::path(relative);
+            std::error_code error;
+            const auto size = std::filesystem::file_size(path, error);
+            if (error || size > kMaxPluginValidationFileBytes) {
+                result.error =
+                    PluginError{"plugin.validator.file_size",
+                                "plugin data file is missing or exceeds 256 KiB", relative};
+                return result;
+            }
+            if (total_bytes > kMaxPluginValidationTotalBytes - static_cast<std::size_t>(size)) {
+                result.error = PluginError{"plugin.validator.byte_budget",
+                                           "plugin validator byte budget exceeded", id};
+                return result;
+            }
+            std::ifstream file(path, std::ios::binary);
+            if (!file.is_open()) {
+                result.error = PluginError{"plugin.validator.open",
+                                           "plugin data file cannot be opened", relative};
+                return result;
+            }
+            result.bytes.resize(static_cast<std::size_t>(size));
+            file.read(reinterpret_cast<char*>(result.bytes.data()),
+                      static_cast<std::streamsize>(result.bytes.size()));
+            if (!file && !result.bytes.empty()) {
+                result.bytes.clear();
+                result.error = PluginError{"plugin.validator.read",
+                                           "plugin data file cannot be read", relative};
+                return result;
+            }
+            ++reads;
+            total_bytes += result.bytes.size();
+            return result;
+        };
+
+        PluginValidationResult validation;
+        try {
+            validation = created.instance->ValidateData(
+                PluginValidationContext{.manifest = *manifest, .read_file = read_file});
+        } catch (...) {
+            append(PluginError{"plugin.validator.exception", "plugin validator failed", id});
+            continue;
+        }
+        for (PluginError issue : validation.issues) {
+            if (issue.code.empty())
+                issue.code = "plugin.validator.issue";
+            const std::string prefix = id + ":";
+            if (!issue.path.starts_with(prefix))
+                issue.path = id + (issue.path.empty() ? std::string{} : ":" + issue.path);
+            append(std::move(issue));
+        }
+    }
+    return issues;
 }
 
 std::optional<PluginError> PluginRegistry::Register(PluginManifest manifest, Factory factory) {

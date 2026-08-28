@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -60,12 +61,42 @@ ProjectManifestParseResult ParseProjectManifest(const nlohmann::json& document);
 ValidateProjectPlugins(const ProjectManifest& project, const class PluginRegistry& registry);
 [[nodiscard]] std::optional<PluginError>
 ValidateProjectDataRoots(const ProjectManifest& project, const std::filesystem::path& project_root);
+[[nodiscard]] std::vector<PluginError>
+ValidateProjectPluginData(const ProjectManifest& project, const class PluginRegistry& registry,
+                          const std::filesystem::path& project_root);
+
+struct PluginDataReadResult {
+    std::vector<std::byte> bytes;
+    std::optional<PluginError> error;
+    explicit operator bool() const { return !error.has_value(); }
+};
+
+inline constexpr std::size_t kMaxPluginValidationFiles = 32;
+inline constexpr std::size_t kMaxPluginValidationFileBytes = 256 * 1024;
+inline constexpr std::size_t kMaxPluginValidationTotalBytes = 1024 * 1024;
+
+struct PluginValidationContext {
+    const PluginManifest& manifest;
+    std::function<PluginDataReadResult(std::string_view relative_path)> read_file;
+    std::size_t max_files = kMaxPluginValidationFiles;
+    std::size_t max_total_bytes = kMaxPluginValidationTotalBytes;
+};
+
+struct PluginValidationResult {
+    std::vector<PluginError> issues;
+    explicit operator bool() const { return issues.empty(); }
+};
 
 class IPlugin {
 public:
     virtual ~IPlugin() = default;
     IPlugin(const IPlugin&) = delete;
     IPlugin& operator=(const IPlugin&) = delete;
+
+    [[nodiscard]] virtual PluginValidationResult
+    ValidateData(const PluginValidationContext&) const {
+        return {};
+    }
 
 protected:
     IPlugin() = default;

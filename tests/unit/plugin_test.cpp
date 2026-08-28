@@ -12,6 +12,32 @@
 namespace {
 class TestPlugin final : public jrpgmaker::plugin::IPlugin {};
 
+class ValidatingPlugin final : public jrpgmaker::plugin::IPlugin {
+public:
+    jrpgmaker::plugin::PluginValidationResult
+    ValidateData(const jrpgmaker::plugin::PluginValidationContext& context) const override {
+        const auto data = context.read_file("assets/data/project_demo.json");
+        if (!data) {
+            return {.issues = {data.error.value_or(jrpgmaker::plugin::PluginError{
+                        "test.validator.read", "validator read failed", "data"})}};
+        }
+        return {};
+    }
+};
+
+class BoundaryCheckingPlugin final : public jrpgmaker::plugin::IPlugin {
+public:
+    jrpgmaker::plugin::PluginValidationResult
+    ValidateData(const jrpgmaker::plugin::PluginValidationContext& context) const override {
+        const auto data = context.read_file("outside.json");
+        if (data) {
+            return {.issues = {{"test.validator.boundary", "unexpected file access", "outside"}}};
+        }
+        return {.issues = {data.error.value_or(jrpgmaker::plugin::PluginError{
+                    "test.validator.boundary", "missing boundary error", "outside"})}};
+    }
+};
+
 class TestBattleSession final : public jrpgmaker::plugin::IBattleSession {
 public:
     jrpgmaker::plugin::BattleAdvanceResult
@@ -218,6 +244,43 @@ TEST_CASE("project manifest resolves registered plugins and existing data roots"
     REQUIRE(jrpgmaker::plugin::ValidateProjectDataRoots(*result.manifest,
                                                         std::filesystem::path("does-not-exist"))
                 .has_value());
+}
+
+TEST_CASE("plugin validators receive only bounded files within manifest roots", "[plugin][p9]") {
+    auto project_result = jrpgmaker::plugin::ParseProjectManifest(nlohmann::json::parse(R"json({
+            "schema":1,"id":"project.demo","render_style":"test.render",
+            "plugins":["test.render"],"data_roots":["assets/data"]
+        })json"));
+    REQUIRE(project_result);
+    auto plugin_result = jrpgmaker::plugin::ParseManifest(Manifest());
+    REQUIRE(plugin_result);
+    plugin_result.manifest->data_roots = {"assets/data"};
+
+    jrpgmaker::plugin::PluginRegistry registry;
+    REQUIRE_FALSE(registry.Register(*plugin_result.manifest,
+                                    [] { return std::make_unique<ValidatingPlugin>(); }));
+    const auto issues = jrpgmaker::plugin::ValidateProjectPluginData(
+        *project_result.manifest, registry,
+        std::filesystem::path(JRPGMAKER_ASSET_DIR).parent_path());
+    if (!issues.empty()) {
+        CAPTURE(issues.front().code, issues.front().path, issues.front().message);
+    }
+    REQUIRE(issues.empty());
+
+    project_result.manifest->render_style = "test.boundary";
+    project_result.manifest->plugins = {"test.boundary"};
+    auto boundary_manifest = jrpgmaker::plugin::ParseManifest(Manifest("test.boundary"));
+    REQUIRE(boundary_manifest);
+    boundary_manifest.manifest->data_roots = {"assets/data"};
+    jrpgmaker::plugin::PluginRegistry boundary_registry;
+    REQUIRE_FALSE(boundary_registry.Register(
+        *boundary_manifest.manifest, [] { return std::make_unique<BoundaryCheckingPlugin>(); }));
+    const auto boundary_issues = jrpgmaker::plugin::ValidateProjectPluginData(
+        *project_result.manifest, boundary_registry,
+        std::filesystem::path(JRPGMAKER_ASSET_DIR).parent_path());
+    REQUIRE(boundary_issues.size() == 1);
+    REQUIRE(boundary_issues.front().code == "plugin.validator.path");
+    REQUIRE(boundary_issues.front().path == "test.boundary:outside.json");
 }
 
 TEST_CASE("battle seam supports opaque actions and deterministic completion",
