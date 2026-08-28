@@ -3,6 +3,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "jrpgmaker/editor/editor_shell.hpp"
 #include "jrpgmaker/project/workspace.hpp"
 #include "jrpgmaker/ui/editor_resources.hpp"
 
@@ -29,6 +30,9 @@ int main(int argc, char** argv) {
         PrintStartupDiagnostics(resources.diagnostics);
         return 1;
     }
+    const auto shell = jrpgmaker::editor::BuildShellProjection(resources.bundle->layout);
+    if (!shell)
+        return 1;
 
     if (argc == 2 && !smoke || argc == 3) {
         const auto project_argument = std::filesystem::path(argv[1]);
