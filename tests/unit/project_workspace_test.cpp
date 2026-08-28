@@ -110,3 +110,20 @@ TEST_CASE("project workspace reports schema one migration as a no-op", "[project
     std::error_code error;
     std::filesystem::remove_all(root, error);
 }
+
+TEST_CASE("document adapter registry rejects duplicates and validates documents", "[project][editor]") {
+    jrpgmaker::project::DocumentAdapterRegistry registry;
+    auto adapter = jrpgmaker::project::DocumentAdapter{
+        .type_id = "calendar",
+        .fields = {{.path = "/id", .value_type = "string", .label_key = "editor.calendar.id"}},
+        .validate = [](const nlohmann::json& document) {
+            if (!document.is_object())
+                return std::vector<jrpgmaker::project::Diagnostic>{{"document.object_required", "/"}};
+            return std::vector<jrpgmaker::project::Diagnostic>{};
+        }};
+    REQUIRE(registry.Register(adapter));
+    REQUIRE_FALSE(registry.Register(adapter));
+    REQUIRE(registry.Validate("calendar", nlohmann::json::object()));
+    REQUIRE_FALSE(registry.Validate("calendar", nlohmann::json::array()));
+    REQUIRE_FALSE(registry.Validate("missing", nlohmann::json::object()));
+}

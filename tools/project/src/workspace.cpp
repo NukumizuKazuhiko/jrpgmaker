@@ -90,9 +90,78 @@ void AddRevisionConflict(std::vector<Diagnostic>& diagnostics) {
     Add(diagnostics, "project.save.revision_conflict", "revision");
 }
 
+std::vector<Diagnostic> ValidateManifestAdapter(const nlohmann::json& document) {
+    const auto parsed = plugin::ParseProjectManifest(document);
+    if (parsed)
+        return {};
+    return {{parsed.error->code, parsed.error->path}};
+}
+
 } // namespace
 
-ProjectWorkspace::ProjectWorkspace(std::filesystem::path root) : root_(std::move(root)) {}
+AdapterResult DocumentAdapterRegistry::Register(DocumentAdapter adapter) {
+    std::vector<Diagnostic> diagnostics;
+    if (adapter.type_id.empty())
+        Add(diagnostics, "project.adapter.type_id_required", "type_id");
+    if (adapter.fields.size() > kMaxAdapters)
+        Add(diagnostics, "project.adapter.field_limit", adapter.type_id);
+    for (std::size_t i = 0; i < adapter.fields.size(); ++i) {
+        if (adapter.fields[i].path.empty() || adapter.fields[i].path.front() != '/')
+            Add(diagnostics, "project.adapter.field_path_invalid",
+                adapter.type_id + "/fields/" + std::to_string(i));
+        for (std::size_t j = 0; j < i; ++j)
+            if (adapter.fields[i].path == adapter.fields[j].path)
+                Add(diagnostics, "project.adapter.duplicate_field",
+                    adapter.type_id + "/fields/" + std::to_string(i));
+    }
+    if (!adapter.validate)
+        Add(diagnostics, "project.adapter.validator_required", adapter.type_id);
+    if (Find(adapter.type_id) != nullptr)
+        Add(diagnostics, "project.adapter.duplicate_type", adapter.type_id);
+    if (adapters_.size() >= kMaxAdapters)
+        Add(diagnostics, "project.adapter.limit", "registry");
+    if (!diagnostics.empty())
+        return {std::move(diagnostics)};
+    adapters_.push_back(std::move(adapter));
+    return {};
+}
+
+const DocumentAdapter* DocumentAdapterRegistry::Find(const std::string& type_id) const {
+    const auto it = std::find_if(adapters_.begin(), adapters_.end(),
+                                 [&type_id](const DocumentAdapter& adapter) {
+                                     return adapter.type_id == type_id;
+                                 });
+    return it == adapters_.end() ? nullptr : &*it;
+}
+
+AdapterResult DocumentAdapterRegistry::Validate(const std::string& type_id,
+                                                 const nlohmann::json& document) const {
+    const auto* adapter = Find(type_id);
+    if (adapter == nullptr)
+        return {{Diagnostic{"project.adapter.unknown_type", type_id}}};
+    return {adapter->validate(document)};
+}
+
+DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
+    DocumentAdapterRegistry registry;
+    (void) registry.Register(DocumentAdapter{
+        .type_id = "project.manifest",
+        .fields = {{"/id", "string", "editor.project.id", "text", true, false},
+                   {"/render_style", "string", "editor.project.render_style", "select", true, false},
+                   {"/battle_plugin", "string", "editor.project.battle_plugin", "select", false, false},
+                   {"/plugins", "string[]", "editor.project.plugins", "list", true, false},
+                   {"/data_roots", "path[]", "editor.project.data_roots", "list", true, false},
+                   {"/material_document", "path", "editor.project.material", "resource", true, false},
+                   {"/input_actions", "path", "editor.project.input", "resource", true, false},
+                   {"/event_script", "path", "editor.project.events", "resource", true, false},
+                   {"/localization", "path", "editor.project.localization", "resource", true, false},
+                   {"/resource_manifest", "path", "editor.project.resources", "resource", true, false}},
+        .validate = ValidateManifestAdapter});
+    return registry;
+}
+
+ProjectWorkspace::ProjectWorkspace(std::filesystem::path root, DocumentAdapterRegistry adapters)
+    : root_(std::move(root)), adapters_(std::move(adapters)) {}
 
 WorkspaceResult ProjectWorkspace::Open() {
     WorkspaceResult result;
@@ -100,6 +169,11 @@ WorkspaceResult ProjectWorkspace::Open() {
     std::vector<Diagnostic> diagnostics;
     if (!Read(root_ / "project.json", document, diagnostics)) {
         result.diagnostics = std::move(diagnostics);
+        return result;
+    }
+    const auto adapter_result = adapters_.Validate("project.manifest", document);
+    if (!adapter_result) {
+        result.diagnostics = adapter_result.diagnostics;
         return result;
     }
     plugin::ProjectManifest manifest;

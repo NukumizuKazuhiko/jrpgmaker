@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -17,6 +18,45 @@ struct Diagnostic {
     std::string code;
     std::string path;
 };
+
+struct FieldDescriptor {
+    std::string path;
+    std::string value_type;
+    std::string label_key;
+    std::string recipe;
+    bool required = false;
+    bool read_only = false;
+};
+
+using DocumentValidator =
+    std::function<std::vector<Diagnostic>(const nlohmann::json& document)>;
+
+struct DocumentAdapter {
+    std::string type_id;
+    std::vector<FieldDescriptor> fields;
+    DocumentValidator validate;
+};
+
+struct AdapterResult {
+    std::vector<Diagnostic> diagnostics;
+    explicit operator bool() const { return diagnostics.empty(); }
+};
+
+class DocumentAdapterRegistry final {
+public:
+    static constexpr std::size_t kMaxAdapters = 64;
+
+    [[nodiscard]] AdapterResult Register(DocumentAdapter adapter);
+    [[nodiscard]] AdapterResult Validate(const std::string& type_id,
+                                         const nlohmann::json& document) const;
+    [[nodiscard]] const DocumentAdapter* Find(const std::string& type_id) const;
+    [[nodiscard]] std::size_t size() const { return adapters_.size(); }
+
+private:
+    std::vector<DocumentAdapter> adapters_;
+};
+
+[[nodiscard]] DocumentAdapterRegistry CreateDefaultDocumentAdapters();
 
 struct ProjectSnapshot {
     std::filesystem::path root;
@@ -90,7 +130,8 @@ struct MigrationResult {
 
 class ProjectWorkspace final {
 public:
-    explicit ProjectWorkspace(std::filesystem::path root);
+    explicit ProjectWorkspace(std::filesystem::path root,
+                              DocumentAdapterRegistry adapters = CreateDefaultDocumentAdapters());
 
     [[nodiscard]] WorkspaceResult Open();
     [[nodiscard]] DiagnosticSet Diagnose(const ProjectSnapshot& snapshot) const;
@@ -105,6 +146,7 @@ private:
     std::optional<ProjectSnapshot> snapshot_;
     std::vector<Change> pending_changes_;
     std::uint64_t revision_ = 0;
+    DocumentAdapterRegistry adapters_;
 };
 
 } // namespace jrpgmaker::project
