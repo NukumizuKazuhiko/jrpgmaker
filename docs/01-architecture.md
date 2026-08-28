@@ -40,7 +40,7 @@ core      engine/core 数学 · ECS · 资产句柄 · 事件总线 · 时间 ·
 | extensions | `plugins/*` | 插件私有规则、schema、validator、资源和 presentation adapter；战斗插件拥有 actor/skill/buff/AI/QTE/结算，渲染风格插件拥有 shader/材质 schema/光照/后处理 | 对应公开 seam；不得依赖 `engine/*/src` | 修改 RHI 后端；要求 app 为具体插件增加分支；把插件私有语义提升为引擎真相 |
 | platform(adapter) | `engine/platform` | SDL3 窗口/输入接线、文件系统抽象、剪贴板 | core | 游戏语义 |
 | shell(app) | `app/` | 主循环装配、各层初始化顺序、demo/游戏宿主 | 全部下层 | 成为第二业务逻辑 owner |
-| tools(adapter) | `tools/` | CLI：schema lint、资产导入、golden image 对比 | core, domain(schema) | 运行时行为 |
+| tools(adapter) | `tools/` | CLI、编辑器 GUI、schema lint、资产导入、golden image 对比；`tools/project` 提供 CLI/GUI 共用的结构化项目工作区深模块 | core, domain(schema), plugin, ui | 运行时行为；复制 parser/validator；以终端文本作为模块间协议 |
 
 ## 数据流合同（单向）
 
@@ -62,6 +62,26 @@ presentation 层禁止反推业务结论；宿主禁止解释插件私有 payloa
 | ADR-004 | glTF 导入库 = cgltf 1.15（纹理解码配 vcpkg `stb`/stb_image）；不选 tinygltf/fastgltf/assimp | 已决（用户确认 2026-08-24） | 零依赖单文件契合"第三方库最小化"纪律（vcpkg manifest 无传递依赖）；glTF 定位是兼容导入输入（docs/00 边界），非美术目标，无需 assimp 格式广度或 fastgltf 性能极致；cgltf 为 Godot/Filament/bgfx 采用、glTF 2.0 全特性覆盖（节点层级/网格/PBR 材质/accessor/缓冲视图，skin/animation 解析留待 P4 使用） |
 | ADR-005 | P5/P6 插件采用源码级、构建期注册；不在当前里程碑承诺跨编译器稳定的 DLL 热加载 ABI | 已决（用户确认 2026-08-26） | C++ ABI、异常、分配器与依赖版本跨工具链不稳定；先用真实双实现证明 seam，再单独评估二进制分发 |
 | ADR-006 | 引擎不绑定固定渲染画风或材质 schema；渲染风格插件拥有 shader、材质 schema、光照和后处理，项目拥有材质实例 | 已决（用户确认 2026-08-26） | [00-product.md](00-product.md) §已否定方向 |
+| ADR-007 | P13 编辑器的组件外观、布局配方和全部自然语言来自版本化主题/布局/i18n 文件；C++ 只拥有控件行为、类型安全状态与资源上界 | 已决（用户确认 2026-08-28） | [10-editor-ui-system.md](10-editor-ui-system.md) |
+
+### P13 编辑器数据流
+
+```
+SDL3 事件 → editor host → UI 控件命令
+                         ↓
+                 tools/project 工作区 seam
+                         ↓
+      core/domain/plugin 公开 parser、validator、registry
+                         ↓
+      结构化 snapshot / diagnostic / change set / save plan
+                         ↓
+       UI projection → theme/layout/i18n → draw list → render
+```
+
+- `tools/editor` 只拥有窗口生命周期、编辑器会话状态、焦点/选择状态和 projection；不得直接读写项目 JSON。
+- `tools/project` 是 CLI 与 GUI 共用的深模块，隐藏安全路径、文件预算、解析调度、跨文件校验、稳定 diff、迁移与原子写回。
+- `engine/ui` 拥有通用控件行为与渲染无关状态；组件外观由主题 recipe 决定，用户可见文本只接受 i18n key/参数。
+- 编辑器主题和语言包是编辑器资源，不得复用或污染游戏项目的 `theme_demo.json` 与 `localization_*.json` 语义。
 
 从外部架构模式采纳的合同增强（A1–A6 清单及拒绝项理由见调研文档）：rhi/render/audio 保持 server 式无状态服务形状，三段间接映射为 render(高层渲染语义)→rhi(图形合同)→backend(d3d12/vulkan, driver 角色)（Godot）；显式 Stage 序列与变更检测投影同步（Bevy）；单向 hybrid 红线（Unity/V Rising）；Public/Private 可见性纪律（Unreal）。
 

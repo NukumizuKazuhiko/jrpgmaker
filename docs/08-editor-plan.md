@@ -14,9 +14,12 @@
 
 - `tools/editor` 是 GUI Adapter，只负责窗口、输入、面板状态、命令映射和结构化结果展示。
 - 项目文档与数据语义仍由 `engine/core`、`engine/domain`、`engine/plugin` 及对应 parser/validator 拥有。
-- `tools/projecttool` 的项目快照、诊断、diff、写回和迁移能力是编辑器的公共 seam；编辑器不得复制一套 JSON 合并、引用检查或原子写回逻辑。
+- 新增 `tools/project` 库作为项目作者工具的公共 seam；当前藏在 `tools/projecttool/main.cpp` 的项目快照、诊断、diff、写回和迁移能力必须先迁入该深模块，CLI 与 GUI 都只能调用其结构化接口。
 - `engine/ui` 只提供可复用的 CPU 控件/布局能力；编辑器不把编辑器状态写入运行时 domain。
 - 只读运行时预览通过结构化快照或 `projecttool preview` 消费，不直接修改 GPU 资源。
+- GUI 的组件外观、布局配方和所有自然语言分别由版本化 theme/layout/i18n 文件提供；C++ 中不得出现面向用户的颜色、字号、间距、控件文案或语言选择分支。
+
+完整接口盘点见 [编辑器接口目录](09-editor-interface-catalog.md)，组件、主题与语言合同见 [编辑器 UI 系统合同](10-editor-ui-system.md)。两份合同在编码前一次性冻结 P13 第一闭环所需 seam，后续不得以“先在 GUI 里临时实现”为由绕开。
 
 ## 第一版范围
 
@@ -36,15 +39,22 @@
 
 ## 实施阶段
 
+### P13-0 公共 seam 与资源合同（编码前置门禁）
+
+- 将 `projecttool/main.cpp` 的项目加载、诊断、diff、迁移和原子写回实现抽到 `tools/project`，统一返回结构化结果；CLI 仅负责 argv/stdout/exit code 映射。
+- 建立文档 adapter registry，把现有 parser、跨文件 validator 和插件 validator 注册为数据类型 adapter；禁止继续按 GUI 面板或终端文本分叉验证逻辑。
+- 落地独立的 editor theme、layout、i18n schema 与 loader；编辑器启动资源缺失时返回结构化启动诊断，不以内置英文文案兜底。
+- 验收：CLI 行为与退出码不变；共享模块测试覆盖正常/损坏/越界项目、稳定 diff 和原子恢复；主题、布局、语言包坏 schema 均在创建窗口前被拒绝。
+
 ### P13-1 编辑器壳与工作区
 
-- 新增独立 `tools/editor` 可执行目标，使用 SDL3 窗口和现有 `engine/ui` 控件。
+- 新增独立 `tools/editor` 可执行目标，使用 SDL3 窗口、扩展后的 `engine/ui` 控件和已验证的 editor theme/layout/i18n 资源。
 - 实现项目路径选择/命令行初始路径、工作区加载、状态栏和错误 projection。
 - 验收：空项目、正常项目和损坏项目均能显示结构化状态；关闭编辑器不修改文件。
 
 ### P13-2 文档模型与诊断面板
 
-- 将 `projecttool` 的只读快照、诊断和稳定 diff 提取为可复用的深模块接口；CLI 与 GUI 共用该接口。
+- 在 P13-0 的公共 seam 上完成文档标签页、诊断筛选、字段定位和稳定 diff projection；GUI 不解析终端文本。
 - 面板只消费结构化诊断，不解析终端文本。
 - 验收：同一项目由 CLI 和 GUI 产生相同诊断摘要与字段路径。
 
@@ -68,8 +78,9 @@
 
 ## 测试与停止条件
 
-- 核心文档模型、diff、校验和写回使用公开接口测试，不测试控件私有实现。
+- 核心文档模型、diff、校验和写回使用公开接口测试，不测试控件私有实现；UI 测试通过命令、状态和 draw list 穿过同一控件 seam。
+- 主题测试至少覆盖默认/高对比两份 theme；i18n 测试至少覆盖 `zh-CN`/`en`、缺 key、命名参数、UTF-8/CJK 换行和运行时切换。
 - GUI 使用可重复的临时项目 fixture 验证打开、编辑、取消、非法数据、原子保存和恢复。
 - Windows 优先；Linux 使用 WSL 做构建和无窗口合同测试，真实 SDL 窗口需要 WSLg/桌面环境，不伪造为本地通过。
 - clang-format、`git diff --check`、私有头审计、全量 CTest、data-lint 和 P12 发布启动回归必须保持通过。
-- P13-1 至 P13-3 完成后才允许声明“编辑器第一闭环完成”；P13-4/5 未完成时不得声称完整编辑器交付。
+- P13-0 未闭合不得开始窗口实现；P13-1 至 P13-3 完成后才允许声明“编辑器第一闭环完成”；P13-4/5 未完成时不得声称完整编辑器交付。

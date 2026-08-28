@@ -26,6 +26,12 @@
 | `docs/02-milestones.md` | P0–P12 里程碑、每阶段验收门禁与停止条件、风险清单 |
 | `docs/03-engine-survey.md` | 四引擎架构调研、对象模型重评证据、采纳/拒绝清单 |
 | `docs/04-debt-register.md` | 全部开放债务、设计风险与已接受噪音的唯一登记处 |
+| `docs/05-plugin-sdk.md` | 插件 SDK、公开 seam、预算与扩展合同 |
+| `docs/06-plugin-release.md` | 插件发布、兼容性与排障合同 |
+| `docs/07-user-guide.md` | 构建、项目校验、启动与发布使用说明 |
+| `docs/08-editor-plan.md` | P13 编辑器边界、阶段与停止条件 |
+| `docs/09-editor-interface-catalog.md` | P13 GUI 所需接口、共享工作区 seam 与数据 adapter 目录 |
+| `docs/10-editor-ui-system.md` | P13 组件、主题、布局、i18n 与可访问性合同 |
 
 规则：新增真源文档必须先登记进 `docs/README.md`；未登记或已归档的文档不得作为事实依据。
 
@@ -44,7 +50,7 @@
 - 通用全类型引擎、网络多人、开放世界流式加载
 - 在引擎内绑定任何固定画风、固定材质 schema 或项目级 shader 组合
 - 主机、移动端首发
-- GUI 编辑器（远期另行立项；第一阶段一律数据文件 + CLI 工具）
+- GUI 编辑器已作为 P13 独立立项，仅是可选开发工具；数据文件、parser、validator、迁移器和 CLI 仍是权威合同，GUI 不得成为运行时依赖或第二数据语义 owner
 - 在 `engine/domain` 内实现或预设任何战斗规则、actor/skill/buff schema、QTE/ACT/回合制语义；这些只允许存在于战斗插件
 - P5/P6 承诺跨编译器稳定的 DLL 热加载 ABI；第一阶段只做源码级、构建期注册
 
@@ -86,7 +92,7 @@
 
 - 图形 API 语义唯一 owner = `engine/rhi` 合同层。任何其他层禁止 include D3D12/Vulkan 头文件。
 - JRPG 业务真相唯一 owner = `engine/domain`。`ui` / `render` / `audio` 只消费 domain 发出的结构化状态、命令与文案 projection。
-- adapter（platform / tools / 未来编辑器）只做协议映射与接线，禁止私造业务真相。
+- adapter（platform / tools / `tools/editor`）只做协议映射与接线，禁止私造业务真相。
 
 ## 项目纪律（在全局宪法之上的强化条款)
 
