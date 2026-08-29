@@ -55,23 +55,25 @@ UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list, const ui::EditorTh
             continue;
         }
 
-        const auto& rect = std::get<ui::DrawRect>(primitive);
-        if (!ValidRect(rect.rect)) {
+        const auto* rect = std::get_if<ui::DrawRect>(&primitive);
+        if (rect == nullptr)
+            continue;
+        if (!ValidRect(rect->rect)) {
             AddDiagnostic(packet, "ui.rect.invalid", primitive_index);
             continue;
         }
-        if (rect.rect.x + rect.rect.width > viewport.width ||
-            rect.rect.y + rect.rect.height > viewport.height) {
+        if (rect->rect.x + rect->rect.width > viewport.width ||
+            rect->rect.y + rect->rect.height > viewport.height) {
             AddDiagnostic(packet, "ui.rect.out_of_viewport", primitive_index);
             continue;
         }
 
-        const auto recipe = theme.recipes.find(rect.recipe);
+        const auto recipe = theme.recipes.find(rect->recipe);
         if (recipe == theme.recipes.end()) {
             AddDiagnostic(packet, "ui.recipe.unknown", primitive_index);
             continue;
         }
-        const auto state = recipe->second.states.find(rect.state);
+        const auto state = recipe->second.states.find(rect->state);
         if (state == recipe->second.states.end()) {
             AddDiagnostic(packet, "ui.recipe.state_unknown", primitive_index);
             continue;
@@ -87,10 +89,10 @@ UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list, const ui::EditorTh
             continue;
         }
 
-        const float left = 2.0f * rect.rect.x / viewport.width - 1.0f;
-        const float right = 2.0f * (rect.rect.x + rect.rect.width) / viewport.width - 1.0f;
-        const float top = 1.0f - 2.0f * rect.rect.y / viewport.height;
-        const float bottom = 1.0f - 2.0f * (rect.rect.y + rect.rect.height) / viewport.height;
+        const float left = 2.0f * rect->rect.x / viewport.width - 1.0f;
+        const float right = 2.0f * (rect->rect.x + rect->rect.width) / viewport.width - 1.0f;
+        const float top = 1.0f - 2.0f * rect->rect.y / viewport.height;
+        const float bottom = 1.0f - 2.0f * (rect->rect.y + rect->rect.height) / viewport.height;
         const auto rgba = ToColor(color->second);
         const auto base = static_cast<std::uint32_t>(packet.vertices.size());
         packet.vertices.push_back({{left, top, 0.0f}, rgba});
@@ -99,6 +101,44 @@ UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list, const ui::EditorTh
         packet.vertices.push_back({{left, bottom, 0.0f}, rgba});
         packet.indices.insert(packet.indices.end(), {base, base + 1, base + 2,
                                                       base, base + 2, base + 3});
+    }
+    return packet;
+}
+
+UiTextDrawPacket BuildUiTextDrawPacket(const ui::DrawList& draw_list, UiViewport viewport) {
+    UiTextDrawPacket packet;
+    if (!(viewport.width > 0.0f) || !(viewport.height > 0.0f) ||
+        !std::isfinite(viewport.width) || !std::isfinite(viewport.height)) {
+        packet.diagnostics.push_back({"ui.viewport.invalid", 0});
+        return packet;
+    }
+    for (std::size_t index = 0; index < draw_list.primitives().size(); ++index) {
+        const auto* glyph = std::get_if<ui::DrawGlyph>(&draw_list.primitives()[index]);
+        if (glyph == nullptr)
+            continue;
+        if (!ValidRect(glyph->rect) || glyph->rect.x + glyph->rect.width > viewport.width ||
+            glyph->rect.y + glyph->rect.height > viewport.height || !ValidRect(glyph->uv) ||
+            glyph->uv.x + glyph->uv.width > 1.0f || glyph->uv.y + glyph->uv.height > 1.0f) {
+            packet.diagnostics.push_back({"ui.glyph.rect_invalid", index});
+            continue;
+        }
+        const float left = 2.0f * glyph->rect.x / viewport.width - 1.0f;
+        const float right = 2.0f * (glyph->rect.x + glyph->rect.width) / viewport.width - 1.0f;
+        const float top = 1.0f - 2.0f * glyph->rect.y / viewport.height;
+        const float bottom =
+            1.0f - 2.0f * (glyph->rect.y + glyph->rect.height) / viewport.height;
+        const auto base = static_cast<std::uint32_t>(packet.vertices.size());
+        packet.vertices.push_back({{left, top, 0.0f}, {glyph->uv.x, glyph->uv.y}, glyph->color});
+        packet.vertices.push_back({{right, top, 0.0f},
+                                   {glyph->uv.x + glyph->uv.width, glyph->uv.y}, glyph->color});
+        packet.vertices.push_back({{right, bottom, 0.0f},
+                                   {glyph->uv.x + glyph->uv.width,
+                                    glyph->uv.y + glyph->uv.height},
+                                   glyph->color});
+        packet.vertices.push_back({{left, bottom, 0.0f},
+                                   {glyph->uv.x, glyph->uv.y + glyph->uv.height}, glyph->color});
+        packet.indices.insert(packet.indices.end(), {base, base + 1, base + 2,
+                                                     base, base + 2, base + 3});
     }
     return packet;
 }

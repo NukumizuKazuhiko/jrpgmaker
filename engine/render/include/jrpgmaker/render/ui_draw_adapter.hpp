@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <glm/vec3.hpp>
+#include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
 #include "jrpgmaker/ui/draw_list.hpp"
@@ -16,6 +17,12 @@ namespace jrpgmaker::render {
 
 struct UiVertex {
     glm::vec3 position;
+    glm::vec4 color;
+};
+
+struct UiTextVertex {
+    glm::vec3 position;
+    glm::vec2 uv;
     glm::vec4 color;
 };
 
@@ -38,6 +45,14 @@ struct UiDrawPacket {
     [[nodiscard]] bool ok() const { return diagnostics.empty(); }
 };
 
+struct UiTextDrawPacket {
+    std::vector<UiTextVertex> vertices;
+    std::vector<std::uint32_t> indices;
+    std::vector<UiDrawDiagnostic> diagnostics;
+
+    [[nodiscard]] bool ok() const { return diagnostics.empty(); }
+};
+
 struct UiGpuBatch {
     rhi::BufferHandle vertex_buffer = rhi::BufferHandle::kInvalid;
     rhi::BufferHandle index_buffer = rhi::BufferHandle::kInvalid;
@@ -52,6 +67,9 @@ struct UiGpuBatch {
 [[nodiscard]] UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list,
                                              const ui::EditorTheme& theme,
                                              UiViewport viewport);
+
+[[nodiscard]] UiTextDrawPacket BuildUiTextDrawPacket(const ui::DrawList& draw_list,
+                                                    UiViewport viewport);
 
 // Uploads one validated packet. The returned buffers remain alive until the
 // caller has submitted and waited for the command list, then DestroyUiGpuBatch

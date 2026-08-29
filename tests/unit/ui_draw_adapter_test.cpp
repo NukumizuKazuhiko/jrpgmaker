@@ -49,3 +49,16 @@ TEST_CASE("ui draw adapter rejects invalid viewport", "[render][ui]") {
     REQUIRE_FALSE(packet.ok());
     REQUIRE(packet.diagnostics.front().code == "ui.viewport.invalid");
 }
+
+TEST_CASE("ui text adapter converts glyph quads to ndc", "[render][ui][text]") {
+    jrpgmaker::ui::DrawList list;
+    REQUIRE(list.Add(jrpgmaker::ui::DrawGlyph{{10.0f, 20.0f, 8.0f, 12.0f},
+                                              {0.1f, 0.2f, 0.25f, 0.5f},
+                                              {1.0f, 0.5f, 0.25f, 1.0f}}));
+    const auto packet = jrpgmaker::render::BuildUiTextDrawPacket(list, {100.0f, 100.0f});
+    REQUIRE(packet.ok());
+    REQUIRE(packet.vertices.size() == 4);
+    REQUIRE(packet.indices.size() == 6);
+    REQUIRE(packet.vertices.front().position == glm::vec3{-0.8f, 0.6f, 0.0f});
+    REQUIRE(packet.vertices.front().uv == glm::vec2{0.1f, 0.2f});
+}

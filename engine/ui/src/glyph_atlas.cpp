@@ -65,6 +65,9 @@ std::optional<GlyphAtlasEntry> GlyphAtlas::Add(Font& font, std::uint32_t codepoi
         cursor_y_,
         glyph_width,
         glyph_height,
+        font.glyph_bearing_x(),
+        font.glyph_bearing_y(),
+        static_cast<float>(font.glyph_advance_x()) / 64.0f,
         static_cast<float>(cursor_x_) / static_cast<float>(width_),
         static_cast<float>(cursor_y_) / static_cast<float>(height_),
         static_cast<float>(cursor_x_ + glyph_width) / static_cast<float>(width_),
@@ -73,6 +76,14 @@ std::optional<GlyphAtlasEntry> GlyphAtlas::Add(Font& font, std::uint32_t codepoi
     cursor_x_ += glyph_width + kPadding;
     row_height_ = std::max(row_height_, glyph_height);
     return entry;
+}
+
+std::optional<GlyphAtlasEntry> GlyphAtlas::Find(std::uint32_t codepoint,
+                                                std::uint32_t pixel_height) const {
+    const auto found = entries_.find(Key{codepoint, pixel_height});
+    if (found == entries_.end())
+        return std::nullopt;
+    return found->second;
 }
 
 } // namespace jrpgmaker::ui

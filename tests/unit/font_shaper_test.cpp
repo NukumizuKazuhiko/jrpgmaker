@@ -6,6 +6,7 @@
 
 #include "jrpgmaker/ui/glyph_atlas.hpp"
 #include "jrpgmaker/ui/text.hpp"
+#include "jrpgmaker/ui/text_draw.hpp"
 
 using jrpgmaker::ui::Font;
 using jrpgmaker::ui::GlyphAtlas;
@@ -139,4 +140,26 @@ TEST_CASE("glyph atlas packs rendered glyphs with deterministic UVs", "[ui][font
     REQUIRE(duplicate.has_value());
     REQUIRE(duplicate->x == first->x);
     REQUIRE(duplicate->y == first->y);
+}
+
+TEST_CASE("text draw resolves localized CJK into glyph quads", "[ui][font][text-draw]") {
+    const auto font_path = FindCjkFont();
+    if (font_path.empty())
+        SKIP("no CJK system font found on this host");
+
+    Font font;
+    REQUIRE(font.Load(font_path.string()));
+    jrpgmaker::ui::EditorLocale locale;
+    locale.strings.emplace("editor.title", "世界");
+    jrpgmaker::ui::DrawList source;
+    REQUIRE(source.Add(jrpgmaker::ui::DrawText{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.title"}));
+    GlyphAtlas atlas(128, 64, 16);
+    const auto result = jrpgmaker::ui::BuildTextDrawList(source, locale, font, atlas, 24);
+    REQUIRE(result.ok());
+    REQUIRE(result.draw_list.size() == 2);
+    const auto* glyph = std::get_if<jrpgmaker::ui::DrawGlyph>(
+        &result.draw_list.primitives().front());
+    REQUIRE(glyph != nullptr);
+    REQUIRE(glyph->rect.width > 0.0f);
+    REQUIRE(glyph->uv.width > 0.0f);
 }

@@ -17,6 +17,9 @@ struct GlyphAtlasEntry {
     std::uint32_t y = 0;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
+    int bearing_x = 0;
+    int bearing_y = 0;
+    float advance_x = 0.0f;
     float u0 = 0.0f;
     float v0 = 0.0f;
     float u1 = 0.0f;
@@ -37,6 +40,9 @@ public:
     [[nodiscard]] std::uint32_t height() const { return height_; }
     [[nodiscard]] const std::vector<std::uint8_t>& pixels() const { return pixels_; }
     [[nodiscard]] std::size_t size() const { return entries_.size(); }
+
+    [[nodiscard]] std::optional<GlyphAtlasEntry> Find(std::uint32_t codepoint,
+                                                       std::uint32_t pixel_height) const;
 
 private:
     struct Key {

@@ -6,6 +6,8 @@
 #include <variant>
 #include <vector>
 
+#include <glm/vec4.hpp>
+
 #include "jrpgmaker/ui/widget.hpp"
 
 namespace jrpgmaker::ui {
@@ -21,7 +23,13 @@ struct DrawText {
     std::string text_key;
 };
 
-using DrawPrimitive = std::variant<DrawRect, DrawText>;
+struct DrawGlyph {
+    Rect rect;
+    Rect uv;
+    glm::vec4 color{1.0f};
+};
+
+using DrawPrimitive = std::variant<DrawRect, DrawText, DrawGlyph>;
 
 class DrawList final {
 public:
