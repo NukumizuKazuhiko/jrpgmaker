@@ -54,6 +54,29 @@ struct EditorExtension {
     std::string icons;
 };
 
+struct EditorFieldDescriptor {
+    std::string path;
+    std::string value_type;
+    std::string role;
+    std::string label_key;
+    std::string recipe;
+    bool required = false;
+    bool read_only = false;
+    std::vector<std::string> choices;
+};
+
+struct EditorDescriptor {
+    std::uint32_t schema = 1;
+    std::string type_id;
+    std::vector<EditorFieldDescriptor> fields;
+};
+
+struct EditorDescriptorParseResult {
+    std::optional<EditorDescriptor> descriptor;
+    std::optional<PluginError> error;
+    explicit operator bool() const { return descriptor.has_value(); }
+};
+
 struct EditorExtensionParseResult {
     std::optional<EditorExtension> extension;
     std::optional<PluginError> error;
@@ -61,6 +84,7 @@ struct EditorExtensionParseResult {
 };
 
 EditorExtensionParseResult ParseEditorExtension(const nlohmann::json& document);
+EditorDescriptorParseResult ParseEditorDescriptor(const nlohmann::json& document);
 [[nodiscard]] std::optional<PluginError>
 ValidateEditorExtension(const EditorExtension& extension, const PluginManifest& manifest);
 

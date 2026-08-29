@@ -25,6 +25,31 @@ bool IsSafeRelativePath(const std::string& path) {
            path.front() != '\\';
 }
 
+bool IsEditorFieldPath(const std::string& path) {
+    if (path.size() < 2 || path.front() != '/' || path.back() == '/')
+        return false;
+    for (std::size_t index = 1; index < path.size(); ++index) {
+        if (path[index] == '/' && path[index - 1] == '/')
+            return false;
+        if (path[index] == '~' && index + 1 == path.size())
+            return false;
+        if (path[index] == '~' && path[index + 1] != '0' && path[index + 1] != '1')
+            return false;
+    }
+    return true;
+}
+
+bool IsEditorValueType(const std::string& value_type) {
+    return value_type == "string" || value_type == "integer" || value_type == "boolean" ||
+           value_type == "select" || value_type == "path" || value_type == "string[]" ||
+           value_type == "path[]";
+}
+
+bool IsEditorRole(const std::string& role) {
+    return role == "text" || role == "number" || role == "toggle" || role == "select" ||
+           role == "list" || role == "object" || role == "resource-reference";
+}
+
 bool IsInDataRoot(std::string_view path, std::string_view root) {
     if (path == root)
         return true;
@@ -176,6 +201,84 @@ EditorExtensionParseResult ParseEditorExtension(const nlohmann::json& document) 
                     .error = PluginError{"editor.locale", "invalid editor locale resource", "locales"}};
     }
     return {.extension = std::move(extension), .error = std::nullopt};
+}
+
+EditorDescriptorParseResult ParseEditorDescriptor(const nlohmann::json& document) {
+    auto fail = [](std::string code, std::string message, std::string path) {
+        return EditorDescriptorParseResult{
+            .descriptor = std::nullopt,
+            .error = PluginError{std::move(code), std::move(message), std::move(path)}};
+    };
+    if (!document.is_object())
+        return fail("editor_descriptor.type", "editor descriptor must be an object", "$");
+    if (!document.contains("schema") || !IsPositiveInteger(document["schema"]) ||
+        document["schema"] != 1u)
+        return fail("editor_descriptor.schema", "unsupported editor descriptor schema", "schema");
+    if (!document.contains("type_id") || !document["type_id"].is_string() ||
+        document["type_id"].get<std::string>().empty())
+        return fail("editor_descriptor.type_id", "type_id must be a non-empty string", "type_id");
+    if (!document.contains("fields") || !document["fields"].is_array() ||
+        document["fields"].empty() || document["fields"].size() > 256)
+        return fail("editor_descriptor.fields", "fields must contain 1 to 256 entries", "fields");
+
+    EditorDescriptor descriptor{.schema = 1,
+                                .type_id = document["type_id"].get<std::string>(),
+                                .fields = {}};
+    std::unordered_set<std::string> paths;
+    for (const auto& value : document["fields"]) {
+        if (!value.is_object())
+            return fail("editor_descriptor.field", "field must be an object", "fields");
+        for (const char* field : {"path", "value_type", "role", "label_key", "recipe"}) {
+            if (!value.contains(field) || !value[field].is_string() || value[field].get<std::string>().empty())
+                return fail("editor_descriptor.required", "missing required field property", field);
+        }
+        const std::string path = value["path"].get<std::string>();
+        const std::string value_type = value["value_type"].get<std::string>();
+        const std::string role = value["role"].get<std::string>();
+        if (!IsEditorFieldPath(path) || !paths.insert(path).second)
+            return fail("editor_descriptor.path", "field paths must be safe and unique", "path");
+        if (!IsEditorValueType(value_type) || !IsEditorRole(role))
+            return fail("editor_descriptor.kind", "unsupported field value type or role", "fields");
+        if (value_type == "select" && role != "select")
+            return fail("editor_descriptor.kind", "select fields must use the select role", "role");
+        if (role == "select" && value_type != "select")
+            return fail("editor_descriptor.kind", "select role requires select value type", "value_type");
+
+        EditorFieldDescriptor field{.path = path,
+                                    .value_type = value_type,
+                                    .role = role,
+                                    .label_key = value["label_key"].get<std::string>(),
+                                    .recipe = value["recipe"].get<std::string>(),
+                                    .required = false,
+                                    .read_only = false,
+                                    .choices = {}};
+        if (value.contains("required")) {
+            if (!value["required"].is_boolean())
+                return fail("editor_descriptor.boolean", "required must be boolean", "required");
+            field.required = value["required"].get<bool>();
+        }
+        if (value.contains("read_only")) {
+            if (!value["read_only"].is_boolean())
+                return fail("editor_descriptor.boolean", "read_only must be boolean", "read_only");
+            field.read_only = value["read_only"].get<bool>();
+        }
+        if (value.contains("choices")) {
+            if (value_type != "select" || !value["choices"].is_array() || value["choices"].empty() ||
+                value["choices"].size() > 64)
+                return fail("editor_descriptor.choices", "select choices are invalid or out of bounds", "choices");
+            std::unordered_set<std::string> choices;
+            for (const auto& choice : value["choices"]) {
+                if (!choice.is_string() || choice.get<std::string>().empty() ||
+                    !choices.insert(choice.get<std::string>()).second)
+                    return fail("editor_descriptor.choices", "choices must be non-empty and unique", "choices");
+                field.choices.push_back(choice.get<std::string>());
+            }
+        } else if (value_type == "select") {
+            return fail("editor_descriptor.choices", "select fields require choices", "choices");
+        }
+        descriptor.fields.push_back(std::move(field));
+    }
+    return {.descriptor = std::move(descriptor), .error = std::nullopt};
 }
 
 std::optional<PluginError> ValidateEditorExtension(const EditorExtension& extension,

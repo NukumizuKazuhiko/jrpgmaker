@@ -79,7 +79,7 @@
 ### P13-4 地图/材质/插件扩展
 
 - 在已有数据合同上增加交互点、碰撞、导航、相机区域和材质实例编辑。
-- 加载并 lint `plugin.editor.json`、字段描述、插件 locale/icon 资源；sidecar 清单的 schema、contract、插件 ID、roots、路径、重复项和数量上界校验已由 plugin owner 提供，descriptor 到 editor adapter 的转换、资源存在性和插件 validator 接线仍待完成。字段描述只生成类型化 EditCommand，保存仍调用运行时插件 validator，不把插件私有 schema 提升为核心 schema。
+- 加载并 lint `plugin.editor.json`、字段描述、插件 locale/icon 资源；sidecar 清单与 descriptor 的 schema、contract、插件 ID、roots、路径、重复项和数量上界校验已由 plugin owner 提供，descriptor 到 project editor adapter 的类型化转换已落地。资源存在性和插件 validator 接线仍待完成。字段描述只生成类型化 EditCommand，保存仍调用运行时插件 validator，不把插件私有 schema 提升为核心 schema。
 - 验收：替换数据即可改变运行时项目；核心 domain、RHI 后端和 app 业务分支不改。
 
 ### P13-5 只读运行预览与发布回归

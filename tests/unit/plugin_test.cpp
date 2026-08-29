@@ -351,6 +351,37 @@ TEST_CASE("plugin editor sidecar rejects unsafe roots and duplicate documents", 
     REQUIRE_FALSE(parsed);
 }
 
+TEST_CASE("plugin editor descriptor parses bounded typed fields", "[plugin][editor][p13]") {
+    const auto parsed = jrpgmaker::plugin::ParseEditorDescriptor(nlohmann::json::parse(R"json(
+        {"schema":1,"type_id":"sample.style.document.material.v1","fields":[
+          {"path":"/value","value_type":"string","role":"text",
+           "label_key":"plugin.sample.style.value","recipe":"input","required":true},
+          {"path":"/mode","value_type":"select","role":"select",
+           "label_key":"plugin.sample.style.mode","recipe":"select",
+           "choices":["unlit","toon"]}
+        ]}
+    )json"));
+    REQUIRE(parsed);
+    REQUIRE(parsed.descriptor->type_id == "sample.style.document.material.v1");
+    REQUIRE(parsed.descriptor->fields.size() == 2);
+    REQUIRE(parsed.descriptor->fields[0].required);
+    REQUIRE(parsed.descriptor->fields[1].choices == std::vector<std::string>{"unlit", "toon"});
+}
+
+TEST_CASE("plugin editor descriptor rejects unsafe paths and invalid choices", "[plugin][editor][p13]") {
+    auto document = nlohmann::json{
+        {"schema", 1},
+        {"type_id", "sample.style.document.material.v1"},
+        {"fields", nlohmann::json::array({nlohmann::json{
+             {"path", "/value"}, {"value_type", "select"}, {"role", "select"},
+             {"label_key", "plugin.sample.style.value"}, {"recipe", "select"},
+             {"choices", nlohmann::json::array({"unlit", "unlit"})}}})}};
+    REQUIRE_FALSE(jrpgmaker::plugin::ParseEditorDescriptor(document));
+    document["fields"][0]["choices"] = nlohmann::json::array({"unlit"});
+    document["fields"][0]["path"] = "../value";
+    REQUIRE_FALSE(jrpgmaker::plugin::ParseEditorDescriptor(document));
+}
+
 TEST_CASE("project manifest resolves registered plugins and existing data roots", "[plugin][p5]") {
     const auto result = jrpgmaker::plugin::ParseProjectManifest(
         {{"schema", 1},

@@ -213,7 +213,7 @@ sidecar 路径相对插件安装根解析；`plugin_id` 必须精确匹配相邻
 
 ### 安全与预算
 
-sidecar 清单解析与基础合同校验已落地：当前实现覆盖 schema/editor_contract、插件 ID、文档 type id/根/descriptor 路径、locale 路径、图标路径、重复项和数量上界，并验证 editor roots 不得超出运行时 data_roots。P13-0 实现前必须继续为 descriptor 文件的单文件大小、总字节、字段数、布局节点、locale 条目、图标尺寸和诊断数上界提供测试。未知 schema/contract、路径越界、重复 type id、namespace 冲突或引用缺失都使扩展不可加载，但不能阻止运行时项目在没有编辑器的环境中启动。
+sidecar 清单与 descriptor 的基础合同校验已落地：当前实现覆盖 schema/editor_contract、插件 ID、文档 type id/根/descriptor 路径、locale 路径、图标路径、字段路径与类型/角色、选择项、重复项和数量上界，并验证 editor roots 不得超出运行时 data_roots。descriptor 可转换为 project `DocumentAdapter`，但资源存在性和插件 validator 接线仍需完成。后续必须继续为 descriptor 文件的单文件大小、总字节、布局节点、locale 条目、图标尺寸和诊断数上界提供测试。未知 schema/contract、路径越界、重复 type id、namespace 冲突或引用缺失都使扩展不可加载，但不能阻止运行时项目在没有编辑器的环境中启动。
 
 ## 版本与兼容性
 

@@ -66,6 +66,10 @@ private:
 
 [[nodiscard]] DocumentAdapterRegistry CreateDefaultDocumentAdapters();
 
+[[nodiscard]] AdapterResult RegisterEditorDescriptor(
+    DocumentAdapterRegistry& registry, const plugin::EditorDescriptor& descriptor,
+    DocumentValidator validator, DocumentEditNormalizer normalizer = {});
+
 struct ProjectSnapshot {
     std::filesystem::path root;
     plugin::ProjectManifest manifest;

@@ -267,6 +267,25 @@ TEST_CASE("document adapter registry validates bounded select choices", "[projec
     REQUIRE(result.diagnostics.front().code == "project.adapter.duplicate_choice");
 }
 
+TEST_CASE("plugin editor descriptor registers as a project adapter", "[project][plugin][p13]") {
+    const auto parsed = jrpgmaker::plugin::ParseEditorDescriptor(nlohmann::json{
+        {"schema", 1},
+        {"type_id", "vendor.example.document.v1"},
+        {"fields", nlohmann::json::array({nlohmann::json{
+             {"path", "/name"}, {"value_type", "string"}, {"role", "text"},
+             {"label_key", "plugin.example.name"}, {"recipe", "input"}}})}});
+    REQUIRE(parsed);
+
+    jrpgmaker::project::DocumentAdapterRegistry registry;
+    const auto result = jrpgmaker::project::RegisterEditorDescriptor(
+        registry, *parsed.descriptor,
+        [](const nlohmann::json&) { return std::vector<jrpgmaker::project::Diagnostic>{}; });
+    REQUIRE(result);
+    const auto* adapter = registry.Find("vendor.example.document.v1");
+    REQUIRE(adapter != nullptr);
+    REQUIRE(adapter->fields[0].label_key == "plugin.example.name");
+}
+
 TEST_CASE("default document adapters cover the domain workspace documents", "[project][editor]") {
     const auto registry = jrpgmaker::project::CreateDefaultDocumentAdapters();
     REQUIRE(registry.size() == 10);

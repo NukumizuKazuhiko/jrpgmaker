@@ -309,6 +309,26 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
     return registry;
 }
 
+AdapterResult RegisterEditorDescriptor(DocumentAdapterRegistry& registry,
+                                       const plugin::EditorDescriptor& descriptor,
+                                       DocumentValidator validator,
+                                       DocumentEditNormalizer normalizer) {
+    DocumentAdapter adapter{.type_id = descriptor.type_id,
+                             .fields = {},
+                             .validate = std::move(validator),
+                             .normalize_edit = std::move(normalizer)};
+    adapter.fields.reserve(descriptor.fields.size());
+    for (const auto& field : descriptor.fields)
+        adapter.fields.push_back(FieldDescriptor{.path = field.path,
+                                                 .value_type = field.value_type,
+                                                 .label_key = field.label_key,
+                                                 .recipe = field.recipe,
+                                                 .required = field.required,
+                                                 .read_only = field.read_only,
+                                                 .choices = field.choices});
+    return registry.Register(std::move(adapter));
+}
+
 ProjectWorkspace::ProjectWorkspace(std::filesystem::path root, DocumentAdapterRegistry adapters)
     : root_(std::move(root)), adapters_(std::move(adapters)) {}
 
