@@ -142,3 +142,12 @@ TEST_CASE("diagnostics filter and diff projection retain stable document ownersh
     REQUIRE(diff.changes[0].sequence == 1);
     REQUIRE(diff.changes[1].sequence == 2);
 }
+
+TEST_CASE("preview draw projection exposes bounded process status", "[ui][editor]") {
+    const jrpgmaker::editor::PreviewProjection preview{
+        .valid = true, .process_running = false, .process_exit_code = 7, .process_error = {}};
+    const auto draw_list = jrpgmaker::editor::BuildPreviewDrawList(preview, {0, 0, 100, 40}, 20);
+    REQUIRE(draw_list.size() == 2);
+    REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[1]).text_key ==
+            "editor.preview.process");
+}

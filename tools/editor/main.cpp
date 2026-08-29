@@ -334,7 +334,8 @@ int main(int argc, char** argv) {
             }
         }
         if (session != nullptr)
-            session->PollPreview();
+            if (session->PollPreview())
+                ui_dirty = true;
         if (ui_dirty) {
             device->WaitForGpuIdle();
             jrpgmaker::render::DestroyUiGpuBatch(*device, gpu_batch);

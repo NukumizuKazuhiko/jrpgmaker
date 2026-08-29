@@ -42,7 +42,7 @@ public:
     [[nodiscard]] bool ApplySelectedKey(std::string_view key);
     [[nodiscard]] bool Save();
     [[nodiscard]] bool StartPreview(const std::filesystem::path& executable);
-    void PollPreview();
+    [[nodiscard]] bool PollPreview();
 
     [[nodiscard]] const EditorSessionState& state() const { return state_; }
 

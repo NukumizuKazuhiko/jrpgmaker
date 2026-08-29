@@ -216,11 +216,22 @@ bool EditorSession::Save() {
 bool EditorSession::StartPreview(const std::filesystem::path& executable) {
     if (!state_.open)
         return false;
-    return preview_process_.Start(executable, root_);
+    const bool started = preview_process_.Start(executable, root_);
+    state_.preview.process_running = preview_process_.state().running;
+    state_.preview.process_exit_code = preview_process_.state().exit_code;
+    state_.preview.process_error = preview_process_.state().error;
+    return started;
 }
 
-void EditorSession::PollPreview() {
+bool EditorSession::PollPreview() {
+    const auto before = preview_process_.state();
     preview_process_.Poll();
+    const auto& after = preview_process_.state();
+    state_.preview.process_running = after.running;
+    state_.preview.process_exit_code = after.exit_code;
+    state_.preview.process_error = after.error;
+    return before.running != after.running || before.exit_code != after.exit_code ||
+           before.error != after.error;
 }
 
 } // namespace jrpgmaker::editor

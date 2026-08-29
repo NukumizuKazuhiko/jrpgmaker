@@ -23,5 +23,6 @@
     ,"editor.document.input": "Input"
     ,"editor.document.localization": "Localization"
     ,"editor.document.resources": "Resources"
+    ,"editor.preview.process": "Preview: {value}"
   }
 }

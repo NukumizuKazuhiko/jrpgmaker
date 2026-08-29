@@ -168,6 +168,19 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
                                            bounds.width * 0.5f, row.height},
                                           "editor.value", {{"value", metric.value.dump()}}});
     }
+    if (projection.process_running || projection.process_exit_code != 0 ||
+        !projection.process_error.empty()) {
+        const auto row = ui::Rect{bounds.x, bounds.y + row_height *
+                                             static_cast<float>(projection.metrics.size()),
+                                  bounds.width, row_height};
+        (void) draw_list.Add(ui::DrawRect{row, "input", "disabled"});
+        const auto value = projection.process_running
+                               ? "running"
+                               : projection.process_error.empty()
+                                     ? std::to_string(projection.process_exit_code)
+                                     : projection.process_error;
+        (void) draw_list.Add(ui::DrawText{row, "editor.preview.process", {{"value", value}}});
+    }
     return draw_list;
 }
 
