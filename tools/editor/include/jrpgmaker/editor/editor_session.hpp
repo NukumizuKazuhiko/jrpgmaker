@@ -63,6 +63,7 @@ private:
     void RebuildProjection();
     void PublishTextFieldState();
     void SyncTextField(bool select_all);
+    [[nodiscard]] std::vector<project::Diagnostic> LoadPluginEditorAdapters();
 
     project::DocumentAdapterRegistry adapters_ = project::CreateDefaultDocumentAdapters();
     const plugin::PluginRegistry* plugins_ = nullptr;

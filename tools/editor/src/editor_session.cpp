@@ -3,10 +3,43 @@
 #include <algorithm>
 #include <charconv>
 #include <cstddef>
+#include <fstream>
 #include <limits>
+#include <unordered_set>
 #include <utility>
 
 namespace jrpgmaker::editor {
+
+namespace {
+
+void AddPluginDiagnostic(std::vector<project::Diagnostic>& diagnostics,
+                         const plugin::PluginError& error) {
+    diagnostics.push_back({error.code, error.path});
+}
+
+bool ReadJson(const std::filesystem::path& path, nlohmann::json& document,
+              std::vector<project::Diagnostic>& diagnostics) {
+    std::error_code error;
+    const auto size = std::filesystem::file_size(path, error);
+    if (error || size > plugin::kMaxPluginValidationFileBytes) {
+        diagnostics.push_back({"editor.plugin.resource_file_size", path.string()});
+        return false;
+    }
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        diagnostics.push_back({"editor.plugin.resource_missing", path.string()});
+        return false;
+    }
+    try {
+        file >> document;
+    } catch (const std::exception&) {
+        diagnostics.push_back({"editor.plugin.resource_json", path.string()});
+        return false;
+    }
+    return true;
+}
+
+} // namespace
 
 EditorSession::EditorSession(std::filesystem::path root)
     : root_(root), workspace_(std::move(root), adapters_) {}
@@ -21,7 +54,7 @@ bool EditorSession::Open(std::filesystem::path root) {
         return false;
     preview_process_.Stop();
     root_ = std::move(root);
-    workspace_ = project::ProjectWorkspace(root_, adapters_);
+    workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_);
     snapshot_.reset();
     state_ = {};
     focus_context_.ClearFocusables();
@@ -77,6 +110,8 @@ void EditorSession::PublishTextFieldState() {
 }
 
 bool EditorSession::Open() {
+    const auto plugin_diagnostics = LoadPluginEditorAdapters();
+    workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_);
     const auto result = workspace_.Open();
     if (!result) {
         state_.open = false;
@@ -91,8 +126,96 @@ bool EditorSession::Open() {
     for (std::size_t index = 0; index < state_.form.fields.size(); ++index)
         (void) focus_context_.RegisterFocusable(index + 1, index);
     SyncTextField(true);
-    SetDiagnostics(state_.preview.diagnostics);
+    if (plugin_diagnostics.empty()) {
+        SetDiagnostics(state_.preview.diagnostics);
+    } else {
+        auto diagnostics = plugin_diagnostics;
+        diagnostics.insert(diagnostics.end(), state_.preview.diagnostics.begin(),
+                           state_.preview.diagnostics.end());
+        SetDiagnostics(std::move(diagnostics));
+    }
     return state_.preview.valid;
+}
+
+std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
+    std::vector<project::Diagnostic> diagnostics;
+    nlohmann::json project_document;
+    if (!ReadJson(root_ / "project.json", project_document, diagnostics))
+        return diagnostics;
+    const auto parsed_project = plugin::ParseProjectManifest(project_document);
+    if (!parsed_project) {
+        AddPluginDiagnostic(diagnostics, *parsed_project.error);
+        return diagnostics;
+    }
+    std::unordered_set<std::string> loaded_types;
+    for (const auto& id : parsed_project.manifest->plugins) {
+        const auto plugin_root = root_ / "plugins" / id;
+        const auto sidecar_path = plugin_root / "plugin.editor.json";
+        std::error_code error;
+        if (!std::filesystem::exists(sidecar_path, error))
+            continue;
+
+        nlohmann::json sidecar_document;
+        if (!ReadJson(sidecar_path, sidecar_document, diagnostics))
+            continue;
+        const auto extension = plugin::ParseEditorExtension(sidecar_document);
+        if (!extension) {
+            AddPluginDiagnostic(diagnostics, *extension.error);
+            continue;
+        }
+        std::optional<plugin::PluginManifest> manifest;
+        if (plugins_ != nullptr)
+            manifest = plugins_->FindManifest(id);
+        if (!manifest.has_value()) {
+            nlohmann::json manifest_document;
+            if (!ReadJson(plugin_root / "plugin.json", manifest_document, diagnostics))
+                continue;
+            const auto parsed_manifest = plugin::ParseManifest(manifest_document);
+            if (!parsed_manifest) {
+                AddPluginDiagnostic(diagnostics, *parsed_manifest.error);
+                continue;
+            }
+            manifest = parsed_manifest.manifest;
+        }
+        if (extension.extension->plugin_id != id) {
+            AddPluginDiagnostic(diagnostics, plugin::PluginError{
+                                             "editor.plugin_id", "sidecar plugin id mismatch", id});
+            continue;
+        }
+        for (const auto& resource_error : plugin::ValidateEditorExtensionResources(
+                 *extension.extension, *manifest, plugin_root))
+            AddPluginDiagnostic(diagnostics, resource_error);
+        for (const auto& document : extension.extension->documents) {
+            nlohmann::json descriptor_document;
+            if (!ReadJson(plugin_root / document.descriptor, descriptor_document, diagnostics))
+                continue;
+            const auto descriptor = plugin::ParseEditorDescriptor(descriptor_document);
+            if (!descriptor) {
+                AddPluginDiagnostic(diagnostics, *descriptor.error);
+                continue;
+            }
+            if (descriptor.descriptor->type_id != document.type_id) {
+                AddPluginDiagnostic(diagnostics, plugin::PluginError{
+                                                 "editor_descriptor.type_id",
+                                                 "descriptor type_id does not match sidecar",
+                                                 document.type_id});
+                continue;
+            }
+            if (!loaded_types.insert(document.type_id).second) {
+                AddPluginDiagnostic(diagnostics, plugin::PluginError{
+                                                 "editor.document.duplicate_type",
+                                                 "editor document type is already loaded",
+                                                 document.type_id});
+                continue;
+            }
+            const auto result = project::RegisterEditorDescriptor(
+                adapters_, *descriptor.descriptor,
+                [](const nlohmann::json&) { return std::vector<project::Diagnostic>{}; });
+            diagnostics.insert(diagnostics.end(), result.diagnostics.begin(),
+                               result.diagnostics.end());
+        }
+    }
+    return diagnostics;
 }
 
 bool EditorSession::Refresh() {
