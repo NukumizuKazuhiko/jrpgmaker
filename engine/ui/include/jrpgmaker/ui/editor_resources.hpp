@@ -61,6 +61,7 @@ struct EditorTheme {
     std::unordered_map<std::string, float> dimensions;
     std::unordered_map<std::string, std::string> semantic_tokens;
     std::unordered_map<std::string, EditorThemeRecipe> recipes;
+    std::vector<std::string> font_paths;
 };
 
 struct EditorLayoutNode {

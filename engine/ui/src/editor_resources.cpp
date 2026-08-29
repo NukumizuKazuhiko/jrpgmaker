@@ -321,6 +321,21 @@ EditorResourceParseResult<EditorTheme> ParseEditorTheme(const nlohmann::json& do
         Error(result.errors, "editor.theme.schema", "/schema");
     ManifestId(document, "id", result.value.id, result.errors);
 
+    if (document.contains("font_paths")) {
+        const auto& paths = document["font_paths"];
+        if (!paths.is_array() || paths.empty() || paths.size() > 16u) {
+            Error(result.errors, "editor.theme.font_paths_invalid", "/font_paths");
+        } else {
+            for (std::size_t index = 0; index < paths.size(); ++index) {
+                if (!paths[index].is_string() || paths[index].get<std::string>().empty())
+                    Error(result.errors, "editor.theme.font_path_invalid",
+                          "/font_paths/" + std::to_string(index));
+                else
+                    result.value.font_paths.push_back(paths[index].get<std::string>());
+            }
+        }
+    }
+
     const auto* colors = document.contains("colors") ? &document["colors"] : nullptr;
     if (colors == nullptr || !colors->is_object()) {
         Error(result.errors, "editor.theme.colors_required", "/colors");
