@@ -51,3 +51,24 @@ add_library(jrpgmaker_shaders INTERFACE)
 add_library(jrpgmaker::shaders ALIAS jrpgmaker_shaders)
 add_dependencies(jrpgmaker_shaders jrpgmaker_shaders_generate)
 target_include_directories(jrpgmaker_shaders INTERFACE "${SHADERS_HEADER_DIR}")
+
+# The editor's alpha-masked glyph shader is kept in a separate generated
+# header so existing runtime shader ABI names remain unchanged.
+set(UI_TEXT_SHADER_HEADER "${SHADERS_HEADER_DIR}/ui_text_generated.hpp")
+add_custom_command(
+    OUTPUT "${UI_TEXT_SHADER_HEADER}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHADERS_HEADER_DIR}"
+    COMMAND "${CMAKE_COMMAND}"
+            "-DINPUTS=${SHADERS_GENERATED_DIR}/ui_text_vs.dxil;${SHADERS_GENERATED_DIR}/ui_text_ps.dxil;${SHADERS_GENERATED_DIR}/ui_text_vs.spv;${SHADERS_GENERATED_DIR}/ui_text_ps.spv"
+            "-DSYMBOLS=kUiTextVsDxil;kUiTextPsDxil;kUiTextVsSpv;kUiTextPsSpv"
+            "-DOUTPUT=${UI_TEXT_SHADER_HEADER}"
+            "-DNAMESPACE=jrpgmaker::shaders"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/../tools/cmake/bin_to_cpp.cmake"
+    DEPENDS
+        "${SHADERS_GENERATED_DIR}/ui_text_vs.dxil"
+        "${SHADERS_GENERATED_DIR}/ui_text_ps.dxil"
+        "${SHADERS_GENERATED_DIR}/ui_text_vs.spv"
+        "${SHADERS_GENERATED_DIR}/ui_text_ps.spv"
+    VERBATIM)
+add_custom_target(jrpgmaker_ui_text_shaders_generate DEPENDS "${UI_TEXT_SHADER_HEADER}")
+add_dependencies(jrpgmaker_shaders jrpgmaker_ui_text_shaders_generate)

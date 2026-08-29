@@ -1,6 +1,13 @@
 {
   "schema": 1,
   "id": "editor.high-contrast",
+  "font_paths": [
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/msgothic.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf"
+  ],
   "colors": {
     "canvas": "#000000",
     "panel": "#1F2326",

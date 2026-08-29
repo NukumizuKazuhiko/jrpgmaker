@@ -210,7 +210,8 @@ bool Font::LoadGlyph(std::uint32_t codepoint, std::uint32_t pixel_height) {
         impl_->glyph_loaded = false;
         return false;
     }
-    if (FT_Load_Glyph(impl_->face, glyph_index, FT_LOAD_RENDER) != 0) {
+    if (FT_Load_Glyph(impl_->face, glyph_index, FT_LOAD_DEFAULT | FT_LOAD_NO_BITMAP) != 0 ||
+        FT_Render_Glyph(impl_->slot, FT_RENDER_MODE_NORMAL) != 0) {
         impl_->glyph_loaded = false;
         impl_->glyph_bitmap.clear();
         impl_->glyph_pitch = 0;

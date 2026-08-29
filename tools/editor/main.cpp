@@ -10,7 +10,9 @@
 #include "jrpgmaker/rhi/device_factory.hpp"
 #include "jrpgmaker/rhi/swapchain.hpp"
 #include "jrpgmaker/ui/editor_resources.hpp"
+#include "jrpgmaker/ui/text_draw.hpp"
 #include "shaders_generated.hpp"
+#include "ui_text_generated.hpp"
 #include <array>
 #include <memory>
 #include <optional>
@@ -42,6 +44,13 @@ jrpgmaker::rhi::ClearColor ThemeClearColor(const jrpgmaker::ui::EditorTheme& the
             color->second.a * scale};
 }
 
+std::optional<std::filesystem::path> FindEditorFont(const jrpgmaker::ui::EditorTheme& theme) {
+    for (const auto& path : theme.font_paths)
+        if (std::filesystem::exists(path))
+            return std::filesystem::path(path);
+    return std::nullopt;
+}
+
 const jrpgmaker::editor::ShellNode*
 FindShellNode(const jrpgmaker::editor::ShellProjection& projection, std::string_view id) {
     for (const auto& node : projection.nodes)
@@ -69,6 +78,16 @@ int main(int argc, char** argv) {
     if (!shell)
         return 1;
     const auto input_map = jrpgmaker::editor::BuildInputMap(resources.bundle->action_map);
+    const auto font_path = FindEditorFont(resources.bundle->theme);
+    if (!font_path) {
+        std::cerr << "editor.font.unavailable\n";
+        return 1;
+    }
+    jrpgmaker::ui::Font font;
+    if (!font.Load(font_path->string())) {
+        std::cerr << "editor.font.load_failed\n";
+        return 1;
+    }
 
     std::unique_ptr<jrpgmaker::editor::EditorSession> session;
     if ((argc == 2 && !smoke) || argc == 3) {
@@ -101,7 +120,9 @@ int main(int argc, char** argv) {
     jrpgmaker::rhi::ISwapchain* swapchain = nullptr;
     jrpgmaker::rhi::ICommandList* command_list = nullptr;
     jrpgmaker::rhi::PipelineHandle pipeline = jrpgmaker::rhi::PipelineHandle::kInvalid;
+    jrpgmaker::rhi::PipelineHandle text_pipeline = jrpgmaker::rhi::PipelineHandle::kInvalid;
     jrpgmaker::render::UiGpuBatch gpu_batch;
+    jrpgmaker::render::UiTextGpuBatch text_gpu_batch;
     try {
 #if defined(_WIN32)
         device = jrpgmaker::rhi::CreateDevice(jrpgmaker::rhi::Backend::kD3D12);
@@ -142,6 +163,42 @@ int main(int argc, char** argv) {
             .color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm,
             .vertex_input = {attributes, 2, sizeof(jrpgmaker::render::UiVertex)}};
         pipeline = device->CreatePipeline(pipeline_desc);
+        const jrpgmaker::rhi::VertexAttribute text_attributes[] = {
+            {.location = 0,
+             .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat3,
+             .offset_bytes = 0,
+             .semantic_name = "POSITION"},
+            {.location = 1,
+             .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat2,
+             .offset_bytes = sizeof(float) * 3,
+             .semantic_name = "TEXCOORD"},
+            {.location = 2,
+             .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat4,
+             .offset_bytes = sizeof(float) * 5,
+             .semantic_name = "COLOR"},
+        };
+        jrpgmaker::rhi::GraphicsPipelineDesc text_pipeline_desc{
+            .vertex_shader = {
+#if defined(_WIN32)
+                jrpgmaker::shaders::kUiTextVsDxil, jrpgmaker::shaders::kUiTextVsDxil_size
+#else
+                jrpgmaker::shaders::kUiTextVsSpv, jrpgmaker::shaders::kUiTextVsSpv_size
+#endif
+            },
+            .pixel_shader = {
+#if defined(_WIN32)
+                jrpgmaker::shaders::kUiTextPsDxil, jrpgmaker::shaders::kUiTextPsDxil_size
+#else
+                jrpgmaker::shaders::kUiTextPsSpv, jrpgmaker::shaders::kUiTextPsSpv_size
+#endif
+            },
+            .color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm,
+            .vertex_input = {text_attributes, 3,
+                             sizeof(jrpgmaker::render::UiTextVertex)},
+            .sample_slot = 1};
+        text_pipeline = device->CreatePipeline(text_pipeline_desc);
+        if (text_pipeline == jrpgmaker::rhi::PipelineHandle::kInvalid)
+            throw std::runtime_error("editor.ui.text_pipeline_creation_failed");
         auto draw_list = jrpgmaker::editor::BuildShellDrawList(*shell);
         if (session != nullptr) {
             const auto* form_node = FindShellNode(*shell, "workspace.form");
@@ -170,6 +227,21 @@ int main(int argc, char** argv) {
         if (!packet.ok())
             throw std::runtime_error("editor.ui.draw_packet_invalid");
         gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
+        jrpgmaker::ui::GlyphAtlas glyph_atlas(1024, 1024, 512);
+        const auto text_draw = jrpgmaker::ui::BuildTextDrawList(
+            draw_list, resources.bundle->locale, font, glyph_atlas,
+            static_cast<std::uint32_t>(resources.bundle->theme.dimensions.at("font.body")));
+        if (!text_draw.ok()) {
+            for (const auto& diagnostic : text_draw.diagnostics)
+                std::cerr << diagnostic.code << '\t' << diagnostic.primitive_index << '\n';
+            throw std::runtime_error("editor.ui.text_draw_invalid");
+        }
+        const auto text_packet = jrpgmaker::render::BuildUiTextDrawPacket(
+            text_draw.draw_list, {1280.0f, 720.0f});
+        if (!text_packet.ok())
+            throw std::runtime_error("editor.ui.text_packet_invalid");
+        text_gpu_batch = jrpgmaker::render::UploadUiTextDrawPacket(*device, text_packet,
+                                                                    glyph_atlas);
         command_list = device->CreateCommandList();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
@@ -177,8 +249,12 @@ int main(int argc, char** argv) {
             device->DestroyCommandList(command_list);
         if (pipeline != jrpgmaker::rhi::PipelineHandle::kInvalid)
             device->DestroyPipeline(pipeline);
+        if (text_pipeline != jrpgmaker::rhi::PipelineHandle::kInvalid)
+            device->DestroyPipeline(text_pipeline);
         if (device != nullptr)
             jrpgmaker::render::DestroyUiGpuBatch(*device, gpu_batch);
+        if (device != nullptr)
+            jrpgmaker::render::DestroyUiTextGpuBatch(*device, text_gpu_batch);
         if (swapchain != nullptr)
             device->DestroySwapchain(swapchain);
         SDL_DestroyWindow(window);
@@ -287,6 +363,7 @@ int main(int argc, char** argv) {
         command_list->Begin();
         command_list->BeginRendering(target, ThemeClearColor(resources.bundle->theme));
         jrpgmaker::render::RecordUiDrawPacket(*command_list, pipeline, gpu_batch);
+        jrpgmaker::render::RecordUiTextDrawPacket(*command_list, text_pipeline, text_gpu_batch);
         command_list->EndRendering();
         command_list->End();
         device->Submit(*command_list);
@@ -299,7 +376,9 @@ int main(int argc, char** argv) {
     device->WaitForGpuIdle();
     device->DestroyCommandList(command_list);
     device->DestroyPipeline(pipeline);
+    device->DestroyPipeline(text_pipeline);
     jrpgmaker::render::DestroyUiGpuBatch(*device, gpu_batch);
+    jrpgmaker::render::DestroyUiTextGpuBatch(*device, text_gpu_batch);
     device->DestroySwapchain(swapchain);
     SDL_DestroyWindow(window);
     SDL_Quit();
