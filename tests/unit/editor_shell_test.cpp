@@ -18,10 +18,15 @@ TEST_CASE("editor input map translates only pressed configured keys", "[editor]"
 TEST_CASE("editor input map is built from the action resource", "[editor]") {
     const jrpgmaker::ui::EditorActionMap resource{
         .id = "editor.actions",
-        .actions = {{"save", {"Ctrl+S"}}, {"cancel", {"Escape"}}}};
+        .actions = {{"save", {"Ctrl+S"}},
+                    {"cancel", {"Escape"}},
+                    {"increment", {"PageUp"}},
+                    {"decrement", {"PageDown"}}}};
     const auto input = jrpgmaker::editor::BuildInputMap(resource);
     REQUIRE(input.Translate("Ctrl+S", true) == jrpgmaker::editor::EditorAction::kSave);
     REQUIRE(input.Translate("Escape", true) == jrpgmaker::editor::EditorAction::kCancel);
+    REQUIRE(input.Translate("PageUp", true) == jrpgmaker::editor::EditorAction::kIncrement);
+    REQUIRE(input.Translate("PageDown", true) == jrpgmaker::editor::EditorAction::kDecrement);
 }
 
 TEST_CASE("editor shell projection preserves layout hierarchy and metadata", "[editor]") {

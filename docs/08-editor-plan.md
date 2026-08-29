@@ -64,7 +64,7 @@
 - 面板只消费结构化诊断，不解析终端文本。
 - 验收：同一项目由 CLI 和 GUI 产生相同诊断摘要与字段路径。
 
-当前进度：workspace 的结构化诊断与预览指标已经进入 DrawList，并能通过 locale 参数显示；manifest 驱动的文档标签、诊断 code/path 过滤与文档归属、稳定 diff projection 已接入，鼠标可切换有 adapter 的文档标签并点击诊断定位文档/字段。workspace/editor 现可在无未保存变更时选择已登记且有 adapter 的数据文档，并通过对应 schema-aware 字段编辑和保存；输入动作、本地化、材质、资源清单也已进入 adapter registry，跨文档事务提交仍待完成。
+当前进度：workspace 的结构化诊断与预览指标已经进入 DrawList，并能通过 locale 参数显示；manifest 驱动的文档标签、诊断 code/path 过滤与文档归属、稳定 diff projection 已接入，鼠标可切换有 adapter 的文档标签并点击诊断定位文档/字段。workspace/editor 现可在无未保存变更时选择已登记且有 adapter 的数据文档，并通过对应 schema-aware 字段编辑和保存；输入动作、本地化、材质、资源清单也已进入 adapter registry，整数步进命令和资源化增减绑定已接入，但跨字段事务提交仍待完成。
 预览进程状态现已投影为运行中/退出码/错误文案，并只在轮询状态变化时请求重绘；stdout/stderr 捕获和结果日志面板仍属于后续发布验收项。
 `ProjectWorkspace::Diagnose` 现读取并校验 manifest 引用的材质、输入动作、本地化和资源清单，并对事件脚本执行本地化覆盖检查；诊断不再只覆盖地图五件套。
 

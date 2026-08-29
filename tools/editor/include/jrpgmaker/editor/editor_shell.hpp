@@ -23,6 +23,8 @@ enum class EditorAction : std::uint8_t {
     kConfirm,
     kCancel,
     kPreview,
+    kIncrement,
+    kDecrement,
 };
 
 struct KeyBinding {

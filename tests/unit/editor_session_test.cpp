@@ -72,6 +72,20 @@ TEST_CASE("editor session switches to an adapter-backed document", "[editor]") {
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("editor session rejects integer adjustments that violate the adapter contract", "[editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.SelectDocument("core.navigation"));
+    REQUIRE(session.SelectField(0));
+    const auto original = session.state().form.fields[0].value.get<std::int64_t>();
+    REQUIRE_FALSE(session.AdjustSelectedInteger(1));
+    REQUIRE(session.state().form.fields[0].value == original);
+    REQUIRE_FALSE(session.AdjustSelectedInteger(2));
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("editor session appends text after the initial field selection is replaced", "[editor]") {
     const auto root = MakeFixture();
     jrpgmaker::editor::EditorSession session(root);

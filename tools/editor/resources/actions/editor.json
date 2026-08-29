@@ -9,6 +9,8 @@
     "select_previous": ["Up"],
     "confirm": ["Enter"],
     "cancel": ["Escape"],
-    "preview": ["F6"]
+    "preview": ["F6"],
+    "increment": ["PageUp"],
+    "decrement": ["PageDown"]
   }
 }

@@ -352,6 +352,10 @@ int main(int argc, char** argv) {
                     ui_dirty = session->ApplySelectedKey("Enter") || ui_dirty;
                 } else if (*action == jrpgmaker::editor::EditorAction::kCancel) {
                     ui_dirty = session->ApplySelectedKey("Escape") || ui_dirty;
+                } else if (*action == jrpgmaker::editor::EditorAction::kIncrement) {
+                    ui_dirty = session->AdjustSelectedInteger(1) || ui_dirty;
+                } else if (*action == jrpgmaker::editor::EditorAction::kDecrement) {
+                    ui_dirty = session->AdjustSelectedInteger(-1) || ui_dirty;
                 }
             } else if (event.type == SDL_EVENT_TEXT_INPUT && session != nullptr) {
                 if (!session->ApplySelectedText(event.text.text))

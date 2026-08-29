@@ -1,5 +1,6 @@
 #include "jrpgmaker/editor/editor_session.hpp"
 
+#include <limits>
 #include <utility>
 
 namespace jrpgmaker::editor {
@@ -209,6 +210,20 @@ bool EditorSession::ApplySelectedKey(std::string_view key) {
         if (command.type == ui::UiCommandType::kTextChanged)
             return ApplySelected(command.text);
     return true;
+}
+
+bool EditorSession::AdjustSelectedInteger(int delta) {
+    if (!state_.open || state_.form.fields.empty() ||
+        state_.selected_field >= state_.form.fields.size() || (delta != -1 && delta != 1))
+        return false;
+    const auto& field = state_.form.fields[state_.selected_field];
+    if (field.read_only || field.value_type != "integer" || !field.value.is_number_integer())
+        return false;
+    const auto current = field.value.get<std::int64_t>();
+    if ((delta > 0 && current == std::numeric_limits<std::int64_t>::max()) ||
+        (delta < 0 && current == std::numeric_limits<std::int64_t>::min()))
+        return false;
+    return ApplySelected(current + delta);
 }
 
 bool EditorSession::Save() {
