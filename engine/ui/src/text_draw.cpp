@@ -1,5 +1,6 @@
 #include "jrpgmaker/ui/text_draw.hpp"
 
+#include <algorithm>
 #include <cstdint>
 
 namespace jrpgmaker::ui {
@@ -91,10 +92,22 @@ TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& loc
                                               baseline - static_cast<float>(entry->bearing_y),
                                               static_cast<float>(entry->width),
                                               static_cast<float>(entry->height)};
-                        (void) result.draw_list.Add(
-                            DrawGlyph{glyph_rect, {entry->u0, entry->v0, entry->u1 - entry->u0,
-                                                   entry->v1 - entry->v0},
-                                      {1.0f, 1.0f, 1.0f, 1.0f}});
+                        const float left = std::max(glyph_rect.x, text->rect.x);
+                        const float top = std::max(glyph_rect.y, text->rect.y);
+                        const float right = std::min(glyph_rect.x + glyph_rect.width,
+                                                     text->rect.x + text->rect.width);
+                        const float bottom = std::min(glyph_rect.y + glyph_rect.height,
+                                                      text->rect.y + text->rect.height);
+                        if (right > left && bottom > top) {
+                            const float u_scale = (entry->u1 - entry->u0) / glyph_rect.width;
+                            const float v_scale = (entry->v1 - entry->v0) / glyph_rect.height;
+                            (void) result.draw_list.Add(DrawGlyph{
+                                {left, top, right - left, bottom - top},
+                                {entry->u0 + (left - glyph_rect.x) * u_scale,
+                                 entry->v0 + (top - glyph_rect.y) * v_scale,
+                                 (right - left) * u_scale, (bottom - top) * v_scale},
+                                {1.0f, 1.0f, 1.0f, 1.0f}});
+                        }
                     }
                 }
                 pen_x += advance;

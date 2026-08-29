@@ -163,4 +163,6 @@ TEST_CASE("text draw resolves localized CJK into glyph quads", "[ui][font][text-
     REQUIRE(glyph != nullptr);
     REQUIRE(glyph->rect.width > 0.0f);
     REQUIRE(glyph->uv.width > 0.0f);
+    REQUIRE(glyph->rect.x + glyph->rect.width <= 110.0f);
+    REQUIRE(glyph->rect.y + glyph->rect.height <= 50.0f);
 }
