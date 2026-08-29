@@ -19,7 +19,8 @@ FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
                                   .value_type = descriptor.value_type,
                                   .value = nullptr,
                                   .required = descriptor.required,
-                                  .read_only = descriptor.read_only};
+                                  .read_only = descriptor.read_only,
+                                  .choices = descriptor.choices};
         const auto pointer = nlohmann::json::json_pointer(descriptor.path);
         if (document.contains(pointer))
             field.value = document.at(pointer);

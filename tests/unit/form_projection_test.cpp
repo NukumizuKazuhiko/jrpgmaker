@@ -5,8 +5,8 @@
 TEST_CASE("form projection exposes adapter metadata and current values", "[editor]") {
     const jrpgmaker::project::DocumentAdapter adapter{
         .type_id = "test.document",
-        .fields = {{"/name", "string", "editor.test.name", "text", true, false},
-                   {"/missing", "integer", "editor.test.missing", "number", false, true}},
+        .fields = {{"/name", "string", "editor.test.name", "text", true, false, {}},
+                   {"/missing", "integer", "editor.test.missing", "number", false, true, {}}},
         .validate = {},
         .normalize_edit = {}};
     const auto projection = jrpgmaker::editor::BuildFormProjection(
@@ -18,6 +18,20 @@ TEST_CASE("form projection exposes adapter metadata and current values", "[edito
     REQUIRE(projection.fields[0].label_key == "editor.test.name");
     REQUIRE(projection.fields[1].value.is_null());
     REQUIRE(projection.fields[1].read_only);
+}
+
+TEST_CASE("form projection preserves adapter choices", "[editor]") {
+    const jrpgmaker::project::DocumentAdapter adapter{
+        .type_id = "test.select",
+        .fields = {{"/style", "string", "editor.test.style", "select", true, false,
+                    {"sample.unlit", "sample.style"}}},
+        .validate = {},
+        .normalize_edit = {}};
+    const auto projection = jrpgmaker::editor::BuildFormProjection(
+        adapter, nlohmann::json{{"style", "sample.unlit"}});
+
+    REQUIRE(projection.fields.size() == 1);
+    REQUIRE(projection.fields[0].choices == std::vector<std::string>{"sample.unlit", "sample.style"});
 }
 
 TEST_CASE("workspace preview exposes only structured diagnosis metrics", "[editor]") {

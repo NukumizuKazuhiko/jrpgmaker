@@ -22,13 +22,17 @@ TEST_CASE("editor input map is built from the action resource", "[editor]") {
                     {"cancel", {"Escape"}},
                     {"increment", {"PageUp"}},
                     {"decrement", {"PageDown"}},
-                    {"toggle", {"Space"}}}};
+                    {"toggle", {"Space"}},
+                    {"choice_next", {"Right"}},
+                    {"choice_previous", {"Left"}}}};
     const auto input = jrpgmaker::editor::BuildInputMap(resource);
     REQUIRE(input.Translate("Ctrl+S", true) == jrpgmaker::editor::EditorAction::kSave);
     REQUIRE(input.Translate("Escape", true) == jrpgmaker::editor::EditorAction::kCancel);
     REQUIRE(input.Translate("PageUp", true) == jrpgmaker::editor::EditorAction::kIncrement);
     REQUIRE(input.Translate("PageDown", true) == jrpgmaker::editor::EditorAction::kDecrement);
     REQUIRE(input.Translate("Space", true) == jrpgmaker::editor::EditorAction::kToggle);
+    REQUIRE(input.Translate("Right", true) == jrpgmaker::editor::EditorAction::kChoiceNext);
+    REQUIRE(input.Translate("Left", true) == jrpgmaker::editor::EditorAction::kChoicePrevious);
 }
 
 TEST_CASE("editor shell projection preserves layout hierarchy and metadata", "[editor]") {

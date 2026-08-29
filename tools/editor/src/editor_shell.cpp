@@ -48,7 +48,9 @@ InputMap BuildInputMap(const ui::EditorActionMap& resource) {
         {"select_previous", EditorAction::kSelectPrevious},
         {"confirm", EditorAction::kConfirm},     {"cancel", EditorAction::kCancel},
         {"preview", EditorAction::kPreview},     {"increment", EditorAction::kIncrement},
-        {"decrement", EditorAction::kDecrement}, {"toggle", EditorAction::kToggle}};
+        {"decrement", EditorAction::kDecrement}, {"toggle", EditorAction::kToggle},
+        {"choice_next", EditorAction::kChoiceNext},
+        {"choice_previous", EditorAction::kChoicePrevious}};
     for (const auto& [id, keys] : resource.actions) {
         const auto action = actions.find(id);
         if (action == actions.end())

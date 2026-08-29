@@ -18,6 +18,7 @@ struct FormFieldProjection {
     nlohmann::json value;
     bool required = false;
     bool read_only = false;
+    std::vector<std::string> choices;
 };
 
 struct FormProjection {

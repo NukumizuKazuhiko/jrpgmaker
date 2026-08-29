@@ -358,6 +358,10 @@ int main(int argc, char** argv) {
                     ui_dirty = session->AdjustSelectedInteger(-1) || ui_dirty;
                 } else if (*action == jrpgmaker::editor::EditorAction::kToggle) {
                     ui_dirty = session->ToggleSelectedBoolean() || ui_dirty;
+                } else if (*action == jrpgmaker::editor::EditorAction::kChoiceNext) {
+                    ui_dirty = session->CycleSelectedChoice(1) || ui_dirty;
+                } else if (*action == jrpgmaker::editor::EditorAction::kChoicePrevious) {
+                    ui_dirty = session->CycleSelectedChoice(-1) || ui_dirty;
                 }
             } else if (event.type == SDL_EVENT_TEXT_INPUT && session != nullptr) {
                 if (!session->ApplySelectedText(event.text.text))

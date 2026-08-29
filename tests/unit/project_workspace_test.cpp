@@ -198,7 +198,7 @@ TEST_CASE("document adapter registry rejects duplicates and validates documents"
     auto adapter = jrpgmaker::project::DocumentAdapter{
         .type_id = "calendar",
         .fields = {{.path = "/id", .value_type = "string", .label_key = "editor.calendar.id",
-                    .recipe = "", .required = false, .read_only = false}},
+                    .recipe = "", .required = false, .read_only = false, .choices = {}}},
         .validate = [](const nlohmann::json& document) {
             if (!document.is_object())
                 return std::vector<jrpgmaker::project::Diagnostic>{{"document.object_required", "/"}};
@@ -210,6 +210,27 @@ TEST_CASE("document adapter registry rejects duplicates and validates documents"
     REQUIRE(registry.Validate("calendar", nlohmann::json::object()));
     REQUIRE_FALSE(registry.Validate("calendar", nlohmann::json::array()));
     REQUIRE_FALSE(registry.Validate("missing", nlohmann::json::object()));
+}
+
+TEST_CASE("document adapter registry validates bounded select choices", "[project][editor]") {
+    jrpgmaker::project::DocumentAdapterRegistry registry;
+    const auto adapter = jrpgmaker::project::DocumentAdapter{
+        .type_id = "select.document",
+        .fields = {{.path = "/style",
+                    .value_type = "select",
+                    .label_key = "editor.style",
+                    .recipe = "select",
+                    .required = true,
+                    .read_only = false,
+                    .choices = {"one", "one"}}},
+        .validate = [](const nlohmann::json&) {
+            return std::vector<jrpgmaker::project::Diagnostic>{};
+        },
+        .normalize_edit = {}};
+    const auto result = registry.Register(adapter);
+    REQUIRE_FALSE(result);
+    REQUIRE_FALSE(result.diagnostics.empty());
+    REQUIRE(result.diagnostics.front().code == "project.adapter.duplicate_choice");
 }
 
 TEST_CASE("default document adapters cover the domain workspace documents", "[project][editor]") {

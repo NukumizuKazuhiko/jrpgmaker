@@ -1,6 +1,8 @@
 #include "jrpgmaker/editor/editor_session.hpp"
 
+#include <algorithm>
 #include <charconv>
+#include <cstddef>
 #include <limits>
 #include <utility>
 
@@ -8,6 +10,9 @@ namespace jrpgmaker::editor {
 
 EditorSession::EditorSession(std::filesystem::path root)
     : root_(root), workspace_(std::move(root), adapters_) {}
+
+EditorSession::EditorSession(std::filesystem::path root, project::DocumentAdapterRegistry adapters)
+    : adapters_(std::move(adapters)), root_(root), workspace_(std::move(root), adapters_) {}
 
 void EditorSession::SetDiagnostics(std::vector<project::Diagnostic> diagnostics) {
     state_.diagnostics = std::move(diagnostics);
@@ -246,6 +251,24 @@ bool EditorSession::ToggleSelectedBoolean() {
     if (field.read_only || field.value_type != "boolean" || !field.value.is_boolean())
         return false;
     return ApplySelected(!field.value.get<bool>());
+}
+
+bool EditorSession::CycleSelectedChoice(int direction) {
+    if (!state_.open || state_.form.fields.empty() ||
+        state_.selected_field >= state_.form.fields.size() || (direction != -1 && direction != 1))
+        return false;
+    const auto& field = state_.form.fields[state_.selected_field];
+    if (field.read_only || field.value_type != "select" || !field.value.is_string() ||
+        field.choices.empty())
+        return false;
+    const auto current = std::find(field.choices.begin(), field.choices.end(),
+                                    field.value.get<std::string>());
+    if (current == field.choices.end())
+        return false;
+    const auto index = static_cast<std::ptrdiff_t>(current - field.choices.begin());
+    const auto count = static_cast<std::ptrdiff_t>(field.choices.size());
+    const auto next = (index + direction + count) % count;
+    return ApplySelected(field.choices[static_cast<std::size_t>(next)]);
 }
 
 bool EditorSession::Save() {

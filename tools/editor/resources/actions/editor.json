@@ -12,6 +12,8 @@
     "preview": ["F6"],
     "increment": ["PageUp"],
     "decrement": ["PageDown"],
-    "toggle": ["Space"]
+    "toggle": ["Space"],
+    "choice_next": ["Right"],
+    "choice_previous": ["Left"]
   }
 }

@@ -165,6 +165,23 @@ TEST_CASE("editor session selects a valid field from a layout hit test", "[edito
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("editor session cycles an adapter-provided select field", "[editor]") {
+    const auto root = MakeFixture();
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    auto* manifest = adapters.Find("project.manifest");
+    REQUIRE(manifest != nullptr);
+    REQUIRE(manifest->fields.size() >= 3);
+    manifest->fields[2].value_type = "select";
+    manifest->fields[2].choices = {"sample.instant", "sample.turn_based"};
+    jrpgmaker::editor::EditorSession session(root, std::move(adapters));
+    REQUIRE(session.Open());
+    REQUIRE(session.SelectField(2));
+    REQUIRE(session.CycleSelectedChoice(1));
+    REQUIRE(session.state().form.fields[2].value == "sample.turn_based");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("editor preview process rejects unsafe launch inputs", "[editor]") {
     jrpgmaker::editor::PreviewProcess process;
     REQUIRE_FALSE(process.Start({}, std::filesystem::temp_directory_path()));

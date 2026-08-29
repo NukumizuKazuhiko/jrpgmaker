@@ -16,6 +16,7 @@ namespace jrpgmaker::project {
 namespace {
 
 constexpr std::size_t kMaxDiagnostics = 128;
+constexpr std::size_t kMaxFieldChoices = 64;
 
 bool SafeRelative(const std::string& path) {
     return !path.empty() && path.find("..") == std::string::npos && path.front() != '/' &&
@@ -119,6 +120,22 @@ AdapterResult DocumentAdapterRegistry::Register(DocumentAdapter adapter) {
             if (adapter.fields[i].path == adapter.fields[j].path)
                 Add(diagnostics, "project.adapter.duplicate_field",
                     adapter.type_id + "/fields/" + std::to_string(i));
+        if (adapter.fields[i].choices.size() > kMaxFieldChoices)
+            Add(diagnostics, "project.adapter.choice_limit",
+                adapter.type_id + "/fields/" + std::to_string(i));
+        for (std::size_t choice = 0; choice < adapter.fields[i].choices.size(); ++choice) {
+            const auto& value = adapter.fields[i].choices[choice];
+            if (value.empty())
+                Add(diagnostics, "project.adapter.choice_invalid",
+                    adapter.type_id + "/fields/" + std::to_string(i));
+            for (std::size_t previous = 0; previous < choice; ++previous)
+                if (value == adapter.fields[i].choices[previous])
+                    Add(diagnostics, "project.adapter.duplicate_choice",
+                        adapter.type_id + "/fields/" + std::to_string(i));
+        }
+        if (!adapter.fields[i].choices.empty() && adapter.fields[i].value_type != "select")
+            Add(diagnostics, "project.adapter.choice_type_invalid",
+                adapter.type_id + "/fields/" + std::to_string(i));
     }
     if (!adapter.validate)
         Add(diagnostics, "project.adapter.validator_required", adapter.type_id);
@@ -140,6 +157,14 @@ const DocumentAdapter* DocumentAdapterRegistry::Find(const std::string& type_id)
     return it == adapters_.end() ? nullptr : &*it;
 }
 
+DocumentAdapter* DocumentAdapterRegistry::Find(const std::string& type_id) {
+    const auto it = std::find_if(adapters_.begin(), adapters_.end(),
+                                 [&type_id](DocumentAdapter& adapter) {
+                                     return adapter.type_id == type_id;
+                                 });
+    return it == adapters_.end() ? nullptr : &*it;
+}
+
 AdapterResult DocumentAdapterRegistry::Validate(const std::string& type_id,
                                                  const nlohmann::json& document) const {
     const auto* adapter = Find(type_id);
@@ -152,25 +177,25 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
     DocumentAdapterRegistry registry;
     (void) registry.Register(DocumentAdapter{
         .type_id = "project.manifest",
-        .fields = {{"/id", "string", "editor.project.id", "text", true, false},
-                   {"/render_style", "string", "editor.project.render_style", "select", true, false},
-                   {"/battle_plugin", "string", "editor.project.battle_plugin", "select", false, false},
-                   {"/plugins", "string[]", "editor.project.plugins", "list", true, false},
-                   {"/data_roots", "path[]", "editor.project.data_roots", "list", true, false},
-                   {"/material_document", "path", "editor.project.material", "resource", true, false},
-                   {"/input_actions", "path", "editor.project.input", "resource", true, false},
-                   {"/event_script", "path", "editor.project.events", "resource", true, false},
-                   {"/localization", "path", "editor.project.localization", "resource", true, false},
-                   {"/resource_manifest", "path", "editor.project.resources", "resource", true, false},
-                   {"/navigation", "path", "editor.project.navigation", "resource", true, false},
-                   {"/collision", "path", "editor.project.collision", "resource", true, false},
-                   {"/camera", "path", "editor.project.camera", "resource", true, false},
-                   {"/interaction", "path", "editor.project.interaction", "resource", true, false}},
+        .fields = {{"/id", "string", "editor.project.id", "text", true, false, {}},
+                   {"/render_style", "string", "editor.project.render_style", "select", true, false, {}},
+                   {"/battle_plugin", "string", "editor.project.battle_plugin", "select", false, false, {}},
+                   {"/plugins", "string[]", "editor.project.plugins", "list", true, false, {}},
+                   {"/data_roots", "path[]", "editor.project.data_roots", "list", true, false, {}},
+                   {"/material_document", "path", "editor.project.material", "resource", true, false, {}},
+                   {"/input_actions", "path", "editor.project.input", "resource", true, false, {}},
+                   {"/event_script", "path", "editor.project.events", "resource", true, false, {}},
+                   {"/localization", "path", "editor.project.localization", "resource", true, false, {}},
+                   {"/resource_manifest", "path", "editor.project.resources", "resource", true, false, {}},
+                   {"/navigation", "path", "editor.project.navigation", "resource", true, false, {}},
+                   {"/collision", "path", "editor.project.collision", "resource", true, false, {}},
+                   {"/camera", "path", "editor.project.camera", "resource", true, false, {}},
+                   {"/interaction", "path", "editor.project.interaction", "resource", true, false, {}}},
         .validate = ValidateManifestAdapter,
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "domain.event_script",
-        .fields = {{"/events", "object[]", "editor.events.items", "event_list", true, false}},
+        .fields = {{"/events", "object[]", "editor.events.items", "event_list", true, false, {}}},
         .validate = [](const nlohmann::json& document) {
             return ValidateParsedDocument(document, "event_script", [](const auto& value) {
                 (void) domain::ParseEventScript(value);
@@ -179,9 +204,9 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.navigation",
-        .fields = {{"/width", "integer", "editor.navigation.width", "number", true, false},
-                   {"/height", "integer", "editor.navigation.height", "number", true, false},
-                   {"/walkable", "boolean[]", "editor.navigation.walkable", "grid", true, false}},
+        .fields = {{"/width", "integer", "editor.navigation.width", "number", true, false, {}},
+                   {"/height", "integer", "editor.navigation.height", "number", true, false, {}},
+                   {"/walkable", "boolean[]", "editor.navigation.walkable", "grid", true, false, {}}},
         .validate = [](const nlohmann::json& document) {
             return ValidateParsedDocument(document, "navigation", [](const auto& value) {
                 (void) core::ParseNavigationGrid(value);
@@ -212,7 +237,7 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
         }});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.collision",
-        .fields = {{"/obstacles", "object[]", "editor.collision.obstacles", "aabb_list", true, false}},
+        .fields = {{"/obstacles", "object[]", "editor.collision.obstacles", "aabb_list", true, false, {}}},
         .validate = [](const nlohmann::json& document) {
             return ValidateParsedDocument(document, "collision", [](const auto& value) {
                 (void) core::ParseCollisionAabbs(value);
@@ -221,8 +246,8 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.camera",
-        .fields = {{"/third_person", "object", "editor.camera.third_person", "camera", true, false},
-                   {"/fixed_regions", "object[]", "editor.camera.fixed_regions", "region_list", true, false}},
+        .fields = {{"/third_person", "object", "editor.camera.third_person", "camera", true, false, {}},
+                   {"/fixed_regions", "object[]", "editor.camera.fixed_regions", "region_list", true, false, {}}},
         .validate = [](const nlohmann::json& document) {
             return ValidateParsedDocument(document, "camera", [](const auto& value) {
                 (void) core::ParseCameraRigData(value);
@@ -231,7 +256,7 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "domain.interaction",
-        .fields = {{"/interactions", "object[]", "editor.interaction.points", "interaction_list", true, false}},
+        .fields = {{"/interactions", "object[]", "editor.interaction.points", "interaction_list", true, false, {}}},
         .validate = [](const nlohmann::json& document) {
             return ValidateParsedDocument(document, "interaction", [](const auto& value) {
                 (void) domain::ParseInteractionPoints(value);
@@ -241,7 +266,7 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.material",
         .fields = {{"/style_plugin_id", "string", "editor.material.style_plugin", "select", true,
-                    false}},
+                    false, {}}},
         .validate = [](const nlohmann::json& document) {
             if (!document.is_object() || document.value("schema", 0) != 1 ||
                 !document.contains("style_plugin_id") || !document["style_plugin_id"].is_string() ||
@@ -252,7 +277,7 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "app.input_actions",
-        .fields = {{"/actions", "object[]", "editor.input.actions", "action_list", true, false}},
+        .fields = {{"/actions", "object[]", "editor.input.actions", "action_list", true, false, {}}},
         .validate = [](const nlohmann::json& document) {
             const auto parsed = core::ParseInputActionMap(document);
             if (parsed)
@@ -262,7 +287,7 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "domain.localization",
-        .fields = {{"/strings", "object", "editor.localization.strings", "string_map", true, false}},
+        .fields = {{"/strings", "object", "editor.localization.strings", "string_map", true, false, {}}},
         .validate = [](const nlohmann::json& document) {
             const auto parsed = domain::ParseLocalizationTable(document);
             if (parsed)
@@ -272,7 +297,7 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "project.resources",
-        .fields = {{"/resources", "object[]", "editor.resources.items", "resource_list", true, false}},
+        .fields = {{"/resources", "object[]", "editor.resources.items", "resource_list", true, false, {}}},
         .validate = [](const nlohmann::json& document) {
             if (!document.is_object() || document.value("schema", 0) != 1 ||
                 !document.contains("resources") || !document["resources"].is_array() ||

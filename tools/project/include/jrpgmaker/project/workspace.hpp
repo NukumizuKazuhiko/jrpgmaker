@@ -27,6 +27,7 @@ struct FieldDescriptor {
     std::string recipe;
     bool required = false;
     bool read_only = false;
+    std::vector<std::string> choices;
 };
 
 using DocumentValidator =
@@ -55,6 +56,7 @@ public:
     [[nodiscard]] AdapterResult Validate(const std::string& type_id,
                                          const nlohmann::json& document) const;
     [[nodiscard]] const DocumentAdapter* Find(const std::string& type_id) const;
+    [[nodiscard]] DocumentAdapter* Find(const std::string& type_id);
     [[nodiscard]] std::size_t size() const { return adapters_.size(); }
 
 private:

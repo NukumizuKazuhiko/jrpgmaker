@@ -29,6 +29,7 @@ struct EditorSessionState {
 class EditorSession final {
 public:
     explicit EditorSession(std::filesystem::path root);
+    EditorSession(std::filesystem::path root, project::DocumentAdapterRegistry adapters);
 
     [[nodiscard]] bool Open();
     [[nodiscard]] bool Refresh();
@@ -44,6 +45,7 @@ public:
     [[nodiscard]] bool ApplySelectedKey(std::string_view key);
     [[nodiscard]] bool AdjustSelectedInteger(int delta);
     [[nodiscard]] bool ToggleSelectedBoolean();
+    [[nodiscard]] bool CycleSelectedChoice(int direction);
     [[nodiscard]] bool Save();
     [[nodiscard]] bool StartPreview(const std::filesystem::path& executable);
     [[nodiscard]] bool PollPreview();
