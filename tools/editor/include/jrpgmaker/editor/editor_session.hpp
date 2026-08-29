@@ -31,6 +31,7 @@ public:
     [[nodiscard]] bool Refresh();
     [[nodiscard]] bool SelectNext();
     [[nodiscard]] bool SelectPrevious();
+    [[nodiscard]] bool SelectField(std::size_t index);
     [[nodiscard]] bool ApplySelected(nlohmann::json value);
     [[nodiscard]] bool ApplySelectedText(std::string_view value);
     [[nodiscard]] bool ApplySelectedKey(std::string_view key);

@@ -86,6 +86,17 @@ TEST_CASE("editor session field navigation wraps deterministically", "[editor]")
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("editor session selects a valid field from a layout hit test", "[editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.SelectField(1));
+    REQUIRE(session.state().selected_field == 1);
+    REQUIRE_FALSE(session.SelectField(session.state().form.fields.size()));
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("editor preview process rejects unsafe launch inputs", "[editor]") {
     jrpgmaker::editor::PreviewProcess process;
     REQUIRE_FALSE(process.Start({}, std::filesystem::temp_directory_path()));

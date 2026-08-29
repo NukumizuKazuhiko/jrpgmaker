@@ -193,7 +193,20 @@ int main(int argc, char** argv) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
                 running = false;
-            else if (event.type == SDL_EVENT_KEY_DOWN) {
+            else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && session != nullptr) {
+                const auto* form_node = FindShellNode(*shell, "workspace.form");
+                const auto row_height = resources.bundle->theme.dimensions.at("font.body") +
+                                        resources.bundle->theme.dimensions.at("space.sm");
+                if (form_node != nullptr && row_height > 0.0f &&
+                    event.button.x >= form_node->bounds.x &&
+                    event.button.x < form_node->bounds.x + form_node->bounds.width &&
+                    event.button.y >= form_node->bounds.y &&
+                    event.button.y < form_node->bounds.y + form_node->bounds.height) {
+                    const auto index = static_cast<std::size_t>(
+                        (event.button.y - form_node->bounds.y) / row_height);
+                    ui_dirty = session->SelectField(index) || ui_dirty;
+                }
+            } else if (event.type == SDL_EVENT_KEY_DOWN) {
                 if (session != nullptr) {
                     const auto key_name = std::string(SDL_GetKeyName(event.key.key));
                     if (key_name == "Left" || key_name == "Right" || key_name == "Backspace") {

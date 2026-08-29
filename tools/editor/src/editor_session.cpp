@@ -79,6 +79,16 @@ bool EditorSession::SelectPrevious() {
     return state_.selected_field < state_.form.fields.size();
 }
 
+bool EditorSession::SelectField(std::size_t index) {
+    if (!state_.open || index >= state_.form.fields.size())
+        return false;
+    if (!focus_context_.SetFocus(index + 1))
+        return false;
+    state_.selected_field = index;
+    SyncTextField(true);
+    return true;
+}
+
 bool EditorSession::ApplySelected(nlohmann::json value) {
     if (!state_.open || state_.form.fields.empty() ||
         state_.selected_field >= state_.form.fields.size())
