@@ -54,7 +54,7 @@
 - `tools/editor` 的 layout 已转换为独立 shell projection，输入映射使用不依赖 SDL 的 `InputMap` 合同；具体 key binding 由后续版本化 editor action 资源提供。
 - editor action map 已纳入启动 manifest，由 `engine/ui` 有界解析并由 host 构造 `InputMap`；重复 key 和非法 action 资源在启动阶段拒绝。
 - `engine/ui` 已提供有界后端无关 `DrawList`（矩形 recipe/state 与 i18n key），`render::BuildUiDrawPacket` 已将矩形编译为主题驱动的 NDC 顶点/索引上传包，并由 `UploadUiDrawPacket`/`RecordUiDrawPacket` 接入 RHI buffer/indexed draw；editor host 已完成 SDL 窗口、D3D12/Vulkan swapchain、UI pipeline 和一帧实际提交，裁剪、glyph run 和 z-order 仍待实现。
-- 表单区域已由布局资源中的 `Form` 节点提供边界；adapter 字段被投影为有界控件行，焦点状态通过 theme recipe 的 `focused` 状态绘制，SDL 键盘/文本输入通过 `EditorSession` 进入类型化 Apply。
+- 表单区域已由布局资源中的 `Form` 节点提供边界；adapter 字段被投影为有界控件行，焦点状态通过 theme recipe 的 `focused` 状态绘制，SDL 键盘、文本输入和表单鼠标命中通过 `EditorSession` 进入类型化 Apply。
 - 实现项目路径选择/命令行初始路径、工作区加载、状态栏和错误 projection。
 - 验收：空项目、正常项目和损坏项目均能显示结构化状态；关闭编辑器不修改文件。
 
