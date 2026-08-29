@@ -125,7 +125,7 @@ status: StatusBar
 | `Panel` | children、padding、recipe | 已有基础，P13-0 主题化 |
 | `Button`/`ToggleButton` | hover/pressed/focus/disabled、activate | P13-1 |
 | `TextField` | UTF-8 文本、selection、caret、IME composition、commit/cancel | P13-1（core 状态、键盘/IME host、字段命中与真实 glyph 已落地；caret/selection 绘制仍待补） |
-| `NumberField` | 文本编辑态、类型化 commit、范围诊断 | P13-3 |
+| `NumberField` | 文本编辑态、类型化 commit、范围诊断 | P13-3（integer 已接入 adapter 校验与复合归一化；浮点/范围控件仍待补） |
 | `CheckBox`/`Select` | value、focus、change command | P13-3 |
 | `ScrollView` | offset、viewport、wheel/keyboard scroll、clamp | P13-1 |
 | `TreeView` | expanded/selected ids、activate/rename command | P13-1 |
