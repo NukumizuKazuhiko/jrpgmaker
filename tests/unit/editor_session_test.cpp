@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string_view>
@@ -85,6 +86,53 @@ TEST_CASE("editor session switches to an adapter-backed document", "[editor]") {
     input >> navigation;
     REQUIRE(navigation["walkable"][0] == false);
     std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor session discovers and edits a plugin sidecar document", "[editor][plugin][p13]") {
+    const auto root = MakeFixture("_plugin");
+    std::error_code error;
+    std::filesystem::create_directories(root / "plugins/sample.unlit/editor");
+    std::filesystem::create_directories(root / "plugin_data");
+    {
+        std::ofstream manifest(root / "plugins/sample.unlit/plugin.json");
+        manifest << R"json({"schema":1,"id":"sample.unlit","type":"render_style",
+                            "version":1,"engine_contract":1,"data_roots":["plugin_data"],
+                            "capabilities":[]})json";
+        std::ofstream sidecar(root / "plugins/sample.unlit/plugin.editor.json");
+        sidecar << R"json({"schema":1,"plugin_id":"sample.unlit","editor_contract":1,
+                          "documents":[{"type_id":"sample.unlit.document.v1",
+                            "roots":["plugin_data"],"descriptor":"editor/document.json"}],
+                          "locales":{"en":"editor/en.json"},"icons":"editor/icons.json"})json";
+        std::ofstream descriptor(root / "plugins/sample.unlit/editor/document.json");
+        descriptor << R"json({"schema":1,"type_id":"sample.unlit.document.v1","fields":[
+                              {"path":"/name","value_type":"string","role":"text",
+                               "label_key":"plugin.sample.unlit.name","recipe":"input"}]})json";
+        std::ofstream locale(root / "plugins/sample.unlit/editor/en.json");
+        locale << "{}";
+        std::ofstream icons(root / "plugins/sample.unlit/editor/icons.json");
+        icons << "{}";
+        std::ofstream document(root / "plugin_data/example.json");
+        document << R"json({"schema":1,"name":"before"})json";
+    }
+
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    const auto tab = std::find_if(
+        session.state().tabs.tabs.begin(), session.state().tabs.tabs.end(), [](const auto& item) {
+            return item.document_id == "plugin:sample.unlit.document.v1:plugin_data/example.json";
+        });
+    REQUIRE(tab != session.state().tabs.tabs.end());
+    const auto document_id = tab->document_id;
+    REQUIRE(session.SelectDocument(document_id));
+    REQUIRE(session.state().form.document_id == document_id);
+    REQUIRE(session.ApplySelected("after"));
+    REQUIRE(session.Save());
+
+    nlohmann::json saved;
+    std::ifstream input(root / "plugin_data/example.json");
+    input >> saved;
+    REQUIRE(saved["name"] == "after");
     std::filesystem::remove_all(root, error);
 }
 

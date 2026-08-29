@@ -16,15 +16,14 @@ TEST_CASE("editor input map translates only pressed configured keys", "[editor]"
 }
 
 TEST_CASE("editor input map is built from the action resource", "[editor]") {
-    const jrpgmaker::ui::EditorActionMap resource{
-        .id = "editor.actions",
-        .actions = {{"save", {"Ctrl+S"}},
-                    {"cancel", {"Escape"}},
-                    {"increment", {"PageUp"}},
-                    {"decrement", {"PageDown"}},
-                    {"toggle", {"Space"}},
-                    {"choice_next", {"Right"}},
-                    {"choice_previous", {"Left"}}}};
+    const jrpgmaker::ui::EditorActionMap resource{.id = "editor.actions",
+                                                  .actions = {{"save", {"Ctrl+S"}},
+                                                              {"cancel", {"Escape"}},
+                                                              {"increment", {"PageUp"}},
+                                                              {"decrement", {"PageDown"}},
+                                                              {"toggle", {"Space"}},
+                                                              {"choice_next", {"Right"}},
+                                                              {"choice_previous", {"Left"}}}};
     const auto input = jrpgmaker::editor::BuildInputMap(resource);
     REQUIRE(input.Translate("Ctrl+S", true) == jrpgmaker::editor::EditorAction::kSave);
     REQUIRE(input.Translate("Escape", true) == jrpgmaker::editor::EditorAction::kCancel);
@@ -86,9 +85,8 @@ TEST_CASE("editor status bar projects localized state and revision", "[ui][edito
 TEST_CASE("ui draw list is backend agnostic and bounded", "[ui][editor]") {
     jrpgmaker::ui::DrawList draw_list;
     REQUIRE(draw_list.Add(jrpgmaker::ui::DrawRect{{0.0f, 0.0f, 10.0f, 10.0f}, "panel"}));
-    REQUIRE(draw_list.Add(
-        jrpgmaker::ui::DrawText{{1.0f, 1.0f, 8.0f, 8.0f}, "editor.window.title", {},
-                                std::nullopt}));
+    REQUIRE(draw_list.Add(jrpgmaker::ui::DrawText{
+        {1.0f, 1.0f, 8.0f, 8.0f}, "editor.window.title", {}, std::nullopt}));
     REQUIRE(draw_list.size() == 2);
     REQUIRE(std::holds_alternative<jrpgmaker::ui::DrawRect>(draw_list.primitives().front()));
 }
@@ -96,33 +94,51 @@ TEST_CASE("ui draw list is backend agnostic and bounded", "[ui][editor]") {
 TEST_CASE("form draw projection emits focused theme states from adapter metadata", "[ui][editor]") {
     const jrpgmaker::editor::FormProjection form{
         .document_id = "project.manifest",
-        .fields = {{.path = "/id", .label_key = "editor.project.id", .recipe = "input",
-                    .value_type = "string", .value = "demo", .choices = {}},
-                   {.path = "/render_style", .label_key = "editor.project.render_style",
-                    .recipe = "input", .value_type = "string", .value = "unlit", .choices = {}}}};
+        .fields = {{.path = "/id",
+                    .label_key = "editor.project.id",
+                    .recipe = "input",
+                    .value_type = "string",
+                    .value = "demo",
+                    .choices = {}},
+                   {.path = "/render_style",
+                    .label_key = "editor.project.render_style",
+                    .recipe = "input",
+                    .value_type = "string",
+                    .value = "unlit",
+                    .choices = {}}}};
     const auto draw_list = jrpgmaker::editor::BuildFormDrawList(form, {10, 20, 100, 80}, 20, 1);
     REQUIRE(draw_list.size() == 6);
     const auto& focused = std::get<jrpgmaker::ui::DrawRect>(draw_list.primitives()[3]);
     REQUIRE(focused.state == "focused");
 }
 
-TEST_CASE("preview draw projection preserves structured metric and diagnostic keys", "[ui][editor]") {
+TEST_CASE("preview draw projection preserves structured metric and diagnostic keys",
+          "[ui][editor]") {
     const jrpgmaker::editor::PreviewProjection valid{
-        .valid = true, .process_running = false, .process_exit_code = 0, .process_error = {},
-        .standard_output = {}, .standard_error = {},
+        .valid = true,
+        .process_running = false,
+        .process_exit_code = 0,
+        .process_error = {},
+        .standard_output = {},
+        .standard_error = {},
         .diagnostics = {},
         .metrics = {{"editor.preview.event_count", "integer", 2}}};
     const auto metric_draw = jrpgmaker::editor::BuildPreviewDrawList(valid, {0, 0, 100, 40}, 20);
     REQUIRE(metric_draw.size() == 3);
     const jrpgmaker::editor::PreviewProjection invalid{
-        .valid = false, .process_running = false, .process_exit_code = 0, .process_error = {},
-        .standard_output = {}, .standard_error = {},
+        .valid = false,
+        .process_running = false,
+        .process_exit_code = 0,
+        .process_error = {},
+        .standard_output = {},
+        .standard_error = {},
         .diagnostics = {{"project.invalid", "project.json"}},
         .metrics = {}};
     const auto diagnostic_draw =
         jrpgmaker::editor::BuildPreviewDrawList(invalid, {0, 0, 100, 40}, 20);
     REQUIRE(diagnostic_draw.size() == 2);
-    const auto& diagnostic_text = std::get<jrpgmaker::ui::DrawText>(diagnostic_draw.primitives()[1]);
+    const auto& diagnostic_text =
+        std::get<jrpgmaker::ui::DrawText>(diagnostic_draw.primitives()[1]);
     REQUIRE(diagnostic_text.text_key == "editor.diagnostic.code");
     REQUIRE(diagnostic_text.arguments.at("code") == "project.invalid");
     REQUIRE(diagnostic_text.arguments.at("path") == "project.json");
@@ -130,9 +146,10 @@ TEST_CASE("preview draw projection preserves structured metric and diagnostic ke
 
 TEST_CASE("document tabs preserve manifest order and dirty active state", "[ui][editor]") {
     const std::vector<jrpgmaker::project::DocumentDescriptor> documents = {
-        {"project.manifest", "project.json", "editor.document.project", true},
-        {"domain.event_script", "events.json", "editor.document.events", true},
-        {"core.material", "materials.json", "editor.document.material", false}};
+        {"project.manifest", "project.json", "editor.document.project", true, "project.manifest"},
+        {"domain.event_script", "events.json", "editor.document.events", true,
+         "domain.event_script"},
+        {"core.material", "materials.json", "editor.document.material", false, "core.material"}};
     const auto tabs = jrpgmaker::editor::BuildDocumentTabsProjection(
         documents, "domain.event_script", true, {{"project.bad", "events.json"}});
     REQUIRE(tabs.tabs.size() == 3);
@@ -150,21 +167,21 @@ TEST_CASE("document tabs preserve manifest order and dirty active state", "[ui][
 
 TEST_CASE("document tabs mark every document with pending changes", "[ui][editor]") {
     const std::vector<jrpgmaker::project::DocumentDescriptor> documents = {
-        {"project.manifest", "project.json", "editor.document.project", true},
-        {"core.navigation", "navigation.json", "editor.document.navigation", true}};
-    const std::vector<jrpgmaker::project::Change> changes = {
-        {.document_id = "project.manifest",
-         .field_path = "/id",
-         .before = "old",
-         .after = "new",
-         .sequence = 1},
-        {.document_id = "core.navigation",
-         .field_path = "/width",
-         .before = 4,
-         .after = 5,
-         .sequence = 2}};
-    const auto tabs = jrpgmaker::editor::BuildDocumentTabsProjection(
-        documents, "core.navigation", changes, {});
+        {"project.manifest", "project.json", "editor.document.project", true, "project.manifest"},
+        {"core.navigation", "navigation.json", "editor.document.navigation", true,
+         "core.navigation"}};
+    const std::vector<jrpgmaker::project::Change> changes = {{.document_id = "project.manifest",
+                                                              .field_path = "/id",
+                                                              .before = "old",
+                                                              .after = "new",
+                                                              .sequence = 1},
+                                                             {.document_id = "core.navigation",
+                                                              .field_path = "/width",
+                                                              .before = 4,
+                                                              .after = 5,
+                                                              .sequence = 2}};
+    const auto tabs =
+        jrpgmaker::editor::BuildDocumentTabsProjection(documents, "core.navigation", changes, {});
 
     REQUIRE(tabs.tabs[0].dirty);
     REQUIRE(tabs.tabs[1].dirty);
@@ -173,12 +190,13 @@ TEST_CASE("document tabs mark every document with pending changes", "[ui][editor
 
 TEST_CASE("diagnostics filter and diff projection retain stable document ownership", "[editor]") {
     const std::vector<jrpgmaker::project::DocumentDescriptor> documents = {
-        {"project.manifest", "project.json", "editor.document.project", true},
-        {"core.navigation", "navigation.json", "editor.document.navigation", true}};
+        {"project.manifest", "project.json", "editor.document.project", true, "project.manifest"},
+        {"core.navigation", "navigation.json", "editor.document.navigation", true,
+         "core.navigation"}};
     const std::vector<jrpgmaker::project::Diagnostic> diagnostics = {
         {"navigation.invalid", "navigation.json"}, {"project.invalid", "project.json"}};
-    const auto filtered = jrpgmaker::editor::BuildDiagnosticPanelProjection(
-        documents, diagnostics, "navigation");
+    const auto filtered =
+        jrpgmaker::editor::BuildDiagnosticPanelProjection(documents, diagnostics, "navigation");
     REQUIRE(filtered.items.size() == 1);
     REQUIRE(filtered.items[0].document_id == "core.navigation");
     REQUIRE(filtered.items[0].diagnostic.code == "navigation.invalid");
@@ -192,15 +210,14 @@ TEST_CASE("diagnostics filter and diff projection retain stable document ownersh
 }
 
 TEST_CASE("preview draw projection exposes bounded process status", "[ui][editor]") {
-    const jrpgmaker::editor::PreviewProjection preview{
-        .valid = true,
-        .process_running = false,
-        .process_exit_code = 7,
-        .process_error = {},
-        .standard_output = {},
-        .standard_error = {},
-        .diagnostics = {},
-        .metrics = {}};
+    const jrpgmaker::editor::PreviewProjection preview{.valid = true,
+                                                       .process_running = false,
+                                                       .process_exit_code = 7,
+                                                       .process_error = {},
+                                                       .standard_output = {},
+                                                       .standard_error = {},
+                                                       .diagnostics = {},
+                                                       .metrics = {}};
     const auto draw_list = jrpgmaker::editor::BuildPreviewDrawList(preview, {0, 0, 100, 40}, 20);
     REQUIRE(draw_list.size() == 2);
     REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[1]).text_key ==
@@ -208,15 +225,14 @@ TEST_CASE("preview draw projection exposes bounded process status", "[ui][editor
 }
 
 TEST_CASE("preview draw projection exposes bounded process logs", "[ui][editor]") {
-    const jrpgmaker::editor::PreviewProjection preview{
-        .valid = true,
-        .process_running = false,
-        .process_exit_code = 0,
-        .process_error = {},
-        .standard_output = "stdout",
-        .standard_error = "stderr",
-        .diagnostics = {},
-        .metrics = {}};
+    const jrpgmaker::editor::PreviewProjection preview{.valid = true,
+                                                       .process_running = false,
+                                                       .process_exit_code = 0,
+                                                       .process_error = {},
+                                                       .standard_output = "stdout",
+                                                       .standard_error = "stderr",
+                                                       .diagnostics = {},
+                                                       .metrics = {}};
     const auto draw_list = jrpgmaker::editor::BuildPreviewDrawList(preview, {0, 0, 100, 80}, 20);
     REQUIRE(draw_list.size() == 6);
     REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[3]).text_key ==

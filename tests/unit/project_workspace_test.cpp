@@ -20,9 +20,9 @@ std::filesystem::path MakeFixture() {
     std::filesystem::create_directories(root / "assets/data");
     std::filesystem::copy(std::filesystem::path(JRPGMAKER_ASSET_DIR) / "data", root / "assets/data",
                           std::filesystem::copy_options::recursive, error);
-    std::filesystem::copy_file(std::filesystem::path(JRPGMAKER_ASSET_DIR) / "data/project_demo.json",
-                               root / "project.json", std::filesystem::copy_options::overwrite_existing,
-                               error);
+    std::filesystem::copy_file(
+        std::filesystem::path(JRPGMAKER_ASSET_DIR) / "data/project_demo.json",
+        root / "project.json", std::filesystem::copy_options::overwrite_existing, error);
     return root;
 }
 
@@ -58,7 +58,7 @@ TEST_CASE("project workspace discovers map documents from manifest paths", "[pro
     for (const auto& [field, path] : paths) {
         const auto source = data / (std::string(field) + "_demo.json");
         std::filesystem::copy_file(source, root / path,
-                                    std::filesystem::copy_options::overwrite_existing);
+                                   std::filesystem::copy_options::overwrite_existing);
         manifest[field] = path;
     }
     {
@@ -84,7 +84,8 @@ TEST_CASE("project workspace returns bounded structured diagnostics", "[project]
     REQUIRE(opened.diagnostics.front().code == "project.file.open");
 }
 
-TEST_CASE("project workspace applies an edit and prepares a stable save plan", "[project][editor]") {
+TEST_CASE("project workspace applies an edit and prepares a stable save plan",
+          "[project][editor]") {
     const auto root = MakeFixture();
     jrpgmaker::project::ProjectWorkspace workspace(root);
     REQUIRE(workspace.Open());
@@ -103,7 +104,8 @@ TEST_CASE("project workspace applies an edit and prepares a stable save plan", "
     std::filesystem::remove_all(root, error);
 }
 
-TEST_CASE("project workspace selects and saves an adapter-backed data document", "[project][editor]") {
+TEST_CASE("project workspace selects and saves an adapter-backed data document",
+          "[project][editor]") {
     const auto root = MakeFixture();
     jrpgmaker::project::ProjectWorkspace workspace(root);
     const auto opened = workspace.Open();
@@ -127,7 +129,8 @@ TEST_CASE("project workspace selects and saves an adapter-backed data document",
     std::filesystem::remove_all(root, error);
 }
 
-TEST_CASE("project workspace commits edits across multiple documents atomically", "[project][editor]") {
+TEST_CASE("project workspace commits edits across multiple documents atomically",
+          "[project][editor]") {
     const auto root = MakeFixture();
     jrpgmaker::project::ProjectWorkspace workspace(root);
     REQUIRE(workspace.Open());
@@ -184,7 +187,8 @@ TEST_CASE("project workspace diagnosis validates localization coverage", "[proje
     std::filesystem::remove_all(root, error);
 }
 
-TEST_CASE("project workspace rejects stale save and preserves the source file", "[project][editor]") {
+TEST_CASE("project workspace rejects stale save and preserves the source file",
+          "[project][editor]") {
     const auto root = MakeFixture();
     jrpgmaker::project::ProjectWorkspace workspace(root);
     REQUIRE(workspace.Open());
@@ -229,17 +233,25 @@ TEST_CASE("project workspace reports schema one migration as a no-op", "[project
     std::filesystem::remove_all(root, error);
 }
 
-TEST_CASE("document adapter registry rejects duplicates and validates documents", "[project][editor]") {
+TEST_CASE("document adapter registry rejects duplicates and validates documents",
+          "[project][editor]") {
     jrpgmaker::project::DocumentAdapterRegistry registry;
     auto adapter = jrpgmaker::project::DocumentAdapter{
         .type_id = "calendar",
-        .fields = {{.path = "/id", .value_type = "string", .label_key = "editor.calendar.id",
-                    .recipe = "", .required = false, .read_only = false, .choices = {}}},
-        .validate = [](const nlohmann::json& document) {
-            if (!document.is_object())
-                return std::vector<jrpgmaker::project::Diagnostic>{{"document.object_required", "/"}};
-            return std::vector<jrpgmaker::project::Diagnostic>{};
-        },
+        .fields = {{.path = "/id",
+                    .value_type = "string",
+                    .label_key = "editor.calendar.id",
+                    .recipe = "",
+                    .required = false,
+                    .read_only = false,
+                    .choices = {}}},
+        .validate =
+            [](const nlohmann::json& document) {
+                if (!document.is_object())
+                    return std::vector<jrpgmaker::project::Diagnostic>{
+                        {"document.object_required", "/"}};
+                return std::vector<jrpgmaker::project::Diagnostic>{};
+            },
         .normalize_edit = {}};
     REQUIRE(registry.Register(adapter));
     REQUIRE_FALSE(registry.Register(adapter));
@@ -259,9 +271,8 @@ TEST_CASE("document adapter registry validates bounded select choices", "[projec
                     .required = true,
                     .read_only = false,
                     .choices = {"one", "one"}}},
-        .validate = [](const nlohmann::json&) {
-            return std::vector<jrpgmaker::project::Diagnostic>{};
-        },
+        .validate =
+            [](const nlohmann::json&) { return std::vector<jrpgmaker::project::Diagnostic>{}; },
         .normalize_edit = {}};
     const auto result = registry.Register(adapter);
     REQUIRE_FALSE(result);
@@ -273,9 +284,11 @@ TEST_CASE("plugin editor descriptor registers as a project adapter", "[project][
     const auto parsed = jrpgmaker::plugin::ParseEditorDescriptor(nlohmann::json{
         {"schema", 1},
         {"type_id", "vendor.example.document.v1"},
-        {"fields", nlohmann::json::array({nlohmann::json{
-             {"path", "/name"}, {"value_type", "string"}, {"role", "text"},
-             {"label_key", "plugin.example.name"}, {"recipe", "input"}}})}});
+        {"fields", nlohmann::json::array({nlohmann::json{{"path", "/name"},
+                                                         {"value_type", "string"},
+                                                         {"role", "text"},
+                                                         {"label_key", "plugin.example.name"},
+                                                         {"recipe", "input"}}})}});
     REQUIRE(parsed);
 
     jrpgmaker::project::DocumentAdapterRegistry registry;
@@ -292,7 +305,7 @@ TEST_CASE("workspace diagnosis runs registered plugin validators", "[project][pl
     const auto root = MakeFixture();
     jrpgmaker::plugin::PluginRegistry registry;
     const auto register_plugin = [&registry](const char* id, const char* type,
-                                              jrpgmaker::plugin::PluginRegistry::Factory factory) {
+                                             jrpgmaker::plugin::PluginRegistry::Factory factory) {
         nlohmann::json document;
         document["schema"] = 1;
         document["id"] = id;
@@ -326,18 +339,19 @@ TEST_CASE("workspace edits and saves an external plugin document", "[project][pl
     const auto parsed = jrpgmaker::plugin::ParseEditorDescriptor(nlohmann::json{
         {"schema", 1},
         {"type_id", "vendor.example.document.v1"},
-        {"fields", nlohmann::json::array({nlohmann::json{
-             {"path", "/name"}, {"value_type", "string"}, {"role", "text"},
-             {"label_key", "plugin.example.name"}, {"recipe", "input"}}})}});
+        {"fields", nlohmann::json::array({nlohmann::json{{"path", "/name"},
+                                                         {"value_type", "string"},
+                                                         {"role", "text"},
+                                                         {"label_key", "plugin.example.name"},
+                                                         {"recipe", "input"}}})}});
     REQUIRE(parsed);
     auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
     REQUIRE(jrpgmaker::project::RegisterEditorDescriptor(
-                adapters, *parsed.descriptor,
-                [](const nlohmann::json& document) {
-                    return document.value("schema", 0) == 1
-                               ? std::vector<jrpgmaker::project::Diagnostic>{}
-                               : std::vector<jrpgmaker::project::Diagnostic>{{"test.invalid", "schema"}};
-                }));
+        adapters, *parsed.descriptor, [](const nlohmann::json& document) {
+            if (document.value("schema", 0) == 1)
+                return std::vector<jrpgmaker::project::Diagnostic>{};
+            return std::vector<jrpgmaker::project::Diagnostic>{{"test.invalid", "schema"}};
+        }));
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
     workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
         .id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
@@ -347,11 +361,13 @@ TEST_CASE("workspace edits and saves an external plugin document", "[project][pl
         .type_id = "vendor.example.document.v1"}});
     const auto opened = workspace.Open();
     REQUIRE(opened);
-    REQUIRE(workspace.SelectDocument("plugin:vendor.example.document.v1:assets/data/plugin_doc.json").empty());
-    const auto edit = workspace.Apply({
-        .document_id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
-        .field_path = "/name",
-        .value = "after"});
+    REQUIRE(
+        workspace.SelectDocument("plugin:vendor.example.document.v1:assets/data/plugin_doc.json")
+            .empty());
+    const auto edit = workspace.Apply(
+        {.document_id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
+         .field_path = "/name",
+         .value = "after"});
     REQUIRE(edit);
     const auto token = workspace.PrepareSave(edit.revision);
     REQUIRE(token);

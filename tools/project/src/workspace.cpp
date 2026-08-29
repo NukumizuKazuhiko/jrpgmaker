@@ -6,8 +6,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include "jrpgmaker/core/map_data.hpp"
 #include "jrpgmaker/core/input_actions.hpp"
+#include "jrpgmaker/core/map_data.hpp"
 #include "jrpgmaker/domain/event_script.hpp"
 #include "jrpgmaker/domain/interaction.hpp"
 #include "jrpgmaker/domain/localization.hpp"
@@ -70,9 +70,9 @@ bool ValidateManifestDocument(const std::filesystem::path& root, const nlohmann:
     manifest = *parsed.manifest;
     for (const auto& path : manifest.data_roots)
         AddPath(root, path, diagnostics);
-    for (const auto& path : {manifest.material_document, manifest.input_actions,
-                             manifest.event_script, manifest.localization,
-                             manifest.resource_manifest})
+    for (const auto& path :
+         {manifest.material_document, manifest.input_actions, manifest.event_script,
+          manifest.localization, manifest.resource_manifest})
         AddPath(root, path, diagnostics);
     nlohmann::json material;
     if (diagnostics.empty() && Read(root / manifest.material_document, material, diagnostics) &&
@@ -150,23 +150,21 @@ AdapterResult DocumentAdapterRegistry::Register(DocumentAdapter adapter) {
 }
 
 const DocumentAdapter* DocumentAdapterRegistry::Find(const std::string& type_id) const {
-    const auto it = std::find_if(adapters_.begin(), adapters_.end(),
-                                 [&type_id](const DocumentAdapter& adapter) {
-                                     return adapter.type_id == type_id;
-                                 });
+    const auto it = std::find_if(
+        adapters_.begin(), adapters_.end(),
+        [&type_id](const DocumentAdapter& adapter) { return adapter.type_id == type_id; });
     return it == adapters_.end() ? nullptr : &*it;
 }
 
 DocumentAdapter* DocumentAdapterRegistry::Find(const std::string& type_id) {
-    const auto it = std::find_if(adapters_.begin(), adapters_.end(),
-                                 [&type_id](DocumentAdapter& adapter) {
-                                     return adapter.type_id == type_id;
-                                 });
+    const auto it =
+        std::find_if(adapters_.begin(), adapters_.end(),
+                     [&type_id](DocumentAdapter& adapter) { return adapter.type_id == type_id; });
     return it == adapters_.end() ? nullptr : &*it;
 }
 
 AdapterResult DocumentAdapterRegistry::Validate(const std::string& type_id,
-                                                 const nlohmann::json& document) const {
+                                                const nlohmann::json& document) const {
     const auto* adapter = Find(type_id);
     if (adapter == nullptr)
         return {{Diagnostic{"project.adapter.unknown_type", type_id}}};
@@ -177,134 +175,191 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
     DocumentAdapterRegistry registry;
     (void) registry.Register(DocumentAdapter{
         .type_id = "project.manifest",
-        .fields = {{"/id", "string", "editor.project.id", "text", true, false, {}},
-                   {"/render_style", "string", "editor.project.render_style", "select", true, false, {}},
-                   {"/battle_plugin", "string", "editor.project.battle_plugin", "select", false, false, {}},
-                   {"/plugins", "string[]", "editor.project.plugins", "list", true, false, {}},
-                   {"/data_roots", "path[]", "editor.project.data_roots", "list", true, false, {}},
-                   {"/material_document", "path", "editor.project.material", "resource", true, false, {}},
-                   {"/input_actions", "path", "editor.project.input", "resource", true, false, {}},
-                   {"/event_script", "path", "editor.project.events", "resource", true, false, {}},
-                   {"/localization", "path", "editor.project.localization", "resource", true, false, {}},
-                   {"/resource_manifest", "path", "editor.project.resources", "resource", true, false, {}},
-                   {"/navigation", "path", "editor.project.navigation", "resource", true, false, {}},
-                   {"/collision", "path", "editor.project.collision", "resource", true, false, {}},
-                   {"/camera", "path", "editor.project.camera", "resource", true, false, {}},
-                   {"/interaction", "path", "editor.project.interaction", "resource", true, false, {}}},
+        .fields =
+            {{"/id", "string", "editor.project.id", "text", true, false, {}},
+             {"/render_style", "string", "editor.project.render_style", "select", true, false, {}},
+             {"/battle_plugin",
+              "string",
+              "editor.project.battle_plugin",
+              "select",
+              false,
+              false,
+              {}},
+             {"/plugins", "string[]", "editor.project.plugins", "list", true, false, {}},
+             {"/data_roots", "path[]", "editor.project.data_roots", "list", true, false, {}},
+             {"/material_document", "path", "editor.project.material", "resource", true, false, {}},
+             {"/input_actions", "path", "editor.project.input", "resource", true, false, {}},
+             {"/event_script", "path", "editor.project.events", "resource", true, false, {}},
+             {"/localization", "path", "editor.project.localization", "resource", true, false, {}},
+             {"/resource_manifest",
+              "path",
+              "editor.project.resources",
+              "resource",
+              true,
+              false,
+              {}},
+             {"/navigation", "path", "editor.project.navigation", "resource", true, false, {}},
+             {"/collision", "path", "editor.project.collision", "resource", true, false, {}},
+             {"/camera", "path", "editor.project.camera", "resource", true, false, {}},
+             {"/interaction", "path", "editor.project.interaction", "resource", true, false, {}}},
         .validate = ValidateManifestAdapter,
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "domain.event_script",
         .fields = {{"/events", "object[]", "editor.events.items", "event_list", true, false, {}}},
-        .validate = [](const nlohmann::json& document) {
-            return ValidateParsedDocument(document, "event_script", [](const auto& value) {
-                (void) domain::ParseEventScript(value);
-            });
-        },
+        .validate =
+            [](const nlohmann::json& document) {
+                return ValidateParsedDocument(document, "event_script", [](const auto& value) {
+                    (void) domain::ParseEventScript(value);
+                });
+            },
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.navigation",
-        .fields = {{"/width", "integer", "editor.navigation.width", "number", true, false, {}},
-                   {"/height", "integer", "editor.navigation.height", "number", true, false, {}},
-                   {"/walkable", "boolean[]", "editor.navigation.walkable", "grid", true, false, {}}},
-        .validate = [](const nlohmann::json& document) {
-            return ValidateParsedDocument(document, "navigation", [](const auto& value) {
-                (void) core::ParseNavigationGrid(value);
-            });
-        },
-        .normalize_edit = [](std::string_view field_path, nlohmann::json& candidate) {
-            if (field_path != "/width" && field_path != "/height")
+        .fields =
+            {{"/width", "integer", "editor.navigation.width", "number", true, false, {}},
+             {"/height", "integer", "editor.navigation.height", "number", true, false, {}},
+             {"/walkable", "boolean[]", "editor.navigation.walkable", "grid", true, false, {}}},
+        .validate =
+            [](const nlohmann::json& document) {
+                return ValidateParsedDocument(document, "navigation", [](const auto& value) {
+                    (void) core::ParseNavigationGrid(value);
+                });
+            },
+        .normalize_edit =
+            [](std::string_view field_path, nlohmann::json& candidate) {
+                if (field_path != "/width" && field_path != "/height")
+                    return std::vector<Diagnostic>{};
+                if (!candidate.contains("width") || !candidate.contains("height") ||
+                    !candidate["width"].is_number_integer() ||
+                    !candidate["height"].is_number_integer() || !candidate.contains("walkable") ||
+                    !candidate["walkable"].is_array())
+                    return std::vector<Diagnostic>{
+                        {"project.navigation.resize_invalid", std::string(field_path)}};
+                const auto width = candidate["width"].get<std::int64_t>();
+                const auto height = candidate["height"].get<std::int64_t>();
+                constexpr std::int64_t kMaxCells = 4096;
+                if (width <= 0 || height <= 0 || width > kMaxCells || height > kMaxCells ||
+                    width > kMaxCells / height)
+                    return std::vector<Diagnostic>{
+                        {"project.navigation.resize_range", std::string(field_path)}};
+                const auto cell_count = static_cast<std::size_t>(width * height);
+                while (candidate["walkable"].size() < cell_count)
+                    candidate["walkable"].push_back(true);
+                while (candidate["walkable"].size() > cell_count)
+                    candidate["walkable"].erase(candidate["walkable"].end() - 1);
                 return std::vector<Diagnostic>{};
-            if (!candidate.contains("width") || !candidate.contains("height") ||
-                !candidate["width"].is_number_integer() ||
-                !candidate["height"].is_number_integer() ||
-                !candidate.contains("walkable") || !candidate["walkable"].is_array())
-                return std::vector<Diagnostic>{{"project.navigation.resize_invalid",
-                                                 std::string(field_path)}};
-            const auto width = candidate["width"].get<std::int64_t>();
-            const auto height = candidate["height"].get<std::int64_t>();
-            constexpr std::int64_t kMaxCells = 4096;
-            if (width <= 0 || height <= 0 || width > kMaxCells || height > kMaxCells ||
-                width > kMaxCells / height)
-                return std::vector<Diagnostic>{{"project.navigation.resize_range",
-                                                 std::string(field_path)}};
-            const auto cell_count = static_cast<std::size_t>(width * height);
-            while (candidate["walkable"].size() < cell_count)
-                candidate["walkable"].push_back(true);
-            while (candidate["walkable"].size() > cell_count)
-                candidate["walkable"].erase(candidate["walkable"].end() - 1);
-            return std::vector<Diagnostic>{};
-        }});
+            }});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.collision",
-        .fields = {{"/obstacles", "object[]", "editor.collision.obstacles", "aabb_list", true, false, {}}},
-        .validate = [](const nlohmann::json& document) {
-            return ValidateParsedDocument(document, "collision", [](const auto& value) {
-                (void) core::ParseCollisionAabbs(value);
-            });
-        },
+        .fields = {{"/obstacles",
+                    "object[]",
+                    "editor.collision.obstacles",
+                    "aabb_list",
+                    true,
+                    false,
+                    {}}},
+        .validate =
+            [](const nlohmann::json& document) {
+                return ValidateParsedDocument(document, "collision", [](const auto& value) {
+                    (void) core::ParseCollisionAabbs(value);
+                });
+            },
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.camera",
-        .fields = {{"/third_person", "object", "editor.camera.third_person", "camera", true, false, {}},
-                   {"/fixed_regions", "object[]", "editor.camera.fixed_regions", "region_list", true, false, {}}},
-        .validate = [](const nlohmann::json& document) {
-            return ValidateParsedDocument(document, "camera", [](const auto& value) {
-                (void) core::ParseCameraRigData(value);
-            });
-        },
+        .fields =
+            {{"/third_person", "object", "editor.camera.third_person", "camera", true, false, {}},
+             {"/fixed_regions",
+              "object[]",
+              "editor.camera.fixed_regions",
+              "region_list",
+              true,
+              false,
+              {}}},
+        .validate =
+            [](const nlohmann::json& document) {
+                return ValidateParsedDocument(document, "camera", [](const auto& value) {
+                    (void) core::ParseCameraRigData(value);
+                });
+            },
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "domain.interaction",
-        .fields = {{"/interactions", "object[]", "editor.interaction.points", "interaction_list", true, false, {}}},
-        .validate = [](const nlohmann::json& document) {
-            return ValidateParsedDocument(document, "interaction", [](const auto& value) {
-                (void) domain::ParseInteractionPoints(value);
-            });
-        },
+        .fields = {{"/interactions",
+                    "object[]",
+                    "editor.interaction.points",
+                    "interaction_list",
+                    true,
+                    false,
+                    {}}},
+        .validate =
+            [](const nlohmann::json& document) {
+                return ValidateParsedDocument(document, "interaction", [](const auto& value) {
+                    (void) domain::ParseInteractionPoints(value);
+                });
+            },
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.material",
-        .fields = {{"/style_plugin_id", "string", "editor.material.style_plugin", "select", true,
-                    false, {}}},
-        .validate = [](const nlohmann::json& document) {
-            if (!document.is_object() || document.value("schema", 0) != 1 ||
-                !document.contains("style_plugin_id") || !document["style_plugin_id"].is_string() ||
-                document["style_plugin_id"].get<std::string>().empty())
-                return std::vector<Diagnostic>{{"project.document.invalid", "material"}};
-            return std::vector<Diagnostic>{};
-        },
+        .fields = {{"/style_plugin_id",
+                    "string",
+                    "editor.material.style_plugin",
+                    "select",
+                    true,
+                    false,
+                    {}}},
+        .validate =
+            [](const nlohmann::json& document) {
+                if (!document.is_object() || document.value("schema", 0) != 1 ||
+                    !document.contains("style_plugin_id") ||
+                    !document["style_plugin_id"].is_string() ||
+                    document["style_plugin_id"].get<std::string>().empty())
+                    return std::vector<Diagnostic>{{"project.document.invalid", "material"}};
+                return std::vector<Diagnostic>{};
+            },
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "app.input_actions",
-        .fields = {{"/actions", "object[]", "editor.input.actions", "action_list", true, false, {}}},
-        .validate = [](const nlohmann::json& document) {
-            const auto parsed = core::ParseInputActionMap(document);
-            if (parsed)
-                return std::vector<Diagnostic>{};
-            return std::vector<Diagnostic>{{"project.document.invalid", "input_actions"}};
-        },
+        .fields =
+            {{"/actions", "object[]", "editor.input.actions", "action_list", true, false, {}}},
+        .validate =
+            [](const nlohmann::json& document) {
+                const auto parsed = core::ParseInputActionMap(document);
+                if (parsed)
+                    return std::vector<Diagnostic>{};
+                return std::vector<Diagnostic>{{"project.document.invalid", "input_actions"}};
+            },
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "domain.localization",
-        .fields = {{"/strings", "object", "editor.localization.strings", "string_map", true, false, {}}},
-        .validate = [](const nlohmann::json& document) {
-            const auto parsed = domain::ParseLocalizationTable(document);
-            if (parsed)
-                return std::vector<Diagnostic>{};
-            return std::vector<Diagnostic>{{"project.document.invalid", "localization"}};
-        },
+        .fields =
+            {{"/strings", "object", "editor.localization.strings", "string_map", true, false, {}}},
+        .validate =
+            [](const nlohmann::json& document) {
+                const auto parsed = domain::ParseLocalizationTable(document);
+                if (parsed)
+                    return std::vector<Diagnostic>{};
+                return std::vector<Diagnostic>{{"project.document.invalid", "localization"}};
+            },
         .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "project.resources",
-        .fields = {{"/resources", "object[]", "editor.resources.items", "resource_list", true, false, {}}},
-        .validate = [](const nlohmann::json& document) {
-            if (!document.is_object() || document.value("schema", 0) != 1 ||
-                !document.contains("resources") || !document["resources"].is_array() ||
-                document["resources"].empty() || document["resources"].size() > 4096)
-                return std::vector<Diagnostic>{{"project.document.invalid", "resources"}};
-            return std::vector<Diagnostic>{};
-        },
+        .fields = {{"/resources",
+                    "object[]",
+                    "editor.resources.items",
+                    "resource_list",
+                    true,
+                    false,
+                    {}}},
+        .validate =
+            [](const nlohmann::json& document) {
+                if (!document.is_object() || document.value("schema", 0) != 1 ||
+                    !document.contains("resources") || !document["resources"].is_array() ||
+                    document["resources"].empty() || document["resources"].size() > 4096)
+                    return std::vector<Diagnostic>{{"project.document.invalid", "resources"}};
+                return std::vector<Diagnostic>{};
+            },
         .normalize_edit = {}});
     return registry;
 }
@@ -314,9 +369,9 @@ AdapterResult RegisterEditorDescriptor(DocumentAdapterRegistry& registry,
                                        DocumentValidator validator,
                                        DocumentEditNormalizer normalizer) {
     DocumentAdapter adapter{.type_id = descriptor.type_id,
-                             .fields = {},
-                             .validate = std::move(validator),
-                             .normalize_edit = std::move(normalizer)};
+                            .fields = {},
+                            .validate = std::move(validator),
+                            .normalize_edit = std::move(normalizer)};
     adapter.fields.reserve(descriptor.fields.size());
     for (const auto& field : descriptor.fields)
         adapter.fields.push_back(FieldDescriptor{.path = field.path,
@@ -350,8 +405,7 @@ ProjectWorkspace::DescribeDocuments(const ProjectSnapshot& snapshot) const {
               "editor.document.events"},
         Entry{"core.navigation", snapshot.manifest.navigation.c_str(),
               "editor.document.navigation"},
-        Entry{"core.collision", snapshot.manifest.collision.c_str(),
-              "editor.document.collision"},
+        Entry{"core.collision", snapshot.manifest.collision.c_str(), "editor.document.collision"},
         Entry{"core.camera", snapshot.manifest.camera.c_str(), "editor.document.camera"},
         Entry{"domain.interaction", snapshot.manifest.interaction.c_str(),
               "editor.document.interaction"},
@@ -368,7 +422,7 @@ ProjectWorkspace::DescribeDocuments(const ProjectSnapshot& snapshot) const {
     result.reserve(entries.size());
     for (const auto& entry : entries) {
         result.push_back(DocumentDescriptor{entry.id, entry.path, entry.label_key,
-                                            adapters_.Find(entry.id) != nullptr});
+                                            adapters_.Find(entry.id) != nullptr, entry.id});
     }
     result.insert(result.end(), external_documents_.begin(), external_documents_.end());
     return result;
@@ -412,9 +466,9 @@ std::vector<Diagnostic> ProjectWorkspace::SelectDocument(std::string_view docume
         return diagnostics;
     }
     const auto documents = DescribeDocuments(*snapshot_);
-    const auto it = std::find_if(documents.begin(), documents.end(), [document_id](const auto& item) {
-        return item.id == document_id;
-    });
+    const auto it =
+        std::find_if(documents.begin(), documents.end(),
+                     [document_id](const auto& item) { return item.id == document_id; });
     if (it == documents.end()) {
         Add(diagnostics, "project.edit.document_unknown", std::string(document_id));
         return diagnostics;
@@ -434,7 +488,8 @@ std::vector<Diagnostic> ProjectWorkspace::SelectDocument(std::string_view docume
         return diagnostics;
     }
     const auto validation = adapters_.Validate(adapter_id, document);
-    diagnostics.insert(diagnostics.end(), validation.diagnostics.begin(), validation.diagnostics.end());
+    diagnostics.insert(diagnostics.end(), validation.diagnostics.begin(),
+                       validation.diagnostics.end());
     if (!diagnostics.empty())
         return diagnostics;
     if (!original_documents_.contains(it->id))
@@ -500,8 +555,8 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
             Add(result.diagnostics, diagnostic.code, document.id + ":" + diagnostic.path);
     }
     if (plugins_ != nullptr) {
-        for (const auto& issue : plugin::ValidateProjectPluginData(snapshot.manifest, *plugins_,
-                                                                   snapshot.root))
+        for (const auto& issue :
+             plugin::ValidateProjectPluginData(snapshot.manifest, *plugins_, snapshot.root))
             Add(result.diagnostics, issue.code, issue.path);
     }
     if (!result.diagnostics.empty())
@@ -523,7 +578,8 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
         result.navigation_height = navigation.height();
         result.camera_region_count = camera.fixed_regions.size();
     } catch (const std::exception&) {
-        Add(result.diagnostics, "project.interaction.target_invalid", snapshot.manifest.interaction);
+        Add(result.diagnostics, "project.interaction.target_invalid",
+            snapshot.manifest.interaction);
     }
     return result;
 }
@@ -539,9 +595,9 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
         return result;
     }
     const auto documents = DescribeDocuments(*snapshot_);
-    const auto current = std::find_if(
-        documents.begin(), documents.end(),
-        [this](const auto& document) { return document.id == current_document_id_; });
+    const auto current =
+        std::find_if(documents.begin(), documents.end(),
+                     [this](const auto& document) { return document.id == current_document_id_; });
     const auto adapter_id = current == documents.end() || current->type_id.empty()
                                 ? current_document_id_
                                 : current->type_id;
@@ -550,10 +606,9 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
         Add(result.diagnostics, "project.adapter.unknown_type", current_document_id_);
         return result;
     }
-    const auto field_it = std::find_if(adapter->fields.begin(), adapter->fields.end(),
-                                       [&command](const auto& field) {
-                                           return field.path == command.field_path;
-                                       });
+    const auto field_it =
+        std::find_if(adapter->fields.begin(), adapter->fields.end(),
+                     [&command](const auto& field) { return field.path == command.field_path; });
     if (field_it == adapter->fields.end()) {
         Add(result.diagnostics, "project.edit.field_not_editable", command.field_path);
         return result;
@@ -572,7 +627,8 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
     candidate[pointer] = command.value;
     if (adapter->normalize_edit) {
         const auto normalization = adapter->normalize_edit(command.field_path, candidate);
-        result.diagnostics.insert(result.diagnostics.end(), normalization.begin(), normalization.end());
+        result.diagnostics.insert(result.diagnostics.end(), normalization.begin(),
+                                  normalization.end());
         if (!result.diagnostics.empty())
             return result;
     }
@@ -670,9 +726,8 @@ CommitResult ProjectWorkspace::Commit(const SaveToken& token) {
             std::filesystem::remove(file.temporary, cleanup_error);
     };
     for (const auto& id : ids) {
-        const auto document_it = std::find_if(documents.begin(), documents.end(), [&id](const auto& item) {
-            return item.id == id;
-        });
+        const auto document_it = std::find_if(documents.begin(), documents.end(),
+                                              [&id](const auto& item) { return item.id == id; });
         if (document_it == documents.end()) {
             Add(result.diagnostics, "project.edit.document_unknown", id);
             return result;
@@ -696,9 +751,10 @@ CommitResult ProjectWorkspace::Commit(const SaveToken& token) {
         }
         bool backup_available = false;
         for (std::size_t index = 0; index <= 8; ++index) {
-            file.backup = index == 0 ? std::filesystem::path(file.path.string() + ".bak")
-                                     : std::filesystem::path(file.path.string() + ".bak." +
-                                                             std::to_string(index));
+            file.backup =
+                index == 0
+                    ? std::filesystem::path(file.path.string() + ".bak")
+                    : std::filesystem::path(file.path.string() + ".bak." + std::to_string(index));
             if (!std::filesystem::exists(file.backup, error)) {
                 backup_available = true;
                 break;
@@ -754,9 +810,8 @@ CommitResult ProjectWorkspace::Commit(const SaveToken& token) {
     result.backup = files.front().backup;
     for (const auto& file : files) {
         pending_changes_.erase(
-            std::remove_if(pending_changes_.begin(), pending_changes_.end(), [&file](const auto& change) {
-                return change.document_id == file.id;
-            }),
+            std::remove_if(pending_changes_.begin(), pending_changes_.end(),
+                           [&file](const auto& change) { return change.document_id == file.id; }),
             pending_changes_.end());
         original_documents_[file.id] = working_documents_.at(file.id);
     }

@@ -65,23 +65,34 @@ void EditorSession::SetDiagnostics(std::vector<project::Diagnostic> diagnostics)
     state_.diagnostics = std::move(diagnostics);
     if (snapshot_)
         state_.tabs = BuildDocumentTabsProjection(workspace_.DescribeDocuments(*snapshot_),
-                                                  state_.form.document_id, workspace_.PendingChanges(),
-                                                  state_.diagnostics);
+                                                  state_.form.document_id,
+                                                  workspace_.PendingChanges(), state_.diagnostics);
     if (snapshot_)
-        state_.diagnostic_panel = BuildDiagnosticPanelProjection(
-            workspace_.DescribeDocuments(*snapshot_), state_.diagnostics,
-            state_.diagnostic_panel.filter);
+        state_.diagnostic_panel =
+            BuildDiagnosticPanelProjection(workspace_.DescribeDocuments(*snapshot_),
+                                           state_.diagnostics, state_.diagnostic_panel.filter);
 }
 
 void EditorSession::RebuildProjection() {
-    const auto* adapter = adapters_.Find(std::string(workspace_.CurrentDocumentId()));
+    if (!snapshot_)
+        return;
+    const auto documents = workspace_.DescribeDocuments(*snapshot_);
+    const auto current =
+        std::find_if(documents.begin(), documents.end(), [this](const auto& document) {
+            return document.id == workspace_.CurrentDocumentId();
+        });
+    const auto adapter_id = current == documents.end() || current->type_id.empty()
+                                ? std::string(workspace_.CurrentDocumentId())
+                                : current->type_id;
+    const auto* adapter = adapters_.Find(adapter_id);
     if (adapter == nullptr || !snapshot_)
         return;
     state_.form = BuildFormProjection(*adapter, workspace_.CurrentDocument());
+    state_.form.document_id = std::string(workspace_.CurrentDocumentId());
     state_.preview = BuildWorkspacePreview(workspace_.Diagnose(*snapshot_));
-    state_.tabs = BuildDocumentTabsProjection(workspace_.DescribeDocuments(*snapshot_),
-                                              state_.form.document_id, workspace_.PendingChanges(),
-                                              state_.preview.diagnostics);
+    state_.tabs =
+        BuildDocumentTabsProjection(documents, state_.form.document_id, workspace_.PendingChanges(),
+                                    state_.preview.diagnostics);
     state_.diff = BuildDiffProjection(workspace_.PendingChanges());
     state_.revision = snapshot_->revision;
 }
@@ -181,13 +192,16 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
             manifest = parsed_manifest.manifest;
         }
         if (extension.extension->plugin_id != id) {
-            AddPluginDiagnostic(diagnostics, plugin::PluginError{
-                                             "editor.plugin_id", "sidecar plugin id mismatch", id});
+            AddPluginDiagnostic(diagnostics, plugin::PluginError{"editor.plugin_id",
+                                                                 "sidecar plugin id mismatch", id});
             continue;
         }
-        for (const auto& resource_error : plugin::ValidateEditorExtensionResources(
-                 *extension.extension, *manifest, plugin_root))
+        const auto resource_errors =
+            plugin::ValidateEditorExtensionResources(*extension.extension, *manifest, plugin_root);
+        for (const auto& resource_error : resource_errors)
             AddPluginDiagnostic(diagnostics, resource_error);
+        if (!resource_errors.empty())
+            continue;
         for (const auto& document : extension.extension->documents) {
             nlohmann::json descriptor_document;
             if (!ReadJson(plugin_root / document.descriptor, descriptor_document, diagnostics))
@@ -198,17 +212,17 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
                 continue;
             }
             if (descriptor.descriptor->type_id != document.type_id) {
-                AddPluginDiagnostic(diagnostics, plugin::PluginError{
-                                                 "editor_descriptor.type_id",
-                                                 "descriptor type_id does not match sidecar",
-                                                 document.type_id});
+                AddPluginDiagnostic(diagnostics,
+                                    plugin::PluginError{"editor_descriptor.type_id",
+                                                        "descriptor type_id does not match sidecar",
+                                                        document.type_id});
                 continue;
             }
             if (!loaded_types.insert(document.type_id).second) {
-                AddPluginDiagnostic(diagnostics, plugin::PluginError{
-                                                 "editor.document.duplicate_type",
-                                                 "editor document type is already loaded",
-                                                 document.type_id});
+                AddPluginDiagnostic(diagnostics,
+                                    plugin::PluginError{"editor.document.duplicate_type",
+                                                        "editor document type is already loaded",
+                                                        document.type_id});
                 continue;
             }
             const auto result = project::RegisterEditorDescriptor(
@@ -222,9 +236,9 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
             for (const auto& root : document.roots) {
                 const auto root_path = root_ / root;
                 if (!std::filesystem::exists(root_path, error)) {
-                    AddPluginDiagnostic(diagnostics, plugin::PluginError{
-                                                     "editor.document_root.missing",
-                                                     "plugin document root is missing", root});
+                    AddPluginDiagnostic(
+                        diagnostics, plugin::PluginError{"editor.document_root.missing",
+                                                         "plugin document root is missing", root});
                     continue;
                 }
                 std::size_t discovered = 0;
@@ -241,12 +255,12 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
                     const auto document_id = "plugin:" + document.type_id + ":" + relative;
                     if (!external_ids.insert(document_id).second)
                         continue;
-                    external_documents_.push_back(project::DocumentDescriptor{
-                        .id = document_id,
-                        .path = relative,
-                        .label_key = "plugin." + id + ".document",
-                        .editable = true,
-                        .type_id = document.type_id});
+                    external_documents_.push_back(
+                        project::DocumentDescriptor{.id = document_id,
+                                                    .path = relative,
+                                                    .label_key = "plugin." + id + ".document",
+                                                    .editable = true,
+                                                    .type_id = document.type_id});
                     ++discovered;
                 }
                 if (iterator_error)
@@ -377,8 +391,8 @@ bool EditorSession::ApplySelectedText(std::string_view value) {
             return applied;
         }
         std::int64_t parsed = 0;
-        const auto [end, error] = std::from_chars(command.text.data(),
-                                                  command.text.data() + command.text.size(), parsed);
+        const auto [end, error] =
+            std::from_chars(command.text.data(), command.text.data() + command.text.size(), parsed);
         if (error != std::errc{} || end != command.text.data() + command.text.size()) {
             SetDiagnostics({{"project.edit.integer_invalid", field.path}});
             return false;
@@ -399,9 +413,9 @@ bool EditorSession::ApplySelectedComposition(std::string_view value) {
     if (field.read_only || field.value_type != "string")
         return false;
     std::vector<ui::UiCommand> commands;
-    const bool applied = text_field_.Apply(
-        {.type = ui::UiEventType::kTextComposition, .text = std::string(value)}, commands,
-        state_.selected_field + 1);
+    const bool applied =
+        text_field_.Apply({.type = ui::UiEventType::kTextComposition, .text = std::string(value)},
+                          commands, state_.selected_field + 1);
     SyncTextField(false);
     return applied;
 }
@@ -468,8 +482,8 @@ bool EditorSession::CycleSelectedChoice(int direction) {
     if (field.read_only || field.value_type != "select" || !field.value.is_string() ||
         field.choices.empty())
         return false;
-    const auto current = std::find(field.choices.begin(), field.choices.end(),
-                                    field.value.get<std::string>());
+    const auto current =
+        std::find(field.choices.begin(), field.choices.end(), field.value.get<std::string>());
     if (current == field.choices.end())
         return false;
     const auto index = static_cast<std::ptrdiff_t>(current - field.choices.begin());
