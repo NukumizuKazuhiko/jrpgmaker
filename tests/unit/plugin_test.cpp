@@ -319,6 +319,38 @@ TEST_CASE("project manifest accepts a safe material document path", "[plugin][p6
     REQUIRE_FALSE(jrpgmaker::plugin::ParseProjectManifest(document));
 }
 
+TEST_CASE("plugin editor sidecar validates its manifest and data roots", "[plugin][editor][p13]") {
+    const auto parsed = jrpgmaker::plugin::ParseEditorExtension(nlohmann::json::parse(R"json(
+        {"schema":1,"plugin_id":"sample.style","editor_contract":1,
+         "documents":[{"type_id":"sample.style.document.material.v1",
+                         "roots":["data/material"],"descriptor":"editor/material.json"}],
+         "locales":{"en":"editor/locales/en.json"},"icons":"editor/icons.json"}
+    )json"));
+    REQUIRE(parsed);
+    const auto validation = jrpgmaker::plugin::ValidateEditorExtension(
+        *parsed.extension, jrpgmaker::plugin::PluginManifest{
+            .schema = 1,
+            .id = "sample.style",
+            .type = jrpgmaker::plugin::PluginType::kRenderStyle,
+            .version = 1,
+            .engine_contract = jrpgmaker::plugin::kPluginEngineContract,
+            .data_roots = {"data"},
+            .capabilities = {}});
+    REQUIRE_FALSE(validation.has_value());
+}
+
+TEST_CASE("plugin editor sidecar rejects unsafe roots and duplicate documents", "[plugin][editor][p13]") {
+    const auto parsed = jrpgmaker::plugin::ParseEditorExtension(nlohmann::json::parse(R"json(
+        {"schema":1,"plugin_id":"sample.style","editor_contract":1,
+         "documents":[{"type_id":"sample.style.document.material.v1",
+                         "roots":["../outside"],"descriptor":"editor/material.json"},
+                       {"type_id":"sample.style.document.material.v1",
+                         "roots":["data"],"descriptor":"editor/material2.json"}],
+         "locales":{},"icons":"editor/icons.json"}
+    )json"));
+    REQUIRE_FALSE(parsed);
+}
+
 TEST_CASE("project manifest resolves registered plugins and existing data roots", "[plugin][p5]") {
     const auto result = jrpgmaker::plugin::ParseProjectManifest(
         {{"schema", 1},

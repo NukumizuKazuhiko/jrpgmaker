@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -35,6 +36,33 @@ struct PluginManifest {
     std::vector<std::string> data_roots;
     std::vector<std::string> capabilities;
 };
+
+inline constexpr std::uint32_t kPluginEditorContract = 1;
+
+struct EditorDocumentExtension {
+    std::string type_id;
+    std::vector<std::string> roots;
+    std::string descriptor;
+};
+
+struct EditorExtension {
+    std::uint32_t schema = 1;
+    std::string plugin_id;
+    std::uint32_t editor_contract = kPluginEditorContract;
+    std::vector<EditorDocumentExtension> documents;
+    std::unordered_map<std::string, std::string> locales;
+    std::string icons;
+};
+
+struct EditorExtensionParseResult {
+    std::optional<EditorExtension> extension;
+    std::optional<PluginError> error;
+    explicit operator bool() const { return extension.has_value(); }
+};
+
+EditorExtensionParseResult ParseEditorExtension(const nlohmann::json& document);
+[[nodiscard]] std::optional<PluginError>
+ValidateEditorExtension(const EditorExtension& extension, const PluginManifest& manifest);
 
 struct ManifestParseResult {
     std::optional<PluginManifest> manifest;

@@ -113,6 +113,92 @@ ManifestParseResult ParseManifest(const nlohmann::json& document) {
     return {.manifest = std::move(manifest), .error = std::nullopt};
 }
 
+EditorExtensionParseResult ParseEditorExtension(const nlohmann::json& document) {
+    if (!document.is_object())
+        return {.extension = std::nullopt,
+                .error = PluginError{"editor.type", "editor extension must be an object", "$"}};
+    if (!document.contains("schema") || !IsPositiveInteger(document["schema"]) ||
+        document["schema"] != 1u)
+        return {.extension = std::nullopt,
+                .error = PluginError{"editor.schema", "unsupported editor extension schema", "schema"}};
+    for (const char* field : {"plugin_id", "editor_contract", "documents", "locales", "icons"}) {
+        if (!document.contains(field))
+            return {.extension = std::nullopt,
+                    .error = PluginError{"editor.required", "missing editor extension field", field}};
+    }
+    if (!document["plugin_id"].is_string() || document["plugin_id"].get<std::string>().empty() ||
+        !IsPositiveInteger(document["editor_contract"]) || document["editor_contract"] != kPluginEditorContract ||
+        !document["documents"].is_array() || !document["locales"].is_object() ||
+        !document["icons"].is_string())
+        return {.extension = std::nullopt,
+                .error = PluginError{"editor.field", "invalid editor extension field", "$"}};
+
+    EditorExtension extension{.schema = 1,
+                              .plugin_id = document["plugin_id"].get<std::string>(),
+                              .editor_contract = kPluginEditorContract,
+                              .documents = {},
+                              .locales = {},
+                              .icons = document["icons"].get<std::string>()};
+    if (extension.icons.empty() || document["documents"].empty() || document["documents"].size() > 64 ||
+        document["locales"].size() > 16)
+        return {.extension = std::nullopt,
+                .error = PluginError{"editor.bounds", "editor extension exceeds its bounds", "$"}};
+    std::unordered_set<std::string> document_ids;
+    for (const auto& value : document["documents"]) {
+        if (!value.is_object() || !value.contains("type_id") || !value["type_id"].is_string() ||
+            value["type_id"].get<std::string>().empty() || !value.contains("roots") ||
+            !value["roots"].is_array() || value["roots"].empty() || value["roots"].size() > 32 ||
+            !value.contains("descriptor") || !value["descriptor"].is_string() ||
+            value["descriptor"].get<std::string>().empty() ||
+            !document_ids.insert(value["type_id"].get<std::string>()).second)
+            return {.extension = std::nullopt,
+                    .error = PluginError{"editor.document", "invalid or duplicate editor document", "documents"}};
+        EditorDocumentExtension descriptor{.type_id = value["type_id"].get<std::string>(),
+                                           .roots = {},
+                                           .descriptor = value["descriptor"].get<std::string>()};
+        std::unordered_set<std::string> roots;
+        for (const auto& root : value["roots"]) {
+            if (!root.is_string() || !IsSafeRelativePath(root.get<std::string>()) ||
+                !roots.insert(root.get<std::string>()).second)
+                return {.extension = std::nullopt,
+                        .error = PluginError{"editor.root", "invalid or duplicate editor root", "documents"}};
+            descriptor.roots.push_back(root.get<std::string>());
+        }
+        if (!IsSafeRelativePath(descriptor.descriptor))
+            return {.extension = std::nullopt,
+                    .error = PluginError{"editor.descriptor", "descriptor must be a safe relative path", "documents"}};
+        extension.documents.push_back(std::move(descriptor));
+    }
+    for (const auto& [locale, path] : document["locales"].items()) {
+        if (locale.empty() || !path.is_string() || !IsSafeRelativePath(path.get<std::string>()) ||
+            !extension.locales.emplace(locale, path.get<std::string>()).second)
+            return {.extension = std::nullopt,
+                    .error = PluginError{"editor.locale", "invalid editor locale resource", "locales"}};
+    }
+    return {.extension = std::move(extension), .error = std::nullopt};
+}
+
+std::optional<PluginError> ValidateEditorExtension(const EditorExtension& extension,
+                                                   const PluginManifest& manifest) {
+    if (extension.schema != 1 || extension.editor_contract != kPluginEditorContract)
+        return PluginError{"editor.contract", "unsupported editor extension contract", "editor_contract"};
+    if (extension.plugin_id != manifest.id)
+        return PluginError{"editor.plugin_id", "editor extension plugin_id does not match manifest", "plugin_id"};
+    for (const auto& document : extension.documents) {
+        for (const auto& root : document.roots) {
+            bool contained = false;
+            for (const auto& data_root : manifest.data_roots)
+                if (IsInDataRoot(root, data_root)) {
+                    contained = true;
+                    break;
+                }
+            if (!contained)
+                return PluginError{"editor.root", "editor root exceeds plugin data roots", "documents"};
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<PluginError> ValidatePluginManifest(const PluginManifest& manifest) {
     if (manifest.schema != 1u)
         return PluginError{"manifest.schema", "unsupported plugin manifest schema", "schema"};
