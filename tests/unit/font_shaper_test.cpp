@@ -55,6 +55,11 @@ TEST_CASE("font loads a CJK font and reports em metrics", "[ui][font]") {
     REQUIRE(font.units_per_em() > 0);
     REQUIRE(font.ascender() > 0.0f);
     REQUIRE(font.descender() < 0.0f);
+    REQUIRE(font.LoadGlyph(0x4E16u, 24u));
+    REQUIRE(font.glyph_width() > 0);
+    REQUIRE(font.glyph_height() > 0);
+    REQUIRE_FALSE(font.glyph_bitmap().empty());
+    REQUIRE(font.glyph_pitch() != 0);
 }
 
 TEST_CASE("shaper produces glyphs for a CJK string", "[ui][font][shaper]") {

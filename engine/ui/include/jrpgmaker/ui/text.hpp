@@ -85,6 +85,8 @@ public:
     int glyph_bearing_x() const;
     int glyph_bearing_y() const;
     std::int64_t glyph_advance_x() const;
+    [[nodiscard]] const std::vector<std::uint8_t>& glyph_bitmap() const;
+    [[nodiscard]] int glyph_pitch() const;
 
     // Opaque access to the underlying FreeType face, used internally by
     // TextShaper to build a HarfBuzz font. Returns nullptr when unloaded.

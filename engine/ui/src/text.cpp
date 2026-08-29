@@ -1,5 +1,6 @@
 #include "jrpgmaker/ui/text.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 
@@ -151,6 +152,8 @@ struct Font::Impl {
     std::uint32_t units = 0;
     bool glyph_loaded = false;
     FT_GlyphSlot slot = nullptr;
+    std::vector<std::uint8_t> glyph_bitmap;
+    int glyph_pitch = 0;
 };
 
 Font::Font() : impl_(std::make_unique<Impl>()) {}
@@ -207,11 +210,25 @@ bool Font::LoadGlyph(std::uint32_t codepoint, std::uint32_t pixel_height) {
         impl_->glyph_loaded = false;
         return false;
     }
-    if (FT_Load_Glyph(impl_->face, glyph_index, FT_LOAD_DEFAULT) != 0) {
+    if (FT_Load_Glyph(impl_->face, glyph_index, FT_LOAD_RENDER) != 0) {
         impl_->glyph_loaded = false;
+        impl_->glyph_bitmap.clear();
+        impl_->glyph_pitch = 0;
         return false;
     }
     impl_->glyph_loaded = true;
+    impl_->glyph_pitch = impl_->slot->bitmap.pitch;
+    const auto pitch =
+        impl_->slot->bitmap.pitch < 0 ? -impl_->slot->bitmap.pitch : impl_->slot->bitmap.pitch;
+    impl_->glyph_bitmap.resize(static_cast<std::size_t>(impl_->slot->bitmap.rows) *
+                               static_cast<std::size_t>(pitch));
+    for (unsigned row = 0; row < impl_->slot->bitmap.rows; ++row) {
+        const auto source_row = impl_->slot->bitmap.buffer +
+                                static_cast<std::ptrdiff_t>(row) * impl_->slot->bitmap.pitch;
+        auto destination_row = impl_->glyph_bitmap.data() +
+                               static_cast<std::size_t>(row) * static_cast<std::size_t>(pitch);
+        std::copy(source_row, source_row + pitch, destination_row);
+    }
     return true;
 }
 
@@ -229,6 +246,12 @@ int Font::glyph_bearing_y() const {
 }
 std::int64_t Font::glyph_advance_x() const {
     return impl_->glyph_loaded && impl_->slot != nullptr ? impl_->slot->advance.x : 0;
+}
+const std::vector<std::uint8_t>& Font::glyph_bitmap() const {
+    return impl_->glyph_bitmap;
+}
+int Font::glyph_pitch() const {
+    return impl_->glyph_pitch;
 }
 
 void* Font::native_face() const {
