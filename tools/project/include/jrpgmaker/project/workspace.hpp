@@ -6,6 +6,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -141,6 +142,8 @@ public:
                               DocumentAdapterRegistry adapters = CreateDefaultDocumentAdapters());
 
     [[nodiscard]] WorkspaceResult Open();
+    [[nodiscard]] std::vector<Diagnostic> SelectDocument(std::string_view document_id);
+    [[nodiscard]] std::string_view CurrentDocumentId() const { return current_document_id_; }
     [[nodiscard]] std::vector<DocumentDescriptor>
     DescribeDocuments(const ProjectSnapshot& snapshot) const;
     [[nodiscard]] DiagnosticSet Diagnose(const ProjectSnapshot& snapshot) const;
@@ -154,6 +157,7 @@ public:
 private:
     std::filesystem::path root_;
     nlohmann::json working_document_;
+    std::string current_document_id_ = "project.manifest";
     std::optional<ProjectSnapshot> snapshot_;
     std::vector<Change> pending_changes_;
     std::uint64_t revision_ = 0;

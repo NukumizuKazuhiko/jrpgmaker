@@ -20,7 +20,7 @@ void EditorSession::SetDiagnostics(std::vector<project::Diagnostic> diagnostics)
 }
 
 void EditorSession::RebuildProjection() {
-    const auto* adapter = adapters_.Find("project.manifest");
+    const auto* adapter = adapters_.Find(std::string(workspace_.CurrentDocumentId()));
     if (adapter == nullptr || !snapshot_)
         return;
     state_.form = BuildFormProjection(*adapter, workspace_.CurrentDocument());
@@ -69,6 +69,24 @@ bool EditorSession::Refresh() {
     state_.preview = BuildWorkspacePreview(diagnosis);
     SetDiagnostics(diagnosis.diagnostics);
     return state_.preview.valid;
+}
+
+bool EditorSession::SelectDocument(std::string_view document_id) {
+    if (!state_.open || !snapshot_)
+        return false;
+    const auto diagnostics = workspace_.SelectDocument(document_id);
+    if (!diagnostics.empty()) {
+        SetDiagnostics(diagnostics);
+        return false;
+    }
+    state_.selected_field = 0;
+    RebuildProjection();
+    focus_context_.ClearFocusables();
+    for (std::size_t index = 0; index < state_.form.fields.size(); ++index)
+        (void) focus_context_.RegisterFocusable(index + 1, index);
+    SyncTextField(true);
+    SetDiagnostics(state_.preview.diagnostics);
+    return true;
 }
 
 bool EditorSession::SelectNext() {

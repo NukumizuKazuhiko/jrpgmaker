@@ -32,6 +32,7 @@ public:
 
     [[nodiscard]] bool Open();
     [[nodiscard]] bool Refresh();
+    [[nodiscard]] bool SelectDocument(std::string_view document_id);
     [[nodiscard]] bool SelectNext();
     [[nodiscard]] bool SelectPrevious();
     [[nodiscard]] bool SelectField(std::size_t index);

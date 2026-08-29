@@ -119,6 +119,7 @@ interface 规则：
 - `editor::BuildPreviewDrawList` 消费 `PreviewProjection` 与诊断面板 bounds，将结构化指标或诊断 code 投影为有界状态行；它不重新统计项目数据。
 - `project::ProjectWorkspace::DescribeDocuments` 根据已打开的 `ProjectManifest` 引用和已注册 adapter 生成稳定文档目录；`editor::BuildDocumentTabsProjection`/`BuildDocumentTabsDrawList` 消费该目录，标签顺序、路径、可编辑性、dirty 和诊断数量均来自结构化状态。
 - `editor::BuildDiagnosticPanelProjection` 将诊断按稳定文档 id 归属并支持 code/path 过滤；`editor::BuildDiffProjection` 按 workspace change sequence 输出确定性变更 projection。
+- `project::ProjectWorkspace::SelectDocument` 只允许在无 pending changes 时切换到 manifest 引用且存在 adapter 的文档；切换后 `CurrentDocument` 与 `CurrentDocumentId` 始终成对更新，Apply/Commit 使用当前文档路径，未保存切换返回结构化诊断。
 - editor host 只负责从 SDL 窗口取得平台句柄、创建 RHI 资源并消费 render packet；布局、主题和文案仍由版本化资源提供。
 - 修改：把类型化 `EditCommand` 应用到候选文档；未知字段、只读字段和类型漂移立即拒绝。
 - 验证：单文档 parser 后执行跨文档 validator；插件私有 adapter 最终仍调用插件 validator。

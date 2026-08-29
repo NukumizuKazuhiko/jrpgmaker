@@ -101,6 +101,30 @@ TEST_CASE("project workspace applies an edit and prepares a stable save plan", "
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("project workspace selects and saves an adapter-backed data document", "[project][editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.SelectDocument("core.navigation").empty());
+    REQUIRE(workspace.CurrentDocumentId() == "core.navigation");
+    REQUIRE(workspace.CurrentDocument()["width"] == 5);
+    auto walkable = workspace.CurrentDocument()["walkable"];
+    walkable[0] = false;
+    const auto edit = workspace.Apply({"core.navigation", "/walkable", walkable});
+    REQUIRE(edit);
+    REQUIRE_FALSE(workspace.SelectDocument("project.manifest").empty());
+    const auto plan = workspace.PrepareSave(edit.revision);
+    REQUIRE(plan);
+    REQUIRE(workspace.Commit(*plan.token));
+    std::ifstream input(root / "assets/data/navigation_demo.json");
+    nlohmann::json navigation;
+    input >> navigation;
+    REQUIRE(navigation["walkable"][0] == false);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("project workspace rejects stale save and preserves the source file", "[project][editor]") {
     const auto root = MakeFixture();
     jrpgmaker::project::ProjectWorkspace workspace(root);

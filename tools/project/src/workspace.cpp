@@ -56,14 +56,6 @@ bool AddPath(const std::filesystem::path& root, const std::string& relative,
     return true;
 }
 
-const std::vector<std::string>& EditableManifestFields() {
-    static const std::vector<std::string> fields = {
-        "id",           "render_style",      "battle_plugin", "plugins",
-        "data_roots",   "material_document", "input_actions", "event_script",
-        "localization", "resource_manifest", "navigation", "collision", "camera", "interaction"};
-    return fields;
-}
-
 bool ValidateManifestDocument(const std::filesystem::path& root, const nlohmann::json& document,
                               plugin::ProjectManifest& manifest,
                               std::vector<Diagnostic>& diagnostics) {
@@ -278,10 +270,47 @@ WorkspaceResult ProjectWorkspace::Open() {
     }
     revision_ = 0;
     working_document_ = std::move(document);
+    current_document_id_ = "project.manifest";
     pending_changes_.clear();
     snapshot_ = ProjectSnapshot{root_, manifest, revision_};
     result.snapshot = snapshot_;
     return result;
+}
+
+std::vector<Diagnostic> ProjectWorkspace::SelectDocument(std::string_view document_id) {
+    std::vector<Diagnostic> diagnostics;
+    if (!snapshot_) {
+        Add(diagnostics, "project.workspace.not_open", "workspace");
+        return diagnostics;
+    }
+    if (!pending_changes_.empty()) {
+        Add(diagnostics, "project.workspace.unsaved_selection", std::string(document_id));
+        return diagnostics;
+    }
+    const auto documents = DescribeDocuments(*snapshot_);
+    const auto it = std::find_if(documents.begin(), documents.end(), [document_id](const auto& item) {
+        return item.id == document_id;
+    });
+    if (it == documents.end()) {
+        Add(diagnostics, "project.edit.document_unknown", std::string(document_id));
+        return diagnostics;
+    }
+    if (it->id == current_document_id_)
+        return diagnostics;
+    nlohmann::json document;
+    if (!Read(root_ / it->path, document, diagnostics))
+        return diagnostics;
+    if (adapters_.Find(it->id) == nullptr) {
+        Add(diagnostics, "project.adapter.unknown_type", it->id);
+        return diagnostics;
+    }
+    const auto validation = adapters_.Validate(it->id, document);
+    diagnostics.insert(diagnostics.end(), validation.diagnostics.begin(), validation.diagnostics.end());
+    if (!diagnostics.empty())
+        return diagnostics;
+    working_document_ = std::move(document);
+    current_document_id_ = it->id;
+    return diagnostics;
 }
 
 DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const {
@@ -335,32 +364,49 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
         Add(result.diagnostics, "project.workspace.not_open", "workspace");
         return result;
     }
-    if (command.document_id != "project.manifest") {
-        Add(result.diagnostics, "project.edit.document_unknown", command.document_id);
+    if (command.document_id != current_document_id_) {
+        Add(result.diagnostics, "project.edit.document_not_selected", command.document_id);
         return result;
     }
-    if (command.field_path.size() < 2 || command.field_path.front() != '/' ||
-        command.field_path.find('/', 1) != std::string::npos) {
-        Add(result.diagnostics, "project.edit.field_path_invalid", command.field_path);
+    const auto* adapter = adapters_.Find(current_document_id_);
+    if (adapter == nullptr) {
+        Add(result.diagnostics, "project.adapter.unknown_type", current_document_id_);
         return result;
     }
-    const std::string field = command.field_path.substr(1);
-    if (std::find(EditableManifestFields().begin(), EditableManifestFields().end(), field) ==
-        EditableManifestFields().end()) {
+    const auto field_it = std::find_if(adapter->fields.begin(), adapter->fields.end(),
+                                       [&command](const auto& field) {
+                                           return field.path == command.field_path;
+                                       });
+    if (field_it == adapter->fields.end()) {
         Add(result.diagnostics, "project.edit.field_not_editable", command.field_path);
         return result;
     }
+    if (field_it->read_only) {
+        Add(result.diagnostics, "project.edit.field_read_only", command.field_path);
+        return result;
+    }
+    if (command.field_path.size() < 2 || command.field_path.front() != '/') {
+        Add(result.diagnostics, "project.edit.field_path_invalid", command.field_path);
+        return result;
+    }
     nlohmann::json candidate = working_document_;
-    const nlohmann::json before = candidate.contains(field) ? candidate[field] : nlohmann::json();
-    candidate[field] = command.value;
+    const auto pointer = nlohmann::json::json_pointer(command.field_path);
+    const nlohmann::json before = candidate.contains(pointer) ? candidate.at(pointer) : nlohmann::json();
+    candidate[pointer] = command.value;
+    const auto validation = adapters_.Validate(current_document_id_, candidate);
+    result.diagnostics = validation.diagnostics;
+    if (!result.diagnostics.empty())
+        return result;
     plugin::ProjectManifest manifest;
-    if (!ValidateManifestDocument(root_, candidate, manifest, result.diagnostics))
+    if (current_document_id_ == "project.manifest" &&
+        !ValidateManifestDocument(root_, candidate, manifest, result.diagnostics))
         return result;
     if (before == command.value)
         return result;
     working_document_ = std::move(candidate);
     ++revision_;
-    snapshot_->manifest = std::move(manifest);
+    if (current_document_id_ == "project.manifest")
+        snapshot_->manifest = std::move(manifest);
     snapshot_->revision = revision_;
     result.revision = revision_;
     Change change{.document_id = command.document_id,
@@ -402,16 +448,25 @@ CommitResult ProjectWorkspace::Commit(const SaveToken& token) {
         Add(result.diagnostics, "project.save.nothing_to_commit", "project.json");
         return result;
     }
-    const auto manifest_path = root_ / "project.json";
-    const auto temporary = root_ / ".project.json.tmp";
+    const auto documents = DescribeDocuments(*snapshot_);
+    const auto document_it = std::find_if(documents.begin(), documents.end(), [this](const auto& item) {
+        return item.id == current_document_id_;
+    });
+    if (document_it == documents.end()) {
+        Add(result.diagnostics, "project.edit.document_unknown", current_document_id_);
+        return result;
+    }
+    const auto manifest_path = root_ / document_it->path;
+    const auto temporary = root_ / ("." + document_it->path.filename().string() + ".tmp");
     std::error_code error;
     if (std::filesystem::exists(temporary, error)) {
         Add(result.diagnostics, "project.save.temporary_exists", temporary.string());
         return result;
     }
     for (std::size_t index = 0; index <= 8; ++index) {
-        const auto backup = index == 0 ? root_ / "project.json.bak"
-                                       : root_ / ("project.json.bak." + std::to_string(index));
+        const auto backup = index == 0 ? std::filesystem::path(manifest_path.string() + ".bak")
+                                       : std::filesystem::path(manifest_path.string() + ".bak." +
+                                                               std::to_string(index));
         if (std::filesystem::exists(backup, error))
             continue;
         {

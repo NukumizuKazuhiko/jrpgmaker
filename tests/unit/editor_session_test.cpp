@@ -52,6 +52,26 @@ TEST_CASE("editor session routes string text input through the typed edit contra
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("editor session switches to an adapter-backed document", "[editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.SelectDocument("core.navigation"));
+    REQUIRE(session.state().form.document_id == "core.navigation");
+    REQUIRE(session.state().form.fields.front().path == "/width");
+    REQUIRE(session.SelectField(2));
+    auto walkable = session.state().form.fields[2].value;
+    walkable[0] = false;
+    REQUIRE(session.ApplySelected(walkable));
+    REQUIRE(session.Save());
+    std::ifstream input(root / "assets/data/navigation_demo.json");
+    nlohmann::json navigation;
+    input >> navigation;
+    REQUIRE(navigation["walkable"][0] == false);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("editor session appends text after the initial field selection is replaced", "[editor]") {
     const auto root = MakeFixture();
     jrpgmaker::editor::EditorSession session(root);
