@@ -136,6 +136,29 @@ TEST_CASE("document tabs preserve manifest order and dirty active state", "[ui][
     REQUIRE(std::get<jrpgmaker::ui::DrawRect>(draw_list.primitives()[2]).state == "active_dirty");
 }
 
+TEST_CASE("document tabs mark every document with pending changes", "[ui][editor]") {
+    const std::vector<jrpgmaker::project::DocumentDescriptor> documents = {
+        {"project.manifest", "project.json", "editor.document.project", true},
+        {"core.navigation", "navigation.json", "editor.document.navigation", true}};
+    const std::vector<jrpgmaker::project::Change> changes = {
+        {.document_id = "project.manifest",
+         .field_path = "/id",
+         .before = "old",
+         .after = "new",
+         .sequence = 1},
+        {.document_id = "core.navigation",
+         .field_path = "/width",
+         .before = 4,
+         .after = 5,
+         .sequence = 2}};
+    const auto tabs = jrpgmaker::editor::BuildDocumentTabsProjection(
+        documents, "core.navigation", changes, {});
+
+    REQUIRE(tabs.tabs[0].dirty);
+    REQUIRE(tabs.tabs[1].dirty);
+    REQUIRE(tabs.tabs[1].active);
+}
+
 TEST_CASE("diagnostics filter and diff projection retain stable document ownership", "[editor]") {
     const std::vector<jrpgmaker::project::DocumentDescriptor> documents = {
         {"project.manifest", "project.json", "editor.document.project", true},
