@@ -19,6 +19,16 @@ bool ValidRect(const ui::Rect& rect) {
            std::isfinite(rect.width) && std::isfinite(rect.height);
 }
 
+std::optional<ui::Rect> ClipToViewport(const ui::Rect& rect, const UiViewport& viewport) {
+    const float left = std::max(0.0f, rect.x);
+    const float top = std::max(0.0f, rect.y);
+    const float right = std::min(viewport.width, rect.x + rect.width);
+    const float bottom = std::min(viewport.height, rect.y + rect.height);
+    if (right <= left || bottom <= top)
+        return std::nullopt;
+    return ui::Rect{left, top, right - left, bottom - top};
+}
+
 glm::vec4 ToColor(const ui::EditorColor& color) {
     constexpr float kByteScale = 1.0f / 255.0f;
     return {static_cast<float>(color.r) * kByteScale, static_cast<float>(color.g) * kByteScale,
@@ -63,8 +73,8 @@ UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list, const ui::EditorTh
             AddDiagnostic(packet, "ui.rect.invalid", primitive_index);
             continue;
         }
-        if (rect->rect.x + rect->rect.width > viewport.width ||
-            rect->rect.y + rect->rect.height > viewport.height) {
+        const auto clipped = ClipToViewport(rect->rect, viewport);
+        if (!clipped) {
             AddDiagnostic(packet, "ui.rect.out_of_viewport", primitive_index);
             continue;
         }
@@ -90,10 +100,10 @@ UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list, const ui::EditorTh
             continue;
         }
 
-        const float left = 2.0f * rect->rect.x / viewport.width - 1.0f;
-        const float right = 2.0f * (rect->rect.x + rect->rect.width) / viewport.width - 1.0f;
-        const float top = 1.0f - 2.0f * rect->rect.y / viewport.height;
-        const float bottom = 1.0f - 2.0f * (rect->rect.y + rect->rect.height) / viewport.height;
+        const float left = 2.0f * clipped->x / viewport.width - 1.0f;
+        const float right = 2.0f * (clipped->x + clipped->width) / viewport.width - 1.0f;
+        const float top = 1.0f - 2.0f * clipped->y / viewport.height;
+        const float bottom = 1.0f - 2.0f * (clipped->y + clipped->height) / viewport.height;
         const auto rgba = ToColor(color->second);
         const auto base = static_cast<std::uint32_t>(packet.vertices.size());
         packet.vertices.push_back({{left, top, 0.0f}, rgba});

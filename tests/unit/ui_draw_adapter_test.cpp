@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include "jrpgmaker/render/ui_draw_adapter.hpp"
@@ -38,10 +40,23 @@ TEST_CASE("ui draw adapter reports invalid theme and geometry", "[render][ui]") 
 
     const auto packet = jrpgmaker::render::BuildUiDrawPacket(list, Theme(), {100.0f, 100.0f});
     REQUIRE_FALSE(packet.ok());
-    REQUIRE(packet.diagnostics.size() == 3);
+    REQUIRE(packet.diagnostics.size() == 2);
     REQUIRE(packet.diagnostics[0].code == "ui.recipe.unknown");
-    REQUIRE(packet.diagnostics[1].code == "ui.rect.out_of_viewport");
-    REQUIRE(packet.diagnostics[2].code == "ui.text.key_required");
+    REQUIRE(packet.diagnostics[1].code == "ui.text.key_required");
+}
+
+TEST_CASE("ui draw adapter clips partially visible rectangles", "[render][ui]") {
+    jrpgmaker::ui::DrawList list;
+    REQUIRE(list.Add(jrpgmaker::ui::DrawRect{{90.0f, 10.0f, 20.0f, 20.0f}, "button"}));
+    REQUIRE(list.Add(jrpgmaker::ui::DrawRect{{120.0f, 10.0f, 20.0f, 20.0f}, "button"}));
+
+    const auto packet = jrpgmaker::render::BuildUiDrawPacket(list, Theme(), {100.0f, 100.0f});
+    REQUIRE_FALSE(packet.ok());
+    REQUIRE(packet.diagnostics.size() == 1);
+    REQUIRE(packet.diagnostics.front().code == "ui.rect.out_of_viewport");
+    REQUIRE(packet.vertices.size() == 4);
+    REQUIRE(std::abs(packet.vertices[0].position.x - 0.8f) < 1.0e-5f);
+    REQUIRE(std::abs(packet.vertices[1].position.x - 1.0f) < 1.0e-5f);
 }
 
 TEST_CASE("ui draw adapter rejects invalid viewport", "[render][ui]") {
