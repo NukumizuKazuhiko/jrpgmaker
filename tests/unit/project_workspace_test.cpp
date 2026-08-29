@@ -11,6 +11,8 @@
 
 namespace {
 
+class NoopPlugin final : public jrpgmaker::plugin::IPlugin {};
+
 std::filesystem::path MakeFixture() {
     const auto root = std::filesystem::temp_directory_path() / "jrpgmaker_workspace_fixture";
     std::error_code error;
@@ -284,6 +286,35 @@ TEST_CASE("plugin editor descriptor registers as a project adapter", "[project][
     const auto* adapter = registry.Find("vendor.example.document.v1");
     REQUIRE(adapter != nullptr);
     REQUIRE(adapter->fields[0].label_key == "plugin.example.name");
+}
+
+TEST_CASE("workspace diagnosis runs registered plugin validators", "[project][plugin][p13]") {
+    const auto root = MakeFixture();
+    jrpgmaker::plugin::PluginRegistry registry;
+    const auto register_plugin = [&registry](const char* id, const char* type,
+                                              jrpgmaker::plugin::PluginRegistry::Factory factory) {
+        nlohmann::json document;
+        document["schema"] = 1;
+        document["id"] = id;
+        document["type"] = type;
+        document["version"] = 1;
+        document["engine_contract"] = 1;
+        document["data_roots"] = nlohmann::json::array({"assets/data"});
+        document["capabilities"] = nlohmann::json::array();
+        auto manifest = jrpgmaker::plugin::ParseManifest(document);
+        REQUIRE(manifest);
+        REQUIRE_FALSE(registry.Register(*manifest.manifest, std::move(factory)));
+    };
+    register_plugin("sample.unlit", "render_style", [] { return std::make_unique<NoopPlugin>(); });
+    register_plugin("sample.style", "render_style", [] { return std::make_unique<NoopPlugin>(); });
+    register_plugin("sample.instant", "battle", [] { return std::make_unique<NoopPlugin>(); });
+    register_plugin("sample.turn_based", "battle", [] { return std::make_unique<NoopPlugin>(); });
+
+    jrpgmaker::project::ProjectWorkspace workspace(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), &registry);
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.Diagnose(*opened.snapshot).diagnostics.empty());
 }
 
 TEST_CASE("default document adapters cover the domain workspace documents", "[project][editor]") {

@@ -302,6 +302,62 @@ std::optional<PluginError> ValidateEditorExtension(const EditorExtension& extens
     return std::nullopt;
 }
 
+std::vector<PluginError> ValidateEditorExtensionResources(const EditorExtension& extension,
+                                                          const PluginManifest& manifest,
+                                                          const std::filesystem::path& plugin_root) {
+    std::vector<PluginError> issues;
+    const auto append = [&issues](PluginError issue) {
+        if (issues.size() < 128u)
+            issues.push_back(std::move(issue));
+    };
+    if (const auto error = ValidateEditorExtension(extension, manifest); error.has_value()) {
+        append(*error);
+        return issues;
+    }
+    std::error_code error;
+    const auto canonical_root = std::filesystem::weakly_canonical(plugin_root, error);
+    if (error) {
+        append(PluginError{"editor.resource.root", "plugin root cannot be resolved", "$"});
+        return issues;
+    }
+    std::size_t total_bytes = 0;
+    const auto check = [&](const std::string& relative, std::string_view kind) {
+        if (!IsSafeRelativePath(relative)) {
+            append(PluginError{"editor.resource.path", "editor resource path is unsafe",
+                               std::string(kind)});
+            return;
+        }
+        const auto path = plugin_root / relative;
+        const auto canonical_path = std::filesystem::weakly_canonical(path, error);
+        if (error || !IsCanonicalPathWithin(canonical_root, canonical_path)) {
+            append(PluginError{"editor.resource.path", "editor resource escapes plugin root",
+                               relative});
+            return;
+        }
+        if (!std::filesystem::is_regular_file(canonical_path, error) || error) {
+            append(PluginError{"editor.resource.missing", "editor resource is missing", relative});
+            return;
+        }
+        const auto size = std::filesystem::file_size(canonical_path, error);
+        if (error || size > kMaxPluginValidationFileBytes) {
+            append(PluginError{"editor.resource.file_size",
+                               "editor resource exceeds 256 KiB", relative});
+            return;
+        }
+        if (total_bytes > kMaxPluginValidationTotalBytes - static_cast<std::size_t>(size))
+            append(PluginError{"editor.resource.byte_budget",
+                               "editor resources exceed the byte budget", extension.plugin_id});
+        else
+            total_bytes += static_cast<std::size_t>(size);
+    };
+    check(extension.icons, "icons");
+    for (const auto& [locale, path] : extension.locales)
+        check(path, "locales/" + locale);
+    for (const auto& document : extension.documents)
+        check(document.descriptor, "documents/" + document.type_id);
+    return issues;
+}
+
 std::optional<PluginError> ValidatePluginManifest(const PluginManifest& manifest) {
     if (manifest.schema != 1u)
         return PluginError{"manifest.schema", "unsupported plugin manifest schema", "schema"};

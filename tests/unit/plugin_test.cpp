@@ -382,6 +382,50 @@ TEST_CASE("plugin editor descriptor rejects unsafe paths and invalid choices", "
     REQUIRE_FALSE(jrpgmaker::plugin::ParseEditorDescriptor(document));
 }
 
+TEST_CASE("plugin editor resources are checked within bounded plugin roots", "[plugin][editor][p13]") {
+    const auto root = std::filesystem::temp_directory_path() / "jrpgmaker_editor_sidecar_fixture";
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    std::filesystem::create_directories(root / "editor/locales");
+    for (const auto& path : {root / "editor/icons.json", root / "editor/material.json",
+                             root / "editor/locales/en.json"}) {
+        std::ofstream file(path);
+        file << "{}";
+    }
+    const auto parsed = jrpgmaker::plugin::ParseEditorExtension(nlohmann::json::parse(R"json(
+        {"schema":1,"plugin_id":"sample.style","editor_contract":1,
+         "documents":[{"type_id":"sample.style.document.material.v1",
+                         "roots":["data"],"descriptor":"editor/material.json"}],
+         "locales":{"en":"editor/locales/en.json"},"icons":"editor/icons.json"}
+    )json"));
+    REQUIRE(parsed);
+    const auto issues = jrpgmaker::plugin::ValidateEditorExtensionResources(
+        *parsed.extension,
+        jrpgmaker::plugin::PluginManifest{.schema = 1,
+                                          .id = "sample.style",
+                                          .type = jrpgmaker::plugin::PluginType::kRenderStyle,
+                                          .version = 1,
+                                          .engine_contract = 1,
+                                          .data_roots = {"data"},
+                                          .capabilities = {}},
+        root);
+    REQUIRE(issues.empty());
+    std::filesystem::remove(root / "editor/material.json", error);
+    const auto missing = jrpgmaker::plugin::ValidateEditorExtensionResources(
+        *parsed.extension,
+        jrpgmaker::plugin::PluginManifest{.schema = 1,
+                                          .id = "sample.style",
+                                          .type = jrpgmaker::plugin::PluginType::kRenderStyle,
+                                          .version = 1,
+                                          .engine_contract = 1,
+                                          .data_roots = {"data"},
+                                          .capabilities = {}},
+        root);
+    REQUIRE_FALSE(missing.empty());
+    REQUIRE(missing.front().code == "editor.resource.missing");
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("project manifest resolves registered plugins and existing data roots", "[plugin][p5]") {
     const auto result = jrpgmaker::plugin::ParseProjectManifest(
         {{"schema", 1},

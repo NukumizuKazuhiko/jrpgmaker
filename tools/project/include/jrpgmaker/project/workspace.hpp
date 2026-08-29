@@ -150,7 +150,8 @@ struct MigrationResult {
 class ProjectWorkspace final {
 public:
     explicit ProjectWorkspace(std::filesystem::path root,
-                              DocumentAdapterRegistry adapters = CreateDefaultDocumentAdapters());
+                              DocumentAdapterRegistry adapters = CreateDefaultDocumentAdapters(),
+                              const plugin::PluginRegistry* plugins = nullptr);
 
     [[nodiscard]] WorkspaceResult Open();
     [[nodiscard]] std::vector<Diagnostic> SelectDocument(std::string_view document_id);
@@ -173,6 +174,7 @@ private:
     std::vector<Change> pending_changes_;
     std::uint64_t revision_ = 0;
     DocumentAdapterRegistry adapters_;
+    const plugin::PluginRegistry* plugins_ = nullptr;
     std::unordered_map<std::string, nlohmann::json> original_documents_;
     std::unordered_map<std::string, nlohmann::json> working_documents_;
 };

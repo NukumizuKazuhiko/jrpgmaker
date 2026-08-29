@@ -11,8 +11,10 @@ namespace jrpgmaker::editor {
 EditorSession::EditorSession(std::filesystem::path root)
     : root_(root), workspace_(std::move(root), adapters_) {}
 
-EditorSession::EditorSession(std::filesystem::path root, project::DocumentAdapterRegistry adapters)
-    : adapters_(std::move(adapters)), root_(root), workspace_(std::move(root), adapters_) {}
+EditorSession::EditorSession(std::filesystem::path root, project::DocumentAdapterRegistry adapters,
+                             const plugin::PluginRegistry* plugins)
+    : adapters_(std::move(adapters)), plugins_(plugins), root_(root),
+      workspace_(std::move(root), adapters_, plugins_) {}
 
 bool EditorSession::Open(std::filesystem::path root) {
     if (root.empty())

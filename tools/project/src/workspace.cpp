@@ -329,8 +329,9 @@ AdapterResult RegisterEditorDescriptor(DocumentAdapterRegistry& registry,
     return registry.Register(std::move(adapter));
 }
 
-ProjectWorkspace::ProjectWorkspace(std::filesystem::path root, DocumentAdapterRegistry adapters)
-    : root_(std::move(root)), adapters_(std::move(adapters)) {}
+ProjectWorkspace::ProjectWorkspace(std::filesystem::path root, DocumentAdapterRegistry adapters,
+                                   const plugin::PluginRegistry* plugins)
+    : root_(std::move(root)), adapters_(std::move(adapters)), plugins_(plugins) {}
 
 std::vector<DocumentDescriptor>
 ProjectWorkspace::DescribeDocuments(const ProjectSnapshot& snapshot) const {
@@ -483,6 +484,11 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
     validate("app.input_actions", input_document);
     validate("domain.localization", localization_document);
     validate("project.resources", resource_document);
+    if (plugins_ != nullptr) {
+        for (const auto& issue : plugin::ValidateProjectPluginData(snapshot.manifest, *plugins_,
+                                                                   snapshot.root))
+            Add(result.diagnostics, issue.code, issue.path);
+    }
     if (!result.diagnostics.empty())
         return result;
     try {

@@ -33,7 +33,8 @@ struct EditorSessionState {
 class EditorSession final {
 public:
     explicit EditorSession(std::filesystem::path root);
-    EditorSession(std::filesystem::path root, project::DocumentAdapterRegistry adapters);
+    EditorSession(std::filesystem::path root, project::DocumentAdapterRegistry adapters,
+                  const plugin::PluginRegistry* plugins = nullptr);
 
     [[nodiscard]] bool Open();
     [[nodiscard]] bool Open(std::filesystem::path root);
@@ -64,6 +65,7 @@ private:
     void SyncTextField(bool select_all);
 
     project::DocumentAdapterRegistry adapters_ = project::CreateDefaultDocumentAdapters();
+    const plugin::PluginRegistry* plugins_ = nullptr;
     std::filesystem::path root_;
     project::ProjectWorkspace workspace_;
     ui::UiContext focus_context_;

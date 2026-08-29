@@ -87,6 +87,9 @@ EditorExtensionParseResult ParseEditorExtension(const nlohmann::json& document);
 EditorDescriptorParseResult ParseEditorDescriptor(const nlohmann::json& document);
 [[nodiscard]] std::optional<PluginError>
 ValidateEditorExtension(const EditorExtension& extension, const PluginManifest& manifest);
+[[nodiscard]] std::vector<PluginError> ValidateEditorExtensionResources(
+    const EditorExtension& extension, const PluginManifest& manifest,
+    const std::filesystem::path& plugin_root);
 
 struct ManifestParseResult {
     std::optional<PluginManifest> manifest;
