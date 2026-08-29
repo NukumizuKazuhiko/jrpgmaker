@@ -122,7 +122,7 @@ interface 规则：
 - `EditorSession::SetDiagnosticFilter` 更新结构化诊断 projection；`LocateDiagnostic` 先按诊断归属选择文档，再按精确 field path 定位字段，无法精确到字段时保留文档选择而不猜测路径。
 - `project::ProjectWorkspace::SelectDocument` 只允许在无 pending changes 时切换到 manifest 引用且存在 adapter 的文档；切换后 `CurrentDocument` 与 `CurrentDocumentId` 始终成对更新，Apply/Commit 使用当前文档路径，未保存切换返回结构化诊断。
 - 默认 registry 复用现有输入动作、本地化 parser，并为材质/资源清单提供 schema 1 结构校验；这些文档通过同一 `DocumentAdapter` seam 进入 tabs、form、Apply 和保存流程，材质编辑同时校验其 `style_plugin_id` 与 manifest 的 `render_style`。
-- `EditorSession::AdjustSelectedInteger` 是数值字段的有限步进命令，只接受 `-1`/`+1` 并重新经过 adapter 校验；`increment`/`decrement` 的按键绑定来自 editor action 资源。存在跨字段约束（例如导航宽高与 `walkable` 长度）时，单字段步进必须拒绝，待地图 adapter 提供原子复合编辑后再开放该操作。
+- `EditorSession::AdjustSelectedInteger` 是数值字段的有限步进命令，只接受 `-1`/`+1` 并重新经过 adapter 校验；`increment`/`decrement` 的按键绑定来自 editor action 资源。导航 adapter 对宽高调整同步扩展/截断 `walkable`，并以同一 `EditResult` 记录复合变更；其他跨字段规则仍必须由各自 adapter 提供原子归一化。
 - `PreviewProjection` 现在包含独立的进程运行态、退出码和启动错误；`EditorSession::PollPreview` 仅在状态改变时返回重绘信号，host 据此刷新 draw list，避免每帧重建。
 - `ProjectWorkspace::Diagnose` 读取并校验 manifest 引用的材质、输入动作、本地化和资源清单，并对事件脚本执行本地化覆盖检查，返回统一结构化诊断。
 - 发布 adapter 复用 `tools/ci/package_release.ps1`：对仓库 demo 或根 `project.json` 项目输出统一包根 manifest，并由 eventlint 对包目录执行最终项目校验。

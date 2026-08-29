@@ -31,11 +31,15 @@ struct FieldDescriptor {
 
 using DocumentValidator =
     std::function<std::vector<Diagnostic>(const nlohmann::json& document)>;
+using DocumentEditNormalizer =
+    std::function<std::vector<Diagnostic>(std::string_view field_path,
+                                          nlohmann::json& candidate)>;
 
 struct DocumentAdapter {
     std::string type_id;
     std::vector<FieldDescriptor> fields;
     DocumentValidator validate;
+    DocumentEditNormalizer normalize_edit;
 };
 
 struct AdapterResult {

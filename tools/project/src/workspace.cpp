@@ -166,7 +166,8 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
                    {"/collision", "path", "editor.project.collision", "resource", true, false},
                    {"/camera", "path", "editor.project.camera", "resource", true, false},
                    {"/interaction", "path", "editor.project.interaction", "resource", true, false}},
-        .validate = ValidateManifestAdapter});
+        .validate = ValidateManifestAdapter,
+        .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "domain.event_script",
         .fields = {{"/events", "object[]", "editor.events.items", "event_list", true, false}},
@@ -174,7 +175,8 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
             return ValidateParsedDocument(document, "event_script", [](const auto& value) {
                 (void) domain::ParseEventScript(value);
             });
-        }});
+        },
+        .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.navigation",
         .fields = {{"/width", "integer", "editor.navigation.width", "number", true, false},
@@ -184,6 +186,29 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
             return ValidateParsedDocument(document, "navigation", [](const auto& value) {
                 (void) core::ParseNavigationGrid(value);
             });
+        },
+        .normalize_edit = [](std::string_view field_path, nlohmann::json& candidate) {
+            if (field_path != "/width" && field_path != "/height")
+                return std::vector<Diagnostic>{};
+            if (!candidate.contains("width") || !candidate.contains("height") ||
+                !candidate["width"].is_number_integer() ||
+                !candidate["height"].is_number_integer() ||
+                !candidate.contains("walkable") || !candidate["walkable"].is_array())
+                return std::vector<Diagnostic>{{"project.navigation.resize_invalid",
+                                                 std::string(field_path)}};
+            const auto width = candidate["width"].get<std::int64_t>();
+            const auto height = candidate["height"].get<std::int64_t>();
+            constexpr std::int64_t kMaxCells = 4096;
+            if (width <= 0 || height <= 0 || width > kMaxCells || height > kMaxCells ||
+                width > kMaxCells / height)
+                return std::vector<Diagnostic>{{"project.navigation.resize_range",
+                                                 std::string(field_path)}};
+            const auto cell_count = static_cast<std::size_t>(width * height);
+            while (candidate["walkable"].size() < cell_count)
+                candidate["walkable"].push_back(true);
+            while (candidate["walkable"].size() > cell_count)
+                candidate["walkable"].erase(candidate["walkable"].end() - 1);
+            return std::vector<Diagnostic>{};
         }});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.collision",
@@ -192,7 +217,8 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
             return ValidateParsedDocument(document, "collision", [](const auto& value) {
                 (void) core::ParseCollisionAabbs(value);
             });
-        }});
+        },
+        .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.camera",
         .fields = {{"/third_person", "object", "editor.camera.third_person", "camera", true, false},
@@ -201,7 +227,8 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
             return ValidateParsedDocument(document, "camera", [](const auto& value) {
                 (void) core::ParseCameraRigData(value);
             });
-        }});
+        },
+        .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "domain.interaction",
         .fields = {{"/interactions", "object[]", "editor.interaction.points", "interaction_list", true, false}},
@@ -209,7 +236,8 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
             return ValidateParsedDocument(document, "interaction", [](const auto& value) {
                 (void) domain::ParseInteractionPoints(value);
             });
-        }});
+        },
+        .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "core.material",
         .fields = {{"/style_plugin_id", "string", "editor.material.style_plugin", "select", true,
@@ -220,7 +248,8 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
                 document["style_plugin_id"].get<std::string>().empty())
                 return std::vector<Diagnostic>{{"project.document.invalid", "material"}};
             return std::vector<Diagnostic>{};
-        }});
+        },
+        .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "app.input_actions",
         .fields = {{"/actions", "object[]", "editor.input.actions", "action_list", true, false}},
@@ -229,7 +258,8 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
             if (parsed)
                 return std::vector<Diagnostic>{};
             return std::vector<Diagnostic>{{"project.document.invalid", "input_actions"}};
-        }});
+        },
+        .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "domain.localization",
         .fields = {{"/strings", "object", "editor.localization.strings", "string_map", true, false}},
@@ -238,7 +268,8 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
             if (parsed)
                 return std::vector<Diagnostic>{};
             return std::vector<Diagnostic>{{"project.document.invalid", "localization"}};
-        }});
+        },
+        .normalize_edit = {}});
     (void) registry.Register(DocumentAdapter{
         .type_id = "project.resources",
         .fields = {{"/resources", "object[]", "editor.resources.items", "resource_list", true, false}},
@@ -248,7 +279,8 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
                 document["resources"].empty() || document["resources"].size() > 4096)
                 return std::vector<Diagnostic>{{"project.document.invalid", "resources"}};
             return std::vector<Diagnostic>{};
-        }});
+        },
+        .normalize_edit = {}});
     return registry;
 }
 
@@ -450,8 +482,14 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
     }
     nlohmann::json candidate = working_document_;
     const auto pointer = nlohmann::json::json_pointer(command.field_path);
-    const nlohmann::json before = candidate.contains(pointer) ? candidate.at(pointer) : nlohmann::json();
+    const nlohmann::json original_document = candidate;
     candidate[pointer] = command.value;
+    if (adapter->normalize_edit) {
+        const auto normalization = adapter->normalize_edit(command.field_path, candidate);
+        result.diagnostics.insert(result.diagnostics.end(), normalization.begin(), normalization.end());
+        if (!result.diagnostics.empty())
+            return result;
+    }
     const auto validation = adapters_.Validate(current_document_id_, candidate);
     result.diagnostics = validation.diagnostics;
     if (!result.diagnostics.empty())
@@ -465,7 +503,7 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
     if (current_document_id_ == "project.manifest" &&
         !ValidateManifestDocument(root_, candidate, manifest, result.diagnostics))
         return result;
-    if (before == command.value)
+    if (original_document == candidate)
         return result;
     working_document_ = std::move(candidate);
     ++revision_;
@@ -473,13 +511,24 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
         snapshot_->manifest = std::move(manifest);
     snapshot_->revision = revision_;
     result.revision = revision_;
-    Change change{.document_id = command.document_id,
-                  .field_path = command.field_path,
-                  .before = before,
-                  .after = command.value,
-                  .sequence = pending_changes_.size()};
-    pending_changes_.push_back(change);
-    result.changes.push_back(std::move(change));
+    for (const auto& field : adapter->fields) {
+        const auto field_pointer = nlohmann::json::json_pointer(field.path);
+        const auto old_value = original_document.contains(field_pointer)
+                                   ? original_document.at(field_pointer)
+                                   : nlohmann::json();
+        const auto new_value = working_document_.contains(field_pointer)
+                                   ? working_document_.at(field_pointer)
+                                   : nlohmann::json();
+        if (old_value == new_value)
+            continue;
+        Change change{.document_id = command.document_id,
+                      .field_path = field.path,
+                      .before = old_value,
+                      .after = new_value,
+                      .sequence = pending_changes_.size() + result.changes.size()};
+        pending_changes_.push_back(change);
+        result.changes.push_back(std::move(change));
+    }
     return result;
 }
 

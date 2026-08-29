@@ -203,7 +203,8 @@ TEST_CASE("document adapter registry rejects duplicates and validates documents"
             if (!document.is_object())
                 return std::vector<jrpgmaker::project::Diagnostic>{{"document.object_required", "/"}};
             return std::vector<jrpgmaker::project::Diagnostic>{};
-        }};
+        },
+        .normalize_edit = {}};
     REQUIRE(registry.Register(adapter));
     REQUIRE_FALSE(registry.Register(adapter));
     REQUIRE(registry.Validate("calendar", nlohmann::json::object()));

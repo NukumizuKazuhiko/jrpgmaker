@@ -7,7 +7,8 @@ TEST_CASE("form projection exposes adapter metadata and current values", "[edito
         .type_id = "test.document",
         .fields = {{"/name", "string", "editor.test.name", "text", true, false},
                    {"/missing", "integer", "editor.test.missing", "number", false, true}},
-        .validate = {}};
+        .validate = {},
+        .normalize_edit = {}};
     const auto projection = jrpgmaker::editor::BuildFormProjection(
         adapter, nlohmann::json{{"name", "sample"}});
 
