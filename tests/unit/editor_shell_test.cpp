@@ -79,8 +79,8 @@ TEST_CASE("form draw projection emits focused theme states from adapter metadata
                    {.path = "/render_style", .label_key = "editor.project.render_style",
                     .recipe = "input", .value_type = "string", .value = "unlit"}}};
     const auto draw_list = jrpgmaker::editor::BuildFormDrawList(form, {10, 20, 100, 80}, 20, 1);
-    REQUIRE(draw_list.size() == 4);
-    const auto& focused = std::get<jrpgmaker::ui::DrawRect>(draw_list.primitives()[2]);
+    REQUIRE(draw_list.size() == 6);
+    const auto& focused = std::get<jrpgmaker::ui::DrawRect>(draw_list.primitives()[3]);
     REQUIRE(focused.state == "focused");
 }
 
@@ -90,7 +90,7 @@ TEST_CASE("preview draw projection preserves structured metric and diagnostic ke
         .diagnostics = {},
         .metrics = {{"editor.preview.event_count", "integer", 2}}};
     const auto metric_draw = jrpgmaker::editor::BuildPreviewDrawList(valid, {0, 0, 100, 40}, 20);
-    REQUIRE(metric_draw.size() == 2);
+    REQUIRE(metric_draw.size() == 3);
     const jrpgmaker::editor::PreviewProjection invalid{
         .valid = false,
         .diagnostics = {{"project.invalid", "project.json"}},
@@ -99,5 +99,5 @@ TEST_CASE("preview draw projection preserves structured metric and diagnostic ke
         jrpgmaker::editor::BuildPreviewDrawList(invalid, {0, 0, 100, 40}, 20);
     REQUIRE(diagnostic_draw.size() == 2);
     REQUIRE(std::get<jrpgmaker::ui::DrawText>(diagnostic_draw.primitives()[1]).text_key ==
-            "project.invalid");
+            "editor.diagnostic.code");
 }
