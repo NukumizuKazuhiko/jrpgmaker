@@ -277,6 +277,36 @@ int main(int argc, char** argv) {
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
                 running = false;
             else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && session != nullptr) {
+                const auto* tabs_node = FindShellNode(*shell, "workspace.tabs");
+                if (tabs_node != nullptr && !session->state().tabs.tabs.empty() &&
+                    event.button.x >= tabs_node->bounds.x &&
+                    event.button.x < tabs_node->bounds.x + tabs_node->bounds.width &&
+                    event.button.y >= tabs_node->bounds.y &&
+                    event.button.y < tabs_node->bounds.y + tabs_node->bounds.height) {
+                    const auto tab_width = tabs_node->bounds.width /
+                                           static_cast<float>(session->state().tabs.tabs.size());
+                    const auto index = static_cast<std::size_t>(
+                        (event.button.x - tabs_node->bounds.x) / tab_width);
+                    if (index < session->state().tabs.tabs.size())
+                        ui_dirty = session->SelectDocument(
+                                       session->state().tabs.tabs[index].document_id) || ui_dirty;
+                    continue;
+                }
+                const auto* diagnostics_node = FindShellNode(*shell, "workspace.diagnostics");
+                if (diagnostics_node != nullptr &&
+                    event.button.x >= diagnostics_node->bounds.x &&
+                    event.button.x < diagnostics_node->bounds.x + diagnostics_node->bounds.width &&
+                    event.button.y >= diagnostics_node->bounds.y &&
+                    event.button.y < diagnostics_node->bounds.y + diagnostics_node->bounds.height) {
+                    const auto row_height = resources.bundle->theme.dimensions.at("font.caption") +
+                                            resources.bundle->theme.dimensions.at("space.xs");
+                    if (row_height > 0.0f && event.button.y >= diagnostics_node->bounds.y) {
+                        const auto index = static_cast<std::size_t>(
+                            (event.button.y - diagnostics_node->bounds.y) / row_height);
+                        ui_dirty = session->LocateDiagnostic(index) || ui_dirty;
+                    }
+                    continue;
+                }
                 const auto* form_node = FindShellNode(*shell, "workspace.form");
                 const auto row_height = resources.bundle->theme.dimensions.at("font.body") +
                                         resources.bundle->theme.dimensions.at("space.sm");
