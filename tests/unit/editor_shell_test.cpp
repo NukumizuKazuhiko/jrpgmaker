@@ -93,12 +93,14 @@ TEST_CASE("form draw projection emits focused theme states from adapter metadata
 TEST_CASE("preview draw projection preserves structured metric and diagnostic keys", "[ui][editor]") {
     const jrpgmaker::editor::PreviewProjection valid{
         .valid = true, .process_running = false, .process_exit_code = 0, .process_error = {},
+        .standard_output = {}, .standard_error = {},
         .diagnostics = {},
         .metrics = {{"editor.preview.event_count", "integer", 2}}};
     const auto metric_draw = jrpgmaker::editor::BuildPreviewDrawList(valid, {0, 0, 100, 40}, 20);
     REQUIRE(metric_draw.size() == 3);
     const jrpgmaker::editor::PreviewProjection invalid{
         .valid = false, .process_running = false, .process_exit_code = 0, .process_error = {},
+        .standard_output = {}, .standard_error = {},
         .diagnostics = {{"project.invalid", "project.json"}},
         .metrics = {}};
     const auto diagnostic_draw =
@@ -154,10 +156,30 @@ TEST_CASE("preview draw projection exposes bounded process status", "[ui][editor
         .process_running = false,
         .process_exit_code = 7,
         .process_error = {},
+        .standard_output = {},
+        .standard_error = {},
         .diagnostics = {},
         .metrics = {}};
     const auto draw_list = jrpgmaker::editor::BuildPreviewDrawList(preview, {0, 0, 100, 40}, 20);
     REQUIRE(draw_list.size() == 2);
     REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[1]).text_key ==
             "editor.preview.process");
+}
+
+TEST_CASE("preview draw projection exposes bounded process logs", "[ui][editor]") {
+    const jrpgmaker::editor::PreviewProjection preview{
+        .valid = true,
+        .process_running = false,
+        .process_exit_code = 0,
+        .process_error = {},
+        .standard_output = "stdout",
+        .standard_error = "stderr",
+        .diagnostics = {},
+        .metrics = {}};
+    const auto draw_list = jrpgmaker::editor::BuildPreviewDrawList(preview, {0, 0, 100, 80}, 20);
+    REQUIRE(draw_list.size() == 6);
+    REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[3]).text_key ==
+            "editor.preview.stdout");
+    REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[5]).text_key ==
+            "editor.preview.stderr");
 }

@@ -50,7 +50,7 @@
 
 - 新增独立 `tools/editor` 可执行目标，使用 SDL3 窗口、已验证的 editor theme/layout/i18n 资源，并通过 `ProjectWorkspace` 完成可选项目打开与诊断；SDL 事件只由 host 消费，业务语义仍由 workspace/domain 提供。
 - `editor::EditorSession` 统一持有工作区打开状态、字段选择、诊断/预览 projection、revision 和 dirty 状态；GUI 动作通过该 adapter 进入 `ProjectWorkspace::Apply` 与 `PrepareSave`/`Commit`。
-- `PreviewProcess` 通过参数数组启动独立 runtime，Windows 使用 `CreateProcess`、Linux 使用 `posix_spawn`，编辑器只消费有界运行状态，不共享 runtime 的 ECS/RHI 或可变文件句柄。
+- `PreviewProcess` 通过参数数组启动独立 runtime，Windows 使用 `CreateProcess`、Linux 使用 `posix_spawn`，编辑器只消费有界运行状态和日志，不共享 runtime 的 ECS/RHI 或可变文件句柄。
 - `tools/editor` 的 layout 已转换为独立 shell projection，输入映射使用不依赖 SDL 的 `InputMap` 合同；具体 key binding 由后续版本化 editor action 资源提供。
 - editor action map 已纳入启动 manifest，由 `engine/ui` 有界解析并由 host 构造 `InputMap`；重复 key 和非法 action 资源在启动阶段拒绝。
 - `engine/ui` 已提供有界后端无关 `DrawList`（矩形、localized text 参数与 glyph quad）；`render` 已分别编译面板 NDC packet 和带 atlas UV 的 sampled-text packet，并由两个 RHI pipeline 上传/绘制。editor host 已完成 SDL 窗口、D3D12/Vulkan swapchain、主题字体候选、FreeType 灰度栅格化、CJK glyph atlas、CPU 文本裁剪和一帧实际文字提交；显式 z-order 与多字体逐字 fallback 仍待实现。
@@ -65,7 +65,7 @@
 - 验收：同一项目由 CLI 和 GUI 产生相同诊断摘要与字段路径。
 
 当前进度：workspace 的结构化诊断与预览指标已经进入 DrawList，并能通过 locale 参数显示；manifest 驱动的文档标签、诊断 code/path 过滤与文档归属、稳定 diff projection 已接入，鼠标可切换有 adapter 的文档标签并点击诊断定位文档/字段。workspace/editor 现可在无未保存变更时选择已登记且有 adapter 的数据文档，并通过对应 schema-aware 字段编辑和保存；输入动作、本地化、材质、资源清单也已进入 adapter registry，整数步进命令和资源化增减绑定已接入，导航宽高与 `walkable` 已由 adapter 原子调整，但跨文档事务提交仍待完成。
-预览进程状态现已投影为运行中/退出码/错误文案，并只在轮询状态变化时请求重绘；stdout/stderr 捕获和结果日志面板仍属于后续发布验收项。
+预览进程状态现已投影为运行中/退出码/错误文案及有界 stdout/stderr，并只在轮询状态变化时请求重绘；GUI 以本地化状态行显示结果日志。
 `ProjectWorkspace::Diagnose` 现读取并校验 manifest 引用的材质、输入动作、本地化和资源清单，并对事件脚本执行本地化覆盖检查；诊断不再只覆盖地图五件套。
 
 ### P13-3 第一组 schema-aware 编辑
@@ -88,7 +88,7 @@
 - 发布包、CLI、运行时和编辑器分别构建，编辑器不进入发布包。
 - 验收：Windows 与 Linux 完成创建→编辑→校验→构建→运行→迁移；P12 全量测试和发布包门禁保持通过。
 
-当前进度：`PreviewProcess` 已提供有界独立进程启动 seam，editor 可触发预览；运行中/退出码/启动错误已进入 GUI projection。Windows 本机已验证发布包重复装配确定性、包根 `project.json` 和 `eventlint --check-project`；stdout/stderr 日志面板和完整跨文档事务仍未闭合。
+当前进度：`PreviewProcess` 已提供有界独立进程启动 seam，editor 可触发预览；运行中/退出码/启动错误及限长 stdout/stderr 已进入 GUI projection。Windows 本机已验证发布包重复装配确定性、包根 `project.json` 和 `eventlint --check-project`；完整跨文档事务仍未闭合。
 
 ## 测试与停止条件
 

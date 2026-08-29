@@ -64,6 +64,8 @@ struct PreviewProjection {
     bool process_running = false;
     int process_exit_code = 0;
     std::string process_error;
+    std::string standard_output;
+    std::string standard_error;
     std::vector<project::Diagnostic> diagnostics;
     std::vector<PreviewMetricProjection> metrics;
 };

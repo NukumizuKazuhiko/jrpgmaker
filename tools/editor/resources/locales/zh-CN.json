@@ -24,6 +24,8 @@
     ,"editor.document.localization": "本地化"
     ,"editor.document.resources": "资源"
     ,"editor.preview.process": "预览：{value}"
+    ,"editor.preview.stdout": "预览输出：{value}"
+    ,"editor.preview.stderr": "预览错误：{value}"
     ,"editor.project.battle_plugin": "战斗插件"
     ,"editor.project.plugins": "插件"
     ,"editor.project.data_roots": "数据根目录"

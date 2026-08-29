@@ -1,14 +1,18 @@
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
 #include <string>
 
 namespace jrpgmaker::editor {
 
 struct PreviewProcessState {
+    static constexpr std::size_t kMaxOutputBytes = 64u * 1024u;
     bool running = false;
     int exit_code = 0;
     std::string error;
+    std::string standard_output;
+    std::string standard_error;
 };
 
 class PreviewProcess final {

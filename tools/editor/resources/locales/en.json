@@ -24,6 +24,8 @@
     ,"editor.document.localization": "Localization"
     ,"editor.document.resources": "Resources"
     ,"editor.preview.process": "Preview: {value}"
+    ,"editor.preview.stdout": "Preview output: {value}"
+    ,"editor.preview.stderr": "Preview error: {value}"
     ,"editor.project.battle_plugin": "Battle Plugin"
     ,"editor.project.plugins": "Plugins"
     ,"editor.project.data_roots": "Data Roots"

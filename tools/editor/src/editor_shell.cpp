@@ -170,7 +170,8 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
                                           "editor.value", {{"value", metric.value.dump()}}});
     }
     if (projection.process_running || projection.process_exit_code != 0 ||
-        !projection.process_error.empty()) {
+        !projection.process_error.empty() || !projection.standard_output.empty() ||
+        !projection.standard_error.empty()) {
         const auto row = ui::Rect{bounds.x, bounds.y + row_height *
                                              static_cast<float>(projection.metrics.size()),
                                   bounds.width, row_height};
@@ -182,6 +183,21 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
                                      : projection.process_error;
         (void) draw_list.Add(ui::DrawText{row, "editor.preview.process", {{"value", value}}});
     }
+    const auto add_log = [&draw_list, &bounds, row_height, &projection](std::string_view key,
+                                                                          const std::string& value,
+                                                                          std::size_t row_index) {
+        if (value.empty())
+            return;
+        constexpr std::size_t kMaxPreviewLogDisplayBytes = 4096;
+        const auto bounded = value.substr(0, kMaxPreviewLogDisplayBytes);
+        const ui::Rect row{bounds.x, bounds.y + row_height * static_cast<float>(row_index),
+                           bounds.width, row_height};
+        (void) draw_list.Add(ui::DrawRect{row, "input", "disabled"});
+        (void) draw_list.Add(ui::DrawText{row, std::string(key), {{"value", bounded}}});
+    };
+    std::size_t log_row = projection.metrics.size() + 1;
+    add_log("editor.preview.stdout", projection.standard_output, log_row++);
+    add_log("editor.preview.stderr", projection.standard_error, log_row);
     return draw_list;
 }
 
