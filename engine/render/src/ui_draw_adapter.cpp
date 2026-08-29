@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <limits>
+#include <vector>
 #include <stdexcept>
 #include <string_view>
 #include <variant>
@@ -141,6 +142,87 @@ UiTextDrawPacket BuildUiTextDrawPacket(const ui::DrawList& draw_list, UiViewport
                                                      base, base + 2, base + 3});
     }
     return packet;
+}
+
+UiTextGpuBatch UploadUiTextDrawPacket(rhi::IDevice& device, const UiTextDrawPacket& packet,
+                                      const ui::GlyphAtlas& atlas) {
+    if (!packet.ok())
+        throw std::invalid_argument("ui text draw packet contains diagnostics");
+    if (packet.vertices.empty() || packet.indices.empty())
+        return {};
+    UiTextGpuBatch batch;
+    try {
+        batch.texture = device.CreateTexture({atlas.width(), atlas.height(),
+                                               rhi::Format::kR8G8B8A8Unorm,
+                                               rhi::TextureUsage::kSampled});
+        if (batch.texture == rhi::TextureHandle::kInvalid)
+            throw std::runtime_error("ui glyph texture creation failed");
+        std::vector<std::uint8_t> rgba(atlas.pixels().size() * 4u, 255u);
+        for (std::size_t index = 0; index < atlas.pixels().size(); ++index)
+            rgba[index * 4u + 3u] = atlas.pixels()[index];
+        device.UploadTexture(batch.texture, rgba.data(),
+                             static_cast<std::uint64_t>(atlas.width()) * 4u);
+        batch.sampler = device.CreateSampler({rhi::SamplerFilter::kNearest,
+                                              rhi::SamplerAddress::kClamp});
+        if (batch.sampler == rhi::SamplerHandle::kInvalid)
+            throw std::runtime_error("ui glyph sampler creation failed");
+        batch.vertex_buffer = device.CreateBuffer({
+            static_cast<std::uint64_t>(packet.vertices.size() * sizeof(UiTextVertex)),
+            rhi::BufferUsage::kVertex});
+        if (batch.vertex_buffer == rhi::BufferHandle::kInvalid)
+            throw std::runtime_error("ui text vertex buffer creation failed");
+        device.MapWrite(batch.vertex_buffer, packet.vertices.data(),
+                        static_cast<std::uint64_t>(packet.vertices.size() * sizeof(UiTextVertex)));
+        batch.index_buffer = device.CreateBuffer({
+            static_cast<std::uint64_t>(packet.indices.size() * sizeof(std::uint32_t)),
+            rhi::BufferUsage::kIndex});
+        if (batch.index_buffer == rhi::BufferHandle::kInvalid)
+            throw std::runtime_error("ui text index buffer creation failed");
+        device.MapWrite(batch.index_buffer, packet.indices.data(),
+                        static_cast<std::uint64_t>(packet.indices.size() * sizeof(std::uint32_t)));
+        batch.index_count = static_cast<std::uint32_t>(packet.indices.size());
+        return batch;
+    } catch (...) {
+        DestroyUiTextGpuBatch(device, batch);
+        throw;
+    }
+}
+
+void RecordUiTextDrawPacket(rhi::ICommandList& command_list, rhi::PipelineHandle pipeline,
+                            const UiTextGpuBatch& batch) {
+    if (batch.empty())
+        return;
+    if (pipeline == rhi::PipelineHandle::kInvalid ||
+        batch.vertex_buffer == rhi::BufferHandle::kInvalid ||
+        batch.index_buffer == rhi::BufferHandle::kInvalid ||
+        batch.texture == rhi::TextureHandle::kInvalid ||
+        batch.sampler == rhi::SamplerHandle::kInvalid)
+        throw std::invalid_argument("ui text draw batch has invalid handles");
+    command_list.SetPipeline(pipeline);
+    command_list.SetSampledTexture(batch.texture, batch.sampler);
+    command_list.SetVertexBuffer(batch.vertex_buffer, sizeof(UiTextVertex));
+    command_list.SetIndexBuffer(batch.index_buffer, true);
+    command_list.DrawIndexed(batch.index_count, 1);
+}
+
+void DestroyUiTextGpuBatch(rhi::IDevice& device, UiTextGpuBatch& batch) {
+    if (batch.index_buffer != rhi::BufferHandle::kInvalid) {
+        device.DestroyBuffer(batch.index_buffer);
+        batch.index_buffer = rhi::BufferHandle::kInvalid;
+    }
+    if (batch.vertex_buffer != rhi::BufferHandle::kInvalid) {
+        device.DestroyBuffer(batch.vertex_buffer);
+        batch.vertex_buffer = rhi::BufferHandle::kInvalid;
+    }
+    if (batch.sampler != rhi::SamplerHandle::kInvalid) {
+        device.DestroySampler(batch.sampler);
+        batch.sampler = rhi::SamplerHandle::kInvalid;
+    }
+    if (batch.texture != rhi::TextureHandle::kInvalid) {
+        device.DestroyTexture(batch.texture);
+        batch.texture = rhi::TextureHandle::kInvalid;
+    }
+    batch.index_count = 0;
 }
 
 UiGpuBatch UploadUiDrawPacket(rhi::IDevice& device, const UiDrawPacket& packet) {

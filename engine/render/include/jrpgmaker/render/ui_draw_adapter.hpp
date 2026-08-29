@@ -10,6 +10,7 @@
 
 #include "jrpgmaker/ui/draw_list.hpp"
 #include "jrpgmaker/ui/editor_resources.hpp"
+#include "jrpgmaker/ui/glyph_atlas.hpp"
 #include "jrpgmaker/rhi/command_list.hpp"
 #include "jrpgmaker/rhi/device.hpp"
 
@@ -61,6 +62,16 @@ struct UiGpuBatch {
     [[nodiscard]] bool empty() const { return index_count == 0; }
 };
 
+struct UiTextGpuBatch {
+    rhi::BufferHandle vertex_buffer = rhi::BufferHandle::kInvalid;
+    rhi::BufferHandle index_buffer = rhi::BufferHandle::kInvalid;
+    rhi::TextureHandle texture = rhi::TextureHandle::kInvalid;
+    rhi::SamplerHandle sampler = rhi::SamplerHandle::kInvalid;
+    std::uint32_t index_count = 0;
+
+    [[nodiscard]] bool empty() const { return index_count == 0; }
+};
+
 // Converts screen-space editor primitives into an ordered NDC upload packet.
 // Text remains a key so glyph shaping and localization stay owned by the text
 // pipeline; this adapter only owns primitive ordering and geometry conversion.
@@ -70,6 +81,15 @@ struct UiGpuBatch {
 
 [[nodiscard]] UiTextDrawPacket BuildUiTextDrawPacket(const ui::DrawList& draw_list,
                                                     UiViewport viewport);
+
+[[nodiscard]] UiTextGpuBatch UploadUiTextDrawPacket(rhi::IDevice& device,
+                                                    const UiTextDrawPacket& packet,
+                                                    const ui::GlyphAtlas& atlas);
+
+void RecordUiTextDrawPacket(rhi::ICommandList& command_list, rhi::PipelineHandle pipeline,
+                            const UiTextGpuBatch& batch);
+
+void DestroyUiTextGpuBatch(rhi::IDevice& device, UiTextGpuBatch& batch);
 
 // Uploads one validated packet. The returned buffers remain alive until the
 // caller has submitted and waited for the command list, then DestroyUiGpuBatch
