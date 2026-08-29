@@ -64,7 +64,7 @@
 - 面板只消费结构化诊断，不解析终端文本。
 - 验收：同一项目由 CLI 和 GUI 产生相同诊断摘要与字段路径。
 
-当前进度：workspace 的结构化诊断与预览指标已经进入 DrawList，并能通过 locale 参数显示；manifest 驱动的文档标签、诊断 code/path 过滤与文档归属、稳定 diff projection 已接入，鼠标可切换有 adapter 的文档标签并点击诊断定位文档/字段。workspace/editor 现可在无未保存变更时选择已登记且有 adapter 的数据文档，并通过对应 schema-aware 字段编辑和保存；输入动作、本地化、材质、资源清单也已进入 adapter registry，整数步进命令和资源化增减绑定已接入，导航宽高与 `walkable` 已由 adapter 原子调整，但跨文档事务提交仍待完成。
+当前进度：workspace 的结构化诊断与预览指标已经进入 DrawList，并能通过 locale 参数显示；manifest 驱动的文档标签、诊断 code/path 过滤与文档归属、稳定 diff projection 已接入，鼠标可切换有 adapter 的文档标签并点击诊断定位文档/字段。workspace/editor 现可切换已登记且有 adapter 的数据文档，并通过对应 schema-aware 字段编辑和保存；输入动作、本地化、材质、资源清单也已进入 adapter registry，整数步进命令和资源化增减绑定已接入，导航宽高与 `walkable` 已由 adapter 原子调整并记录复合 diff；布尔字段已提供资源化 `toggle` action 与类型化切换 seam；select 字段已支持 adapter 提供有界候选值并由左右动作循环提交。工作副本按文档保留，多个文档可在同一编辑会话中修改，提交阶段先写入全部临时文件，再统一替换并在失败时回滚。
 预览进程状态现已投影为运行中/退出码/错误文案及有界 stdout/stderr，并只在轮询状态变化时请求重绘；GUI 以本地化状态行显示结果日志。
 `ProjectWorkspace::Diagnose` 现读取并校验 manifest 引用的材质、输入动作、本地化和资源清单，并对事件脚本执行本地化覆盖检查；诊断不再只覆盖地图五件套。
 
@@ -74,7 +74,7 @@
 - 保存前执行 parser、跨文件引用、插件 validator、资源预算和迁移检查。
 - 验收：GUI 保存结果可被 CLI 无损打开；非法引用和越界值在保存前阻断；崩溃/取消不破坏原文件。
 
-当前进度：integer `NumberField` 已通过文本输入和有限步进进入统一 `ProjectWorkspace::Apply`；导航宽高由 adapter 与 `walkable` 原子归一化并记录复合 diff；布尔字段已提供资源化 `toggle` action 与类型化切换 seam；select 字段已支持 adapter 提供有界候选值并由左右动作循环提交。跨文档事务仍未闭合。
+当前进度：integer `NumberField` 已通过文本输入和有限步进进入统一 `ProjectWorkspace::Apply`；导航宽高由 adapter 与 `walkable` 原子归一化并记录复合 diff；布尔字段已提供资源化 `toggle` action 与类型化切换 seam；select 字段已支持 adapter 提供有界候选值并由左右动作循环提交。跨文档工作副本和原子提交已闭合，标签页 dirty 状态按文档来源变化。
 
 ### P13-4 地图/材质/插件扩展
 
@@ -88,7 +88,7 @@
 - 发布包、CLI、运行时和编辑器分别构建，编辑器不进入发布包。
 - 验收：Windows 与 Linux 完成创建→编辑→校验→构建→运行→迁移；P12 全量测试和发布包门禁保持通过。
 
-当前进度：`PreviewProcess` 已提供有界独立进程启动 seam，editor 可触发预览；运行中/退出码/启动错误及限长 stdout/stderr 已进入 GUI projection。Windows 本机已验证发布包重复装配确定性、包根 `project.json` 和 `eventlint --check-project`；完整跨文档事务仍未闭合。
+当前进度：`PreviewProcess` 已提供有界独立进程启动 seam，editor 可触发预览；运行中/退出码/启动错误及限长 stdout/stderr 已进入 GUI projection。Windows 本机已验证发布包重复装配确定性、包根 `project.json` 和 `eventlint --check-project`；跨文档提交已覆盖多文件临时写入、备份、替换和失败回滚。
 
 ## 测试与停止条件
 

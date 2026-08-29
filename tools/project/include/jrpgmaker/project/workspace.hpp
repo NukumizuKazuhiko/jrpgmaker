@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -168,6 +169,8 @@ private:
     std::vector<Change> pending_changes_;
     std::uint64_t revision_ = 0;
     DocumentAdapterRegistry adapters_;
+    std::unordered_map<std::string, nlohmann::json> original_documents_;
+    std::unordered_map<std::string, nlohmann::json> working_documents_;
 };
 
 } // namespace jrpgmaker::project

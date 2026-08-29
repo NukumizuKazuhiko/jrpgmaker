@@ -370,6 +370,10 @@ WorkspaceResult ProjectWorkspace::Open() {
     working_document_ = std::move(document);
     current_document_id_ = "project.manifest";
     pending_changes_.clear();
+    original_documents_.clear();
+    working_documents_.clear();
+    original_documents_.emplace(current_document_id_, working_document_);
+    working_documents_.emplace(current_document_id_, working_document_);
     snapshot_ = ProjectSnapshot{root_, manifest, revision_};
     result.snapshot = snapshot_;
     return result;
@@ -379,10 +383,6 @@ std::vector<Diagnostic> ProjectWorkspace::SelectDocument(std::string_view docume
     std::vector<Diagnostic> diagnostics;
     if (!snapshot_) {
         Add(diagnostics, "project.workspace.not_open", "workspace");
-        return diagnostics;
-    }
-    if (!pending_changes_.empty()) {
-        Add(diagnostics, "project.workspace.unsaved_selection", std::string(document_id));
         return diagnostics;
     }
     const auto documents = DescribeDocuments(*snapshot_);
@@ -396,8 +396,12 @@ std::vector<Diagnostic> ProjectWorkspace::SelectDocument(std::string_view docume
     if (it->id == current_document_id_)
         return diagnostics;
     nlohmann::json document;
-    if (!Read(root_ / it->path, document, diagnostics))
+    const auto working = working_documents_.find(it->id);
+    if (working != working_documents_.end()) {
+        document = working->second;
+    } else if (!Read(root_ / it->path, document, diagnostics)) {
         return diagnostics;
+    }
     if (adapters_.Find(it->id) == nullptr) {
         Add(diagnostics, "project.adapter.unknown_type", it->id);
         return diagnostics;
@@ -406,6 +410,9 @@ std::vector<Diagnostic> ProjectWorkspace::SelectDocument(std::string_view docume
     diagnostics.insert(diagnostics.end(), validation.diagnostics.begin(), validation.diagnostics.end());
     if (!diagnostics.empty())
         return diagnostics;
+    if (!original_documents_.contains(it->id))
+        original_documents_.emplace(it->id, document);
+    working_documents_[it->id] = document;
     working_document_ = std::move(document);
     current_document_id_ = it->id;
     return diagnostics;
@@ -422,19 +429,25 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
     nlohmann::json input_document;
     nlohmann::json localization_document;
     nlohmann::json resource_document;
-    const auto event_path = snapshot.root / snapshot.manifest.event_script;
-    if (!Read(event_path, events_document, result.diagnostics) ||
-        !Read(snapshot.root / snapshot.manifest.navigation, navigation_document, result.diagnostics) ||
-        !Read(snapshot.root / snapshot.manifest.collision, collision_document, result.diagnostics) ||
-        !Read(snapshot.root / snapshot.manifest.camera, camera_document, result.diagnostics) ||
-        !Read(snapshot.root / snapshot.manifest.interaction, interaction_document, result.diagnostics) ||
-        !Read(snapshot.root / snapshot.manifest.material_document, material_document,
-              result.diagnostics) ||
-        !Read(snapshot.root / snapshot.manifest.input_actions, input_document, result.diagnostics) ||
-        !Read(snapshot.root / snapshot.manifest.localization, localization_document,
-              result.diagnostics) ||
-        !Read(snapshot.root / snapshot.manifest.resource_manifest, resource_document,
-              result.diagnostics))
+    const auto load = [this, &snapshot, &result](std::string_view document_id,
+                                                 const std::string& relative_path,
+                                                 nlohmann::json& document) {
+        const auto working = working_documents_.find(std::string(document_id));
+        if (working != working_documents_.end()) {
+            document = working->second;
+            return true;
+        }
+        return Read(snapshot.root / relative_path, document, result.diagnostics);
+    };
+    if (!load("domain.event_script", snapshot.manifest.event_script, events_document) ||
+        !load("core.navigation", snapshot.manifest.navigation, navigation_document) ||
+        !load("core.collision", snapshot.manifest.collision, collision_document) ||
+        !load("core.camera", snapshot.manifest.camera, camera_document) ||
+        !load("domain.interaction", snapshot.manifest.interaction, interaction_document) ||
+        !load("core.material", snapshot.manifest.material_document, material_document) ||
+        !load("app.input_actions", snapshot.manifest.input_actions, input_document) ||
+        !load("domain.localization", snapshot.manifest.localization, localization_document) ||
+        !load("project.resources", snapshot.manifest.resource_manifest, resource_document))
         return result;
     const auto validate = [this, &result](const char* type_id, const nlohmann::json& document) {
         const auto adapter_result = adapters_.Validate(type_id, document);
@@ -531,6 +544,7 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
     if (original_document == candidate)
         return result;
     working_document_ = std::move(candidate);
+    working_documents_[current_document_id_] = working_document_;
     ++revision_;
     if (current_document_id_ == "project.manifest")
         snapshot_->manifest = std::move(manifest);
@@ -587,56 +601,116 @@ CommitResult ProjectWorkspace::Commit(const SaveToken& token) {
         return result;
     }
     const auto documents = DescribeDocuments(*snapshot_);
-    const auto document_it = std::find_if(documents.begin(), documents.end(), [this](const auto& item) {
-        return item.id == current_document_id_;
-    });
-    if (document_it == documents.end()) {
-        Add(result.diagnostics, "project.edit.document_unknown", current_document_id_);
-        return result;
-    }
-    const auto manifest_path = root_ / document_it->path;
-    const auto temporary = root_ / ("." + document_it->path.filename().string() + ".tmp");
+    struct SaveFile {
+        std::string id;
+        std::filesystem::path path;
+        std::filesystem::path temporary;
+        std::filesystem::path backup;
+        bool backed_up = false;
+        bool installed = false;
+    };
+    std::vector<std::string> ids;
+    for (const auto& change : pending_changes_)
+        if (std::find(ids.begin(), ids.end(), change.document_id) == ids.end())
+            ids.push_back(change.document_id);
+
+    std::vector<SaveFile> files;
+    files.reserve(ids.size());
     std::error_code error;
-    if (std::filesystem::exists(temporary, error)) {
-        Add(result.diagnostics, "project.save.temporary_exists", temporary.string());
-        return result;
-    }
-    for (std::size_t index = 0; index <= 8; ++index) {
-        const auto backup = index == 0 ? std::filesystem::path(manifest_path.string() + ".bak")
-                                       : std::filesystem::path(manifest_path.string() + ".bak." +
-                                                               std::to_string(index));
-        if (std::filesystem::exists(backup, error))
-            continue;
-        {
-            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-            if (!output.is_open()) {
-                Add(result.diagnostics, "project.save.temporary_open", temporary.string());
-                return result;
-            }
-            output << working_document_.dump(2) << '\n';
-            if (!output.good()) {
-                std::filesystem::remove(temporary, error);
-                Add(result.diagnostics, "project.save.temporary_write", temporary.string());
-                return result;
-            }
-        }
-        std::filesystem::rename(manifest_path, backup, error);
-        if (error) {
-            std::filesystem::remove(temporary, error);
-            Add(result.diagnostics, "project.save.backup_create", manifest_path.string());
+    const auto remove_temporaries = [&files](std::error_code& cleanup_error) {
+        for (const auto& file : files)
+            std::filesystem::remove(file.temporary, cleanup_error);
+    };
+    for (const auto& id : ids) {
+        const auto document_it = std::find_if(documents.begin(), documents.end(), [&id](const auto& item) {
+            return item.id == id;
+        });
+        if (document_it == documents.end()) {
+            Add(result.diagnostics, "project.edit.document_unknown", id);
             return result;
         }
-        std::filesystem::rename(temporary, manifest_path, error);
-        if (error) {
-            std::filesystem::rename(backup, manifest_path, error);
-            Add(result.diagnostics, "project.save.commit", manifest_path.string());
+        const auto working = working_documents_.find(id);
+        if (working == working_documents_.end()) {
+            Add(result.diagnostics, "project.save.document_unloaded", id);
             return result;
         }
-        result.backup = backup;
-        pending_changes_.clear();
-        return result;
+        SaveFile file{.id = id,
+                      .path = root_ / document_it->path,
+                      .temporary = root_ / ("." + document_it->path.filename().string() + ".tmp"),
+                      .backup = {},
+                      .backed_up = false,
+                      .installed = false};
+        if (std::filesystem::exists(file.temporary, error)) {
+            Add(result.diagnostics, "project.save.temporary_exists", file.temporary.string());
+            remove_temporaries(error);
+            return result;
+        }
+        bool backup_available = false;
+        for (std::size_t index = 0; index <= 8; ++index) {
+            file.backup = index == 0 ? std::filesystem::path(file.path.string() + ".bak")
+                                     : std::filesystem::path(file.path.string() + ".bak." +
+                                                             std::to_string(index));
+            if (!std::filesystem::exists(file.backup, error)) {
+                backup_available = true;
+                break;
+            }
+        }
+        if (!backup_available) {
+            Add(result.diagnostics, "project.save.backup_limit", file.path.string());
+            remove_temporaries(error);
+            return result;
+        }
+        std::ofstream output(file.temporary, std::ios::binary | std::ios::trunc);
+        if (!output.is_open()) {
+            Add(result.diagnostics, "project.save.temporary_open", file.temporary.string());
+            remove_temporaries(error);
+            return result;
+        }
+        output << working->second.dump(2) << '\n';
+        if (!output.good()) {
+            remove_temporaries(error);
+            Add(result.diagnostics, "project.save.temporary_write", file.temporary.string());
+            return result;
+        }
+        files.push_back(std::move(file));
     }
-    Add(result.diagnostics, "project.save.backup_limit", manifest_path.string());
+
+    const auto rollback = [&files](std::error_code& rollback_error) {
+        for (auto it = files.rbegin(); it != files.rend(); ++it) {
+            if (it->installed)
+                std::filesystem::remove(it->path, rollback_error);
+            if (it->backed_up)
+                std::filesystem::rename(it->backup, it->path, rollback_error);
+            std::filesystem::remove(it->temporary, rollback_error);
+        }
+    };
+    for (auto& file : files) {
+        std::filesystem::rename(file.path, file.backup, error);
+        if (error) {
+            rollback(error);
+            Add(result.diagnostics, "project.save.backup_create", file.path.string());
+            return result;
+        }
+        file.backed_up = true;
+    }
+    for (auto& file : files) {
+        std::filesystem::rename(file.temporary, file.path, error);
+        if (error) {
+            rollback(error);
+            Add(result.diagnostics, "project.save.commit", file.path.string());
+            return result;
+        }
+        file.installed = true;
+    }
+    result.backup = files.front().backup;
+    for (const auto& file : files) {
+        pending_changes_.erase(
+            std::remove_if(pending_changes_.begin(), pending_changes_.end(), [&file](const auto& change) {
+                return change.document_id == file.id;
+            }),
+            pending_changes_.end());
+        original_documents_[file.id] = working_documents_.at(file.id);
+    }
     return result;
 }
 

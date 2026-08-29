@@ -113,7 +113,7 @@ TEST_CASE("project workspace selects and saves an adapter-backed data document",
     walkable[0] = false;
     const auto edit = workspace.Apply({"core.navigation", "/walkable", walkable});
     REQUIRE(edit);
-    REQUIRE_FALSE(workspace.SelectDocument("project.manifest").empty());
+    REQUIRE(workspace.SelectDocument("project.manifest").empty());
     const auto plan = workspace.PrepareSave(edit.revision);
     REQUIRE(plan);
     REQUIRE(workspace.Commit(*plan.token));
@@ -121,6 +121,40 @@ TEST_CASE("project workspace selects and saves an adapter-backed data document",
     nlohmann::json navigation;
     input >> navigation;
     REQUIRE(navigation["walkable"][0] == false);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("project workspace commits edits across multiple documents atomically", "[project][editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    REQUIRE(workspace.Open());
+
+    REQUIRE(workspace.SelectDocument("core.navigation").empty());
+    auto walkable = workspace.CurrentDocument()["walkable"];
+    walkable[0] = false;
+    const auto navigation_edit = workspace.Apply({"core.navigation", "/walkable", walkable});
+    REQUIRE(navigation_edit);
+
+    REQUIRE(workspace.SelectDocument("project.manifest").empty());
+    const auto manifest_edit =
+        workspace.Apply({"project.manifest", "/id", "project.multi_document"});
+    REQUIRE(manifest_edit);
+    const auto plan = workspace.PrepareSave(manifest_edit.revision);
+    REQUIRE(plan);
+    REQUIRE(plan.changes.size() == 2);
+    REQUIRE(workspace.Commit(*plan.token));
+
+    std::ifstream manifest_input(root / "project.json");
+    nlohmann::json manifest;
+    manifest_input >> manifest;
+    REQUIRE(manifest["id"] == "project.multi_document");
+    std::ifstream navigation_input(root / "assets/data/navigation_demo.json");
+    nlohmann::json navigation;
+    navigation_input >> navigation;
+    REQUIRE(navigation["walkable"][0] == false);
+    REQUIRE(std::filesystem::exists(root / "project.json.bak"));
+    REQUIRE(std::filesystem::exists(root / "assets/data/navigation_demo.json.bak"));
     std::error_code error;
     std::filesystem::remove_all(root, error);
 }

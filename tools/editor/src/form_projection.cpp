@@ -34,6 +34,19 @@ FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
 DocumentTabsProjection BuildDocumentTabsProjection(
     const std::vector<project::DocumentDescriptor>& documents, std::string_view active_document_id,
     bool dirty, const std::vector<project::Diagnostic>& diagnostics) {
+    std::vector<project::Change> changes;
+    if (dirty)
+        changes.push_back(project::Change{.document_id = std::string(active_document_id),
+                                          .field_path = {},
+                                          .before = nullptr,
+                                          .after = nullptr,
+                                          .sequence = 0});
+    return BuildDocumentTabsProjection(documents, active_document_id, changes, diagnostics);
+}
+
+DocumentTabsProjection BuildDocumentTabsProjection(
+    const std::vector<project::DocumentDescriptor>& documents, std::string_view active_document_id,
+    const std::vector<project::Change>& changes, const std::vector<project::Diagnostic>& diagnostics) {
     DocumentTabsProjection projection;
     projection.tabs.reserve(documents.size());
     for (const auto& document : documents) {
@@ -44,12 +57,15 @@ DocumentTabsProjection BuildDocumentTabsProjection(
                 (document.id == "project.manifest" && diagnostic.path == "project.json"))
                 ++diagnostic_count;
         }
+        const auto changed = std::any_of(changes.begin(), changes.end(), [&document](const auto& change) {
+            return change.document_id == document.id;
+        });
         projection.tabs.push_back(DocumentTabProjection{
             .document_id = document.id,
             .path = relative_path,
             .label_key = document.label_key,
             .active = document.id == active_document_id,
-            .dirty = dirty && document.id == active_document_id,
+            .dirty = changed,
             .editable = document.editable,
             .diagnostic_count = diagnostic_count});
     }

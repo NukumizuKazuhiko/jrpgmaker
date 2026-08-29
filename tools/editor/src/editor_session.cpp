@@ -18,7 +18,7 @@ void EditorSession::SetDiagnostics(std::vector<project::Diagnostic> diagnostics)
     state_.diagnostics = std::move(diagnostics);
     if (snapshot_)
         state_.tabs = BuildDocumentTabsProjection(workspace_.DescribeDocuments(*snapshot_),
-                                                  state_.form.document_id, state_.dirty,
+                                                  state_.form.document_id, workspace_.PendingChanges(),
                                                   state_.diagnostics);
     if (snapshot_)
         state_.diagnostic_panel = BuildDiagnosticPanelProjection(
@@ -33,7 +33,7 @@ void EditorSession::RebuildProjection() {
     state_.form = BuildFormProjection(*adapter, workspace_.CurrentDocument());
     state_.preview = BuildWorkspacePreview(workspace_.Diagnose(*snapshot_));
     state_.tabs = BuildDocumentTabsProjection(workspace_.DescribeDocuments(*snapshot_),
-                                              state_.form.document_id, state_.dirty,
+                                              state_.form.document_id, workspace_.PendingChanges(),
                                               state_.preview.diagnostics);
     state_.diff = BuildDiffProjection(workspace_.PendingChanges());
     state_.revision = snapshot_->revision;

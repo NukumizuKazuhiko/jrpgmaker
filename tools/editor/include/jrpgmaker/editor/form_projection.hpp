@@ -78,6 +78,10 @@ struct PreviewProjection {
     const std::vector<project::DocumentDescriptor>& documents, std::string_view active_document_id,
     bool dirty, const std::vector<project::Diagnostic>& diagnostics);
 
+[[nodiscard]] DocumentTabsProjection BuildDocumentTabsProjection(
+    const std::vector<project::DocumentDescriptor>& documents, std::string_view active_document_id,
+    const std::vector<project::Change>& changes, const std::vector<project::Diagnostic>& diagnostics);
+
 [[nodiscard]] DiagnosticPanelProjection BuildDiagnosticPanelProjection(
     const std::vector<project::DocumentDescriptor>& documents,
     const std::vector<project::Diagnostic>& diagnostics, std::string_view filter = {});
