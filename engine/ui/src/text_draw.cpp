@@ -5,6 +5,28 @@
 namespace jrpgmaker::ui {
 namespace {
 
+std::string ResolveText(const std::string& format,
+                        const std::unordered_map<std::string, std::string>& arguments) {
+    std::string result;
+    result.reserve(format.size());
+    for (std::size_t index = 0; index < format.size();) {
+        if (format[index] != '{') {
+            result.push_back(format[index++]);
+            continue;
+        }
+        const auto end = format.find('}', index + 1);
+        if (end == std::string::npos || end == index + 1) {
+            result.push_back(format[index++]);
+            continue;
+        }
+        const auto argument = arguments.find(format.substr(index + 1, end - index - 1));
+        result += argument == arguments.end() ? format.substr(index, end - index + 1)
+                                              : argument->second;
+        index = end + 1;
+    }
+    return result;
+}
+
 bool DecodeUtf8(const std::string& text, std::size_t& offset, std::uint32_t& codepoint) {
     if (offset >= text.size())
         return false;
@@ -44,13 +66,14 @@ TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& loc
                 result.diagnostics.push_back({"ui.text.localization_missing", primitive_index});
                 continue;
             }
+            const auto value = ResolveText(localized->second, text->arguments);
             float pen_x = text->rect.x;
             const float baseline = text->rect.y + static_cast<float>(pixel_height);
             std::size_t offset = 0;
-            while (offset < localized->second.size()) {
+            while (offset < value.size()) {
                 std::uint32_t codepoint = 0;
                 const auto before = offset;
-                if (!DecodeUtf8(localized->second, offset, codepoint)) {
+                if (!DecodeUtf8(value, offset, codepoint)) {
                     result.diagnostics.push_back({"ui.text.utf8_invalid", primitive_index});
                     break;
                 }

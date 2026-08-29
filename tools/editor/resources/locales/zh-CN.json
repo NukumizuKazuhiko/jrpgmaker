@@ -10,6 +10,8 @@
     "editor.diagnostic.count": "发现 {count} 项诊断",
     "editor.workspace.tree": "项目资源",
     "editor.workspace.inspector": "属性",
-    "editor.workspace.diagnostics": "诊断"
+    "editor.workspace.diagnostics": "诊断",
+    "editor.value": "{value}",
+    "editor.diagnostic.code": "诊断：{code}"
   }
 }

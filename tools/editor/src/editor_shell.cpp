@@ -112,6 +112,14 @@ ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds
         (void) draw_list.Add(ui::DrawRect{row, recipe, state});
         if (!field.label_key.empty())
             (void) draw_list.Add(ui::DrawText{row, field.label_key});
+        if (!field.value.is_null()) {
+            const std::string value = field.value.is_string()
+                                          ? field.value.get<std::string>()
+                                          : field.value.dump();
+            (void) draw_list.Add(ui::DrawText{
+                {row.x + row.width * 0.5f, row.y, row.width * 0.5f, row.height},
+                "editor.value", {{"value", value}}});
+        }
     }
     return draw_list;
 }
@@ -127,7 +135,8 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
                                row_height};
             (void) draw_list.Add(ui::DrawRect{row, "input", "disabled"});
             if (!projection.diagnostics[index].code.empty())
-                (void) draw_list.Add(ui::DrawText{row, projection.diagnostics[index].code});
+                (void) draw_list.Add(ui::DrawText{
+                    row, "editor.diagnostic.code", {{"code", projection.diagnostics[index].code}}});
         }
         return draw_list;
     }
@@ -138,6 +147,9 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
         (void) draw_list.Add(ui::DrawRect{row, "panel", "normal"});
         if (!metric.label_key.empty())
             (void) draw_list.Add(ui::DrawText{row, metric.label_key});
+        (void) draw_list.Add(ui::DrawText{{bounds.x + bounds.width * 0.5f, row.y,
+                                           bounds.width * 0.5f, row.height},
+                                          "editor.value", {{"value", metric.value.dump()}}});
     }
     return draw_list;
 }

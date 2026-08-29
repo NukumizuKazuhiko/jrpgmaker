@@ -88,6 +88,7 @@ int main(int argc, char** argv) {
         std::cerr << "editor.font.load_failed\n";
         return 1;
     }
+    jrpgmaker::ui::GlyphAtlas glyph_atlas(1024, 1024, 512);
 
     std::unique_ptr<jrpgmaker::editor::EditorSession> session;
     if ((argc == 2 && !smoke) || argc == 3) {
@@ -227,7 +228,6 @@ int main(int argc, char** argv) {
         if (!packet.ok())
             throw std::runtime_error("editor.ui.draw_packet_invalid");
         gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
-        jrpgmaker::ui::GlyphAtlas glyph_atlas(1024, 1024, 512);
         const auto text_draw = jrpgmaker::ui::BuildTextDrawList(
             draw_list, resources.bundle->locale, font, glyph_atlas,
             static_cast<std::uint32_t>(resources.bundle->theme.dimensions.at("font.body")));
@@ -357,6 +357,18 @@ int main(int argc, char** argv) {
             if (!packet.ok())
                 throw std::runtime_error("editor.ui.draw_packet_invalid");
             gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
+            jrpgmaker::render::DestroyUiTextGpuBatch(*device, text_gpu_batch);
+            const auto text_draw = jrpgmaker::ui::BuildTextDrawList(
+                draw_list, resources.bundle->locale, font, glyph_atlas,
+                static_cast<std::uint32_t>(resources.bundle->theme.dimensions.at("font.body")));
+            if (!text_draw.ok())
+                throw std::runtime_error("editor.ui.text_draw_invalid");
+            const auto text_packet = jrpgmaker::render::BuildUiTextDrawPacket(
+                text_draw.draw_list, {1280.0f, 720.0f});
+            if (!text_packet.ok())
+                throw std::runtime_error("editor.ui.text_packet_invalid");
+            text_gpu_batch = jrpgmaker::render::UploadUiTextDrawPacket(*device, text_packet,
+                                                                        glyph_atlas);
             ui_dirty = false;
         }
         const auto target = swapchain->AcquireTexture();

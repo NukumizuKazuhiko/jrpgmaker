@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -21,6 +22,7 @@ struct DrawRect {
 struct DrawText {
     Rect rect;
     std::string text_key;
+    std::unordered_map<std::string, std::string> arguments;
 };
 
 struct DrawGlyph {

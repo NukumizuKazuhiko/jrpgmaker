@@ -10,6 +10,8 @@
     "editor.diagnostic.count": "{count} diagnostics found",
     "editor.workspace.tree": "Project Resources",
     "editor.workspace.inspector": "Inspector",
-    "editor.workspace.diagnostics": "Diagnostics"
+    "editor.workspace.diagnostics": "Diagnostics",
+    "editor.value": "{value}",
+    "editor.diagnostic.code": "Diagnostic: {code}"
   }
 }
