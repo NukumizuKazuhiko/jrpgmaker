@@ -81,6 +81,7 @@ struct DocumentDescriptor {
     std::filesystem::path path;
     std::string label_key;
     bool editable = false;
+    std::string type_id;
 };
 
 struct WorkspaceResult {
@@ -155,6 +156,7 @@ public:
 
     [[nodiscard]] WorkspaceResult Open();
     [[nodiscard]] std::vector<Diagnostic> SelectDocument(std::string_view document_id);
+    void SetExternalDocuments(std::vector<DocumentDescriptor> documents);
     [[nodiscard]] std::string_view CurrentDocumentId() const { return current_document_id_; }
     [[nodiscard]] std::vector<DocumentDescriptor>
     DescribeDocuments(const ProjectSnapshot& snapshot) const;
@@ -177,6 +179,7 @@ private:
     const plugin::PluginRegistry* plugins_ = nullptr;
     std::unordered_map<std::string, nlohmann::json> original_documents_;
     std::unordered_map<std::string, nlohmann::json> working_documents_;
+    std::vector<DocumentDescriptor> external_documents_;
 };
 
 } // namespace jrpgmaker::project

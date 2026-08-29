@@ -333,6 +333,10 @@ ProjectWorkspace::ProjectWorkspace(std::filesystem::path root, DocumentAdapterRe
                                    const plugin::PluginRegistry* plugins)
     : root_(std::move(root)), adapters_(std::move(adapters)), plugins_(plugins) {}
 
+void ProjectWorkspace::SetExternalDocuments(std::vector<DocumentDescriptor> documents) {
+    external_documents_ = std::move(documents);
+}
+
 std::vector<DocumentDescriptor>
 ProjectWorkspace::DescribeDocuments(const ProjectSnapshot& snapshot) const {
     struct Entry {
@@ -366,6 +370,7 @@ ProjectWorkspace::DescribeDocuments(const ProjectSnapshot& snapshot) const {
         result.push_back(DocumentDescriptor{entry.id, entry.path, entry.label_key,
                                             adapters_.Find(entry.id) != nullptr});
     }
+    result.insert(result.end(), external_documents_.begin(), external_documents_.end());
     return result;
 }
 
@@ -423,11 +428,12 @@ std::vector<Diagnostic> ProjectWorkspace::SelectDocument(std::string_view docume
     } else if (!Read(root_ / it->path, document, diagnostics)) {
         return diagnostics;
     }
-    if (adapters_.Find(it->id) == nullptr) {
+    const auto adapter_id = it->type_id.empty() ? it->id : it->type_id;
+    if (adapters_.Find(adapter_id) == nullptr) {
         Add(diagnostics, "project.adapter.unknown_type", it->id);
         return diagnostics;
     }
-    const auto validation = adapters_.Validate(it->id, document);
+    const auto validation = adapters_.Validate(adapter_id, document);
     diagnostics.insert(diagnostics.end(), validation.diagnostics.begin(), validation.diagnostics.end());
     if (!diagnostics.empty())
         return diagnostics;
@@ -484,6 +490,15 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
     validate("app.input_actions", input_document);
     validate("domain.localization", localization_document);
     validate("project.resources", resource_document);
+    for (const auto& document : external_documents_) {
+        nlohmann::json external;
+        if (!load(document.id, document.path.generic_string(), external))
+            continue;
+        const auto adapter_id = document.type_id.empty() ? document.id : document.type_id;
+        const auto adapter_result = adapters_.Validate(adapter_id, external);
+        for (const auto& diagnostic : adapter_result.diagnostics)
+            Add(result.diagnostics, diagnostic.code, document.id + ":" + diagnostic.path);
+    }
     if (plugins_ != nullptr) {
         for (const auto& issue : plugin::ValidateProjectPluginData(snapshot.manifest, *plugins_,
                                                                    snapshot.root))
@@ -523,7 +538,14 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
         Add(result.diagnostics, "project.edit.document_not_selected", command.document_id);
         return result;
     }
-    const auto* adapter = adapters_.Find(current_document_id_);
+    const auto documents = DescribeDocuments(*snapshot_);
+    const auto current = std::find_if(
+        documents.begin(), documents.end(),
+        [this](const auto& document) { return document.id == current_document_id_; });
+    const auto adapter_id = current == documents.end() || current->type_id.empty()
+                                ? current_document_id_
+                                : current->type_id;
+    const auto* adapter = adapters_.Find(adapter_id);
     if (adapter == nullptr) {
         Add(result.diagnostics, "project.adapter.unknown_type", current_document_id_);
         return result;
@@ -554,7 +576,7 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
         if (!result.diagnostics.empty())
             return result;
     }
-    const auto validation = adapters_.Validate(current_document_id_, candidate);
+    const auto validation = adapters_.Validate(adapter_id, candidate);
     result.diagnostics = validation.diagnostics;
     if (!result.diagnostics.empty())
         return result;

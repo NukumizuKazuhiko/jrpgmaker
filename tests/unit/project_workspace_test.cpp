@@ -317,6 +317,53 @@ TEST_CASE("workspace diagnosis runs registered plugin validators", "[project][pl
     REQUIRE(workspace.Diagnose(*opened.snapshot).diagnostics.empty());
 }
 
+TEST_CASE("workspace edits and saves an external plugin document", "[project][plugin][p13]") {
+    const auto root = MakeFixture();
+    std::ofstream output(root / "assets/data/plugin_doc.json");
+    output << R"json({"schema":1,"name":"before"})json";
+    output.close();
+
+    const auto parsed = jrpgmaker::plugin::ParseEditorDescriptor(nlohmann::json{
+        {"schema", 1},
+        {"type_id", "vendor.example.document.v1"},
+        {"fields", nlohmann::json::array({nlohmann::json{
+             {"path", "/name"}, {"value_type", "string"}, {"role", "text"},
+             {"label_key", "plugin.example.name"}, {"recipe", "input"}}})}});
+    REQUIRE(parsed);
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    REQUIRE(jrpgmaker::project::RegisterEditorDescriptor(
+                adapters, *parsed.descriptor,
+                [](const nlohmann::json& document) {
+                    return document.value("schema", 0) == 1
+                               ? std::vector<jrpgmaker::project::Diagnostic>{}
+                               : std::vector<jrpgmaker::project::Diagnostic>{{"test.invalid", "schema"}};
+                }));
+    jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
+    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+        .id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
+        .path = "assets/data/plugin_doc.json",
+        .label_key = "plugin.example.document",
+        .editable = true,
+        .type_id = "vendor.example.document.v1"}});
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.SelectDocument("plugin:vendor.example.document.v1:assets/data/plugin_doc.json").empty());
+    const auto edit = workspace.Apply({
+        .document_id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
+        .field_path = "/name",
+        .value = "after"});
+    REQUIRE(edit);
+    const auto token = workspace.PrepareSave(edit.revision);
+    REQUIRE(token);
+    REQUIRE(workspace.Commit(*token.token));
+    nlohmann::json saved;
+    std::ifstream input(root / "assets/data/plugin_doc.json");
+    input >> saved;
+    REQUIRE(saved["name"] == "after");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("default document adapters cover the domain workspace documents", "[project][editor]") {
     const auto registry = jrpgmaker::project::CreateDefaultDocumentAdapters();
     REQUIRE(registry.size() == 10);

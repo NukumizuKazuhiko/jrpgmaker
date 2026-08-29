@@ -74,6 +74,7 @@ private:
     PreviewProcess preview_process_;
     std::optional<project::ProjectSnapshot> snapshot_;
     EditorSessionState state_;
+    std::vector<project::DocumentDescriptor> external_documents_;
 };
 
 } // namespace jrpgmaker::editor

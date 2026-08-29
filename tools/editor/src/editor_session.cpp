@@ -112,6 +112,7 @@ void EditorSession::PublishTextFieldState() {
 bool EditorSession::Open() {
     const auto plugin_diagnostics = LoadPluginEditorAdapters();
     workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_);
+    workspace_.SetExternalDocuments(external_documents_);
     const auto result = workspace_.Open();
     if (!result) {
         state_.open = false;
@@ -139,6 +140,7 @@ bool EditorSession::Open() {
 
 std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
     std::vector<project::Diagnostic> diagnostics;
+    external_documents_.clear();
     nlohmann::json project_document;
     if (!ReadJson(root_ / "project.json", project_document, diagnostics))
         return diagnostics;
@@ -148,6 +150,7 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
         return diagnostics;
     }
     std::unordered_set<std::string> loaded_types;
+    std::unordered_set<std::string> external_ids;
     for (const auto& id : parsed_project.manifest->plugins) {
         const auto plugin_root = root_ / "plugins" / id;
         const auto sidecar_path = plugin_root / "plugin.editor.json";
@@ -213,6 +216,42 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
                 [](const nlohmann::json&) { return std::vector<project::Diagnostic>{}; });
             diagnostics.insert(diagnostics.end(), result.diagnostics.begin(),
                                result.diagnostics.end());
+            if (!result)
+                continue;
+
+            for (const auto& root : document.roots) {
+                const auto root_path = root_ / root;
+                if (!std::filesystem::exists(root_path, error)) {
+                    AddPluginDiagnostic(diagnostics, plugin::PluginError{
+                                                     "editor.document_root.missing",
+                                                     "plugin document root is missing", root});
+                    continue;
+                }
+                std::size_t discovered = 0;
+                std::error_code iterator_error;
+                for (std::filesystem::recursive_directory_iterator it(root_path, iterator_error),
+                     end;
+                     it != end && !iterator_error; it.increment(iterator_error)) {
+                    if (discovered >= 128)
+                        break;
+                    if (!it->is_regular_file(iterator_error) || iterator_error ||
+                        it->path().extension() != ".json")
+                        continue;
+                    const auto relative = it->path().lexically_relative(root_).generic_string();
+                    const auto document_id = "plugin:" + document.type_id + ":" + relative;
+                    if (!external_ids.insert(document_id).second)
+                        continue;
+                    external_documents_.push_back(project::DocumentDescriptor{
+                        .id = document_id,
+                        .path = relative,
+                        .label_key = "plugin." + id + ".document",
+                        .editable = true,
+                        .type_id = document.type_id});
+                    ++discovered;
+                }
+                if (iterator_error)
+                    diagnostics.push_back({"editor.document_root.enumeration", root});
+            }
         }
     }
     return diagnostics;
