@@ -12,7 +12,10 @@
     "editor.workspace.inspector": "Inspector",
     "editor.workspace.diagnostics": "Diagnostics",
     "editor.value": "{value}",
-    "editor.diagnostic.code": "Diagnostic: {code} ({path})"
+    "editor.diagnostic.code": "Diagnostic: {code} ({path})",
+    "editor.status.closed": "Project closed",
+    "editor.status.clean": "Project clean · revision {revision}",
+    "editor.status.dirty": "Unsaved changes · revision {revision}"
     ,"editor.document.project": "Project"
     ,"editor.document.events": "Events"
     ,"editor.document.navigation": "Navigation"

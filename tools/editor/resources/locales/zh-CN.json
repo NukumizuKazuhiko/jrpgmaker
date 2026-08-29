@@ -12,7 +12,10 @@
     "editor.workspace.inspector": "属性",
     "editor.workspace.diagnostics": "诊断",
     "editor.value": "{value}",
-    "editor.diagnostic.code": "诊断：{code}（{path}）"
+    "editor.diagnostic.code": "诊断：{code}（{path}）",
+    "editor.status.closed": "项目未打开",
+    "editor.status.clean": "项目已保存 · 修订 {revision}",
+    "editor.status.dirty": "有未保存更改 · 修订 {revision}"
     ,"editor.document.project": "项目"
     ,"editor.document.events": "事件"
     ,"editor.document.navigation": "导航"

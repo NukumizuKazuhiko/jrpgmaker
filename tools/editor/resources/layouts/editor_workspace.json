@@ -13,7 +13,8 @@
         {"type": "DocumentTabs", "id": "workspace.tabs", "recipe": "panel", "bounds": {"x": 280, "y": 0, "width": 1000, "height": 600}, "children": [
           {"type": "Form", "id": "workspace.form", "recipe": "panel", "bounds": {"x": 300, "y": 24, "width": 940, "height": 540}}
         ]},
-        {"type": "DiagnosticPanel", "id": "workspace.diagnostics", "label_key": "editor.workspace.diagnostics", "recipe": "panel", "bounds": {"x": 280, "y": 600, "width": 1000, "height": 120}}
+        {"type": "DiagnosticPanel", "id": "workspace.diagnostics", "label_key": "editor.workspace.diagnostics", "recipe": "panel", "bounds": {"x": 280, "y": 600, "width": 1000, "height": 96}},
+        {"type": "StatusBar", "id": "workspace.status", "recipe": "panel", "bounds": {"x": 280, "y": 696, "width": 1000, "height": 24}}
       ]}
     ]
   }

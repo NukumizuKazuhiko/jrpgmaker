@@ -74,6 +74,15 @@ TEST_CASE("editor shell projection produces draw primitives from layout bounds",
     REQUIRE(std::holds_alternative<jrpgmaker::ui::DrawText>(draw_list.primitives()[1]));
 }
 
+TEST_CASE("editor status bar projects localized state and revision", "[ui][editor]") {
+    const auto draw_list = jrpgmaker::editor::BuildStatusBarDrawList(
+        {.open = true, .dirty = true, .revision = 7}, {0, 0, 100, 20}, "panel");
+    REQUIRE(draw_list.size() == 2);
+    const auto& text = std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[1]);
+    REQUIRE(text.text_key == "editor.status.dirty");
+    REQUIRE(text.arguments.at("revision") == "7");
+}
+
 TEST_CASE("ui draw list is backend agnostic and bounded", "[ui][editor]") {
     jrpgmaker::ui::DrawList draw_list;
     REQUIRE(draw_list.Add(jrpgmaker::ui::DrawRect{{0.0f, 0.0f, 10.0f, 10.0f}, "panel"}));

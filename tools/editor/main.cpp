@@ -238,6 +238,16 @@ int main(int argc, char** argv) {
                 for (const auto& primitive : preview_draw_list.primitives())
                     (void) draw_list.Add(primitive);
             }
+            const auto* status_node = FindShellNode(*shell, "workspace.status");
+            if (status_node != nullptr) {
+                const auto status_draw_list = jrpgmaker::editor::BuildStatusBarDrawList(
+                    {session != nullptr && session->state().open,
+                     session != nullptr && session->state().dirty,
+                     session != nullptr ? session->state().revision : 0},
+                    status_node->bounds, status_node->recipe);
+                for (const auto& primitive : status_draw_list.primitives())
+                    (void) draw_list.Add(primitive);
+            }
         }
         const auto packet = jrpgmaker::render::BuildUiDrawPacket(draw_list, resources.bundle->theme,
                                                                  {1280.0f, 720.0f});
@@ -419,6 +429,16 @@ int main(int argc, char** argv) {
                 const auto preview_draw_list = jrpgmaker::editor::BuildPreviewDrawList(
                     session->state().preview, diagnostics_node->bounds, preview_row_height);
                 for (const auto& primitive : preview_draw_list.primitives())
+                    (void) draw_list.Add(primitive);
+            }
+            const auto* status_node = FindShellNode(*shell, "workspace.status");
+            if (status_node != nullptr) {
+                const auto status_draw_list = jrpgmaker::editor::BuildStatusBarDrawList(
+                    {session != nullptr && session->state().open,
+                     session != nullptr && session->state().dirty,
+                     session != nullptr ? session->state().revision : 0},
+                    status_node->bounds, status_node->recipe);
+                for (const auto& primitive : status_draw_list.primitives())
                     (void) draw_list.Add(primitive);
             }
             const auto packet = jrpgmaker::render::BuildUiDrawPacket(

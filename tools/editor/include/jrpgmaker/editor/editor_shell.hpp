@@ -65,10 +65,19 @@ struct ShellProjection {
     std::vector<ShellNode> nodes;
 };
 
+struct StatusBarProjection {
+    bool open = false;
+    bool dirty = false;
+    std::uint64_t revision = 0;
+};
+
 [[nodiscard]] std::optional<ShellProjection>
 BuildShellProjection(const ui::EditorLayout& layout);
 
 [[nodiscard]] ui::DrawList BuildShellDrawList(const ShellProjection& projection);
+
+[[nodiscard]] ui::DrawList BuildStatusBarDrawList(const StatusBarProjection& projection,
+                                                   ui::Rect bounds, std::string_view recipe);
 
 [[nodiscard]] ui::DrawList BuildDocumentTabsDrawList(const DocumentTabsProjection& projection,
                                                       ui::Rect bounds);

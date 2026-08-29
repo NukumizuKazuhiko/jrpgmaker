@@ -101,6 +101,20 @@ ui::DrawList BuildShellDrawList(const ShellProjection& projection) {
     return draw_list;
 }
 
+ui::DrawList BuildStatusBarDrawList(const StatusBarProjection& projection, ui::Rect bounds,
+                                    std::string_view recipe) {
+    ui::DrawList draw_list;
+    if (bounds.width <= 0.0f || bounds.height <= 0.0f || recipe.empty())
+        return draw_list;
+    (void) draw_list.Add(ui::DrawRect{bounds, std::string(recipe), "normal"});
+    const auto key = !projection.open       ? "editor.status.closed"
+                     : projection.dirty    ? "editor.status.dirty"
+                                            : "editor.status.clean";
+    (void) draw_list.Add(ui::DrawText{bounds, key,
+                                      {{"revision", std::to_string(projection.revision)}}});
+    return draw_list;
+}
+
 ui::DrawList BuildDocumentTabsDrawList(const DocumentTabsProjection& projection, ui::Rect bounds) {
     ui::DrawList draw_list;
     if (projection.tabs.empty() || bounds.width <= 0.0f || bounds.height <= 0.0f)
