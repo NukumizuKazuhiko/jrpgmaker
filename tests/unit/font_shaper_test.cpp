@@ -4,9 +4,11 @@
 #include <filesystem>
 #include <string>
 
+#include "jrpgmaker/ui/glyph_atlas.hpp"
 #include "jrpgmaker/ui/text.hpp"
 
 using jrpgmaker::ui::Font;
+using jrpgmaker::ui::GlyphAtlas;
 using jrpgmaker::ui::TextRun;
 using jrpgmaker::ui::TextShaper;
 
@@ -109,4 +111,32 @@ TEST_CASE("shaper keeps glyph order and cluster monotonicity for CJK", "[ui][fon
         REQUIRE(glyph.cluster >= previous_cluster);
         previous_cluster = glyph.cluster;
     }
+}
+
+TEST_CASE("glyph atlas packs rendered glyphs with deterministic UVs", "[ui][font][atlas]") {
+    const auto font_path = FindCjkFont();
+    if (font_path.empty()) {
+        SKIP("no CJK system font found on this host");
+    }
+
+    Font font;
+    REQUIRE(font.Load(font_path.string()));
+    GlyphAtlas atlas(128, 64, 16);
+    const auto first = atlas.Add(font, 0x4E16u, 24u);
+    REQUIRE(first.has_value());
+    REQUIRE(first->width > 0);
+    REQUIRE(first->height > 0);
+    REQUIRE(first->u0 < first->u1);
+    REQUIRE(first->v0 < first->v1);
+    bool has_ink = false;
+    for (std::uint32_t row = 0; row < first->height; ++row)
+        for (std::uint32_t column = 0; column < first->width; ++column)
+            has_ink =
+                has_ink || atlas.pixels()[static_cast<std::size_t>(first->y + row) * atlas.width() +
+                                          first->x + column] > 0;
+    REQUIRE(has_ink);
+    const auto duplicate = atlas.Add(font, 0x4E16u, 24u);
+    REQUIRE(duplicate.has_value());
+    REQUIRE(duplicate->x == first->x);
+    REQUIRE(duplicate->y == first->y);
 }
