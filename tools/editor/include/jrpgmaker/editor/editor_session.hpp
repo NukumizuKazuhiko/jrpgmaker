@@ -34,6 +34,7 @@ public:
     [[nodiscard]] bool SelectField(std::size_t index);
     [[nodiscard]] bool ApplySelected(nlohmann::json value);
     [[nodiscard]] bool ApplySelectedText(std::string_view value);
+    [[nodiscard]] bool ApplySelectedComposition(std::string_view value);
     [[nodiscard]] bool ApplySelectedKey(std::string_view key);
     [[nodiscard]] bool Save();
     [[nodiscard]] bool StartPreview(const std::filesystem::path& executable);

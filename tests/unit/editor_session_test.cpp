@@ -63,6 +63,17 @@ TEST_CASE("editor session appends text after the initial field selection is repl
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("editor session forwards IME composition without committing project data", "[editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.ApplySelectedComposition("かな"));
+    REQUIRE(session.state().form.fields.front().value == "project.demo");
+    REQUIRE_FALSE(session.state().dirty);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("editor session treats an unchanged save as successful", "[editor]") {
     const auto root = MakeFixture();
     jrpgmaker::editor::EditorSession session(root);

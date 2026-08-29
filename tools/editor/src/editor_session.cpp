@@ -126,6 +126,19 @@ bool EditorSession::ApplySelectedText(std::string_view value) {
     return false;
 }
 
+bool EditorSession::ApplySelectedComposition(std::string_view value) {
+    if (!state_.open || state_.form.fields.empty() ||
+        state_.selected_field >= state_.form.fields.size())
+        return false;
+    const auto& field = state_.form.fields[state_.selected_field];
+    if (field.read_only || field.value_type != "string")
+        return false;
+    std::vector<ui::UiCommand> commands;
+    return text_field_.Apply(
+        {.type = ui::UiEventType::kTextComposition, .text = std::string(value)}, commands,
+        state_.selected_field + 1);
+}
+
 bool EditorSession::ApplySelectedKey(std::string_view key) {
     if (!state_.open || state_.form.fields.empty() ||
         state_.selected_field >= state_.form.fields.size())

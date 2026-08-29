@@ -246,6 +246,8 @@ int main(int argc, char** argv) {
                         std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
                 else
                     ui_dirty = true;
+            } else if (event.type == SDL_EVENT_TEXT_EDITING && session != nullptr) {
+                (void) session->ApplySelectedComposition(event.edit.text);
             }
         }
         if (session != nullptr)
