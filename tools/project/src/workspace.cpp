@@ -7,8 +7,10 @@
 #include <nlohmann/json.hpp>
 
 #include "jrpgmaker/core/map_data.hpp"
+#include "jrpgmaker/core/input_actions.hpp"
 #include "jrpgmaker/domain/event_script.hpp"
 #include "jrpgmaker/domain/interaction.hpp"
+#include "jrpgmaker/domain/localization.hpp"
 
 namespace jrpgmaker::project {
 namespace {
@@ -208,6 +210,43 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
                 (void) domain::ParseInteractionPoints(value);
             });
         }});
+    (void) registry.Register(DocumentAdapter{
+        .type_id = "core.material",
+        .fields = {{"/style_plugin_id", "string", "editor.material.style_plugin", "select", true,
+                    false}},
+        .validate = [](const nlohmann::json& document) {
+            if (!document.is_object() || document.value("schema", 0) != 1 ||
+                !document.contains("style_plugin_id") || !document["style_plugin_id"].is_string() ||
+                document["style_plugin_id"].get<std::string>().empty())
+                return std::vector<Diagnostic>{{"project.document.invalid", "material"}};
+            return std::vector<Diagnostic>{};
+        }});
+    (void) registry.Register(DocumentAdapter{
+        .type_id = "app.input_actions",
+        .fields = {{"/actions", "object[]", "editor.input.actions", "action_list", true, false}},
+        .validate = [](const nlohmann::json& document) {
+            const auto parsed = core::ParseInputActionMap(document);
+            return parsed ? std::vector<Diagnostic>{}
+                           : std::vector<Diagnostic>{{"project.document.invalid", "input_actions"}};
+        }});
+    (void) registry.Register(DocumentAdapter{
+        .type_id = "domain.localization",
+        .fields = {{"/strings", "object", "editor.localization.strings", "string_map", true, false}},
+        .validate = [](const nlohmann::json& document) {
+            const auto parsed = domain::ParseLocalizationTable(document);
+            return parsed ? std::vector<Diagnostic>{}
+                           : std::vector<Diagnostic>{{"project.document.invalid", "localization"}};
+        }});
+    (void) registry.Register(DocumentAdapter{
+        .type_id = "project.resources",
+        .fields = {{"/resources", "object[]", "editor.resources.items", "resource_list", true, false}},
+        .validate = [](const nlohmann::json& document) {
+            if (!document.is_object() || document.value("schema", 0) != 1 ||
+                !document.contains("resources") || !document["resources"].is_array() ||
+                document["resources"].empty() || document["resources"].size() > 4096)
+                return std::vector<Diagnostic>{{"project.document.invalid", "resources"}};
+            return std::vector<Diagnostic>{};
+        }});
     return registry;
 }
 
@@ -397,6 +436,11 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
     result.diagnostics = validation.diagnostics;
     if (!result.diagnostics.empty())
         return result;
+    if (current_document_id_ == "core.material" &&
+        candidate.value("style_plugin_id", std::string{}) != snapshot_->manifest.render_style) {
+        Add(result.diagnostics, "project.material.style_mismatch", command.field_path);
+        return result;
+    }
     plugin::ProjectManifest manifest;
     if (current_document_id_ == "project.manifest" &&
         !ValidateManifestDocument(root_, candidate, manifest, result.diagnostics))

@@ -190,10 +190,14 @@ TEST_CASE("document adapter registry rejects duplicates and validates documents"
 
 TEST_CASE("default document adapters cover the domain workspace documents", "[project][editor]") {
     const auto registry = jrpgmaker::project::CreateDefaultDocumentAdapters();
-    REQUIRE(registry.size() == 6);
+    REQUIRE(registry.size() == 10);
     REQUIRE(registry.Find("domain.event_script") != nullptr);
     REQUIRE(registry.Find("core.navigation") != nullptr);
     REQUIRE(registry.Find("core.collision") != nullptr);
     REQUIRE(registry.Find("core.camera") != nullptr);
     REQUIRE(registry.Find("domain.interaction") != nullptr);
+    REQUIRE(registry.Find("core.material") != nullptr);
+    REQUIRE(registry.Find("app.input_actions") != nullptr);
+    REQUIRE(registry.Find("domain.localization") != nullptr);
+    REQUIRE(registry.Find("project.resources") != nullptr);
 }
