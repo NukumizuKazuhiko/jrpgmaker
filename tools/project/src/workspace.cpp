@@ -361,12 +361,23 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
     nlohmann::json collision_document;
     nlohmann::json camera_document;
     nlohmann::json interaction_document;
+    nlohmann::json material_document;
+    nlohmann::json input_document;
+    nlohmann::json localization_document;
+    nlohmann::json resource_document;
     const auto event_path = snapshot.root / snapshot.manifest.event_script;
     if (!Read(event_path, events_document, result.diagnostics) ||
         !Read(snapshot.root / snapshot.manifest.navigation, navigation_document, result.diagnostics) ||
         !Read(snapshot.root / snapshot.manifest.collision, collision_document, result.diagnostics) ||
         !Read(snapshot.root / snapshot.manifest.camera, camera_document, result.diagnostics) ||
-        !Read(snapshot.root / snapshot.manifest.interaction, interaction_document, result.diagnostics))
+        !Read(snapshot.root / snapshot.manifest.interaction, interaction_document, result.diagnostics) ||
+        !Read(snapshot.root / snapshot.manifest.material_document, material_document,
+              result.diagnostics) ||
+        !Read(snapshot.root / snapshot.manifest.input_actions, input_document, result.diagnostics) ||
+        !Read(snapshot.root / snapshot.manifest.localization, localization_document,
+              result.diagnostics) ||
+        !Read(snapshot.root / snapshot.manifest.resource_manifest, resource_document,
+              result.diagnostics))
         return result;
     const auto validate = [this, &result](const char* type_id, const nlohmann::json& document) {
         const auto adapter_result = adapters_.Validate(type_id, document);
@@ -378,6 +389,10 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
     validate("core.collision", collision_document);
     validate("core.camera", camera_document);
     validate("domain.interaction", interaction_document);
+    validate("core.material", material_document);
+    validate("app.input_actions", input_document);
+    validate("domain.localization", localization_document);
+    validate("project.resources", resource_document);
     if (!result.diagnostics.empty())
         return result;
     try {
@@ -386,7 +401,10 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
         const auto collision = core::ParseCollisionAabbs(collision_document);
         const auto camera = core::ParseCameraRigData(camera_document);
         const auto interactions = domain::ParseInteractionPoints(interaction_document);
+        const auto localization = domain::ParseLocalizationTable(localization_document);
         domain::ValidateInteractionTargets(interactions, events);
+        for (const auto& issue : domain::ValidateLocalizationCoverage(events, *localization.table))
+            Add(result.diagnostics, "project.localization.missing_key", issue.key);
         result.event_count = events.events.size();
         result.interaction_count = interactions.size();
         result.collision_count = collision.size();

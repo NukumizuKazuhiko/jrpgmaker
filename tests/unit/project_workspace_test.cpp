@@ -125,6 +125,29 @@ TEST_CASE("project workspace selects and saves an adapter-backed data document",
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("project workspace diagnosis validates localization coverage", "[project][editor]") {
+    const auto root = MakeFixture();
+    nlohmann::json localization;
+    {
+        std::ifstream input(root / "assets/data/localization_en.json");
+        input >> localization;
+    }
+    localization["strings"].erase("intro.welcome");
+    {
+        std::ofstream output(root / "assets/data/localization_en.json", std::ios::trunc);
+        output << localization.dump(2) << '\n';
+    }
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    const auto diagnosis = workspace.Diagnose(*opened.snapshot);
+    REQUIRE_FALSE(diagnosis);
+    REQUIRE_FALSE(diagnosis.diagnostics.empty());
+    REQUIRE(diagnosis.diagnostics.back().code == "project.localization.missing_key");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("project workspace rejects stale save and preserves the source file", "[project][editor]") {
     const auto root = MakeFixture();
     jrpgmaker::project::ProjectWorkspace workspace(root);
