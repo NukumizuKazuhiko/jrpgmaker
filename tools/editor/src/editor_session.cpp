@@ -238,6 +238,16 @@ bool EditorSession::AdjustSelectedInteger(int delta) {
     return ApplySelected(current + delta);
 }
 
+bool EditorSession::ToggleSelectedBoolean() {
+    if (!state_.open || state_.form.fields.empty() ||
+        state_.selected_field >= state_.form.fields.size())
+        return false;
+    const auto& field = state_.form.fields[state_.selected_field];
+    if (field.read_only || field.value_type != "boolean" || !field.value.is_boolean())
+        return false;
+    return ApplySelected(!field.value.get<bool>());
+}
+
 bool EditorSession::Save() {
     if (!state_.open || !snapshot_)
         return false;

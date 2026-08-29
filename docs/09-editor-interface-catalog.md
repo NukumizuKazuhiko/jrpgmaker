@@ -124,6 +124,7 @@ interface 规则：
 - 默认 registry 复用现有输入动作、本地化 parser，并为材质/资源清单提供 schema 1 结构校验；这些文档通过同一 `DocumentAdapter` seam 进入 tabs、form、Apply 和保存流程，材质编辑同时校验其 `style_plugin_id` 与 manifest 的 `render_style`。
 - `EditorSession::AdjustSelectedInteger` 是数值字段的有限步进命令，只接受 `-1`/`+1` 并重新经过 adapter 校验；`increment`/`decrement` 的按键绑定来自 editor action 资源。导航 adapter 对宽高调整同步扩展/截断 `walkable`，并以同一 `EditResult` 记录复合变更；其他跨字段规则仍必须由各自 adapter 提供原子归一化。
 - `PreviewProjection` 现在包含独立的进程运行态、退出码、启动错误及分别限长的 stdout/stderr；`EditorSession::PollPreview` 仅在状态改变时返回重绘信号，host 据此刷新 draw list，避免每帧重建。
+- `EditorSession::ToggleSelectedBoolean` 只接受 `value_type=boolean` 且值为布尔的可编辑字段，动作由 editor action 资源的 `toggle` 映射；不在 host 中猜测字段语义。
 - `ProjectWorkspace::Diagnose` 读取并校验 manifest 引用的材质、输入动作、本地化和资源清单，并对事件脚本执行本地化覆盖检查，返回统一结构化诊断。
 - 发布 adapter 复用 `tools/ci/package_release.ps1`：对仓库 demo 或根 `project.json` 项目输出统一包根 manifest，并由 eventlint 对包目录执行最终项目校验。
 - editor host 只负责从 SDL 窗口取得平台句柄、创建 RHI 资源并消费 render packet；布局、主题和文案仍由版本化资源提供。

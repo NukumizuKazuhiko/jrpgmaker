@@ -11,6 +11,7 @@
     "cancel": ["Escape"],
     "preview": ["F6"],
     "increment": ["PageUp"],
-    "decrement": ["PageDown"]
+    "decrement": ["PageDown"],
+    "toggle": ["Space"]
   }
 }

@@ -43,6 +43,7 @@ public:
     [[nodiscard]] bool ApplySelectedComposition(std::string_view value);
     [[nodiscard]] bool ApplySelectedKey(std::string_view key);
     [[nodiscard]] bool AdjustSelectedInteger(int delta);
+    [[nodiscard]] bool ToggleSelectedBoolean();
     [[nodiscard]] bool Save();
     [[nodiscard]] bool StartPreview(const std::filesystem::path& executable);
     [[nodiscard]] bool PollPreview();
