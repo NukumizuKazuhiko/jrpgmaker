@@ -22,6 +22,15 @@ function Resolve-ExistingDirectory([string]$Path, [string]$Name) {
 $build = Resolve-ExistingDirectory $BuildRoot 'BuildRoot'
 $project = Resolve-ExistingDirectory $ProjectRoot 'ProjectRoot'
 $output = [System.IO.Path]::GetFullPath($OutputRoot)
+$projectManifest = Join-Path $project 'project.json'
+if (-not (Test-Path -LiteralPath $projectManifest -PathType Leaf)) {
+    $demoManifest = Join-Path $project 'assets/data/project_demo.json'
+    if (Test-Path -LiteralPath $demoManifest -PathType Leaf) {
+        $projectManifest = $demoManifest
+    } else {
+        throw "project manifest is missing: $projectManifest"
+    }
+}
 if (Test-Path -LiteralPath $output) {
     throw "OutputRoot already exists: $output"
 }
@@ -45,6 +54,7 @@ if ($runtimeFiles.Count -eq 0) {
     throw "no application runtime files found under: $(Join-Path $build 'app')"
 }
 Copy-Item -LiteralPath $runtimeFiles.FullName -Destination (Join-Path $output 'bin')
+Copy-Item -LiteralPath $projectManifest -Destination (Join-Path $output 'project.json')
 Copy-Item -LiteralPath (Join-Path $project 'assets') -Destination $output -Recurse
 
 $pluginOutput = Join-Path $output 'plugins'

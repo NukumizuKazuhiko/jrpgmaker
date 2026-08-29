@@ -86,7 +86,7 @@
 - 发布包、CLI、运行时和编辑器分别构建，编辑器不进入发布包。
 - 验收：Windows 与 Linux 完成创建→编辑→校验→构建→运行→迁移；P12 全量测试和发布包门禁保持通过。
 
-当前进度：`PreviewProcess` 已提供有界独立进程启动 seam，editor 可触发预览；运行中/退出码/启动错误已进入 GUI projection，stdout/stderr 日志面板、发布包回归和完整跨文档事务仍未闭合。
+当前进度：`PreviewProcess` 已提供有界独立进程启动 seam，editor 可触发预览；运行中/退出码/启动错误已进入 GUI projection。Windows 本机已验证发布包重复装配确定性、包根 `project.json` 和 `eventlint --check-project`；stdout/stderr 日志面板和完整跨文档事务仍未闭合。
 
 ## 测试与停止条件
 
