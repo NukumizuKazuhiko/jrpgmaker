@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -20,9 +21,19 @@ struct DrawRect {
 };
 
 struct DrawText {
+    struct EditDecoration {
+        std::size_t selection_start = 0;
+        std::size_t selection_end = 0;
+        std::size_t caret = 0;
+        std::string selection_recipe;
+        std::string caret_recipe;
+        bool enabled = false;
+    };
+
     Rect rect;
     std::string text_key;
     std::unordered_map<std::string, std::string> arguments;
+    std::optional<EditDecoration> edit;
 };
 
 struct DrawGlyph {

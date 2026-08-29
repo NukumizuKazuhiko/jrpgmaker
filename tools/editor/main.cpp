@@ -238,9 +238,12 @@ int main(int argc, char** argv) {
             const auto row_height = resources.bundle->theme.dimensions.at("font.body") +
                                     resources.bundle->theme.dimensions.at("space.sm");
             if (form_node != nullptr) {
+                const jrpgmaker::editor::TextFieldVisualProjection text_field{
+                    true, session->state().text_selection_start, session->state().text_selection_end,
+                    session->state().text_caret, "selection", "caret"};
                 const auto form_draw_list = jrpgmaker::editor::BuildFormDrawList(
                     session->state().form, form_node->bounds, row_height,
-                    session->state().selected_field);
+                    session->state().selected_field, &text_field);
                 for (const auto& primitive : form_draw_list.primitives())
                     (void) draw_list.Add(primitive);
             }
@@ -265,11 +268,6 @@ int main(int argc, char** argv) {
                     (void) draw_list.Add(primitive);
             }
         }
-        const auto packet = jrpgmaker::render::BuildUiDrawPacket(draw_list, resources.bundle->theme,
-                                                                 {1280.0f, 720.0f});
-        if (!packet.ok())
-            throw std::runtime_error("editor.ui.draw_packet_invalid");
-        gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
         const auto text_draw = jrpgmaker::ui::BuildTextDrawList(
                 draw_list, resources.bundle->locale, *fonts.front(), fallback_fonts, glyph_atlas,
                 static_cast<std::uint32_t>(resources.bundle->theme.dimensions.at("font.body")));
@@ -278,6 +276,11 @@ int main(int argc, char** argv) {
                 std::cerr << diagnostic.code << '\t' << diagnostic.primitive_index << '\n';
             throw std::runtime_error("editor.ui.text_draw_invalid");
         }
+        const auto packet = jrpgmaker::render::BuildUiDrawPacket(
+            text_draw.draw_list, resources.bundle->theme, {1280.0f, 720.0f});
+        if (!packet.ok())
+            throw std::runtime_error("editor.ui.draw_packet_invalid");
+        gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
         const auto text_packet = jrpgmaker::render::BuildUiTextDrawPacket(
             text_draw.draw_list, {1280.0f, 720.0f});
         if (!text_packet.ok())
@@ -454,9 +457,12 @@ int main(int argc, char** argv) {
             const auto row_height = resources.bundle->theme.dimensions.at("font.body") +
                                     resources.bundle->theme.dimensions.at("space.sm");
             if (session != nullptr && form_node != nullptr) {
+                const jrpgmaker::editor::TextFieldVisualProjection text_field{
+                    true, session->state().text_selection_start, session->state().text_selection_end,
+                    session->state().text_caret, "selection", "caret"};
                 const auto form_draw_list = jrpgmaker::editor::BuildFormDrawList(
                     session->state().form, form_node->bounds, row_height,
-                    session->state().selected_field);
+                    session->state().selected_field, &text_field);
                 for (const auto& primitive : form_draw_list.primitives())
                     (void) draw_list.Add(primitive);
             }
@@ -480,17 +486,17 @@ int main(int argc, char** argv) {
                 for (const auto& primitive : status_draw_list.primitives())
                     (void) draw_list.Add(primitive);
             }
-            const auto packet = jrpgmaker::render::BuildUiDrawPacket(
-                draw_list, resources.bundle->theme, {1280.0f, 720.0f});
-            if (!packet.ok())
-                throw std::runtime_error("editor.ui.draw_packet_invalid");
-            gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
             jrpgmaker::render::DestroyUiTextGpuBatch(*device, text_gpu_batch);
             const auto text_draw = jrpgmaker::ui::BuildTextDrawList(
                 draw_list, resources.bundle->locale, *fonts.front(), fallback_fonts, glyph_atlas,
                 static_cast<std::uint32_t>(resources.bundle->theme.dimensions.at("font.body")));
             if (!text_draw.ok())
                 throw std::runtime_error("editor.ui.text_draw_invalid");
+            const auto packet = jrpgmaker::render::BuildUiDrawPacket(
+                text_draw.draw_list, resources.bundle->theme, {1280.0f, 720.0f});
+            if (!packet.ok())
+                throw std::runtime_error("editor.ui.draw_packet_invalid");
+            gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
             const auto text_packet = jrpgmaker::render::BuildUiTextDrawPacket(
                 text_draw.draw_list, {1280.0f, 720.0f});
             if (!text_packet.ok())

@@ -71,6 +71,15 @@ struct StatusBarProjection {
     std::uint64_t revision = 0;
 };
 
+struct TextFieldVisualProjection {
+    bool active = false;
+    std::size_t selection_start = 0;
+    std::size_t selection_end = 0;
+    std::size_t caret = 0;
+    std::string selection_recipe;
+    std::string caret_recipe;
+};
+
 [[nodiscard]] std::optional<ShellProjection>
 BuildShellProjection(const ui::EditorLayout& layout);
 
@@ -83,7 +92,8 @@ BuildShellProjection(const ui::EditorLayout& layout);
                                                       ui::Rect bounds);
 
 [[nodiscard]] ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds,
-                                              float row_height, std::size_t selected_field);
+                                              float row_height, std::size_t selected_field,
+                                              const TextFieldVisualProjection* text_field = nullptr);
 
 [[nodiscard]] ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection,
                                                  ui::Rect bounds, float row_height);

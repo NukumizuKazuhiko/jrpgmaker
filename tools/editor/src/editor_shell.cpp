@@ -133,7 +133,8 @@ ui::DrawList BuildDocumentTabsDrawList(const DocumentTabsProjection& projection,
 }
 
 ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds,
-                               float row_height, std::size_t selected_field) {
+                               float row_height, std::size_t selected_field,
+                               const TextFieldVisualProjection* text_field) {
     ui::DrawList draw_list;
     if (!(row_height > 0.0f) || projection.fields.size() > ui::kMaxEditorLayoutNodes)
         return draw_list;
@@ -150,9 +151,15 @@ ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds
             const std::string value = field.value.is_string()
                                           ? field.value.get<std::string>()
                                           : field.value.dump();
-            (void) draw_list.Add(ui::DrawText{
-                {row.x + row.width * 0.5f, row.y, row.width * 0.5f, row.height},
-                "editor.value", {{"value", value}}});
+            ui::DrawText value_text{{row.x + row.width * 0.5f, row.y, row.width * 0.5f,
+                                     row.height},
+                                    "editor.value", {{"value", value}}};
+            if (text_field != nullptr && text_field->active && index == selected_field &&
+                (field.value_type == "string" || field.value_type == "integer"))
+                value_text.edit = ui::DrawText::EditDecoration{
+                    text_field->selection_start, text_field->selection_end, text_field->caret,
+                    text_field->selection_recipe, text_field->caret_recipe, true};
+            (void) draw_list.Add(std::move(value_text));
         }
     }
     return draw_list;

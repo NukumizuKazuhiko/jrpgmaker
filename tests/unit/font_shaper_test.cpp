@@ -188,3 +188,30 @@ TEST_CASE("text draw uses an ordered fallback font for missing glyphs", "[ui][fo
     REQUIRE(result.ok());
     REQUIRE(result.draw_list.size() == 2);
 }
+
+TEST_CASE("text draw projects caret and selection using glyph advances", "[ui][font][text-draw]") {
+    const auto font_path = FindCjkFont();
+    if (font_path.empty())
+        SKIP("no CJK system font found on this host");
+
+    Font font;
+    REQUIRE(font.Load(font_path.string()));
+    jrpgmaker::ui::EditorLocale locale;
+    locale.strings.emplace("editor.value", "世界");
+    jrpgmaker::ui::DrawList source;
+    jrpgmaker::ui::DrawText text{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.value", {}};
+    text.edit = jrpgmaker::ui::DrawText::EditDecoration{
+        0, std::string("世界").size(), 3, "selection", "caret", true};
+    REQUIRE(source.Add(std::move(text)));
+    GlyphAtlas atlas(128, 64, 16);
+    const auto result = jrpgmaker::ui::BuildTextDrawList(source, locale, font, atlas, 24);
+
+    REQUIRE(result.ok());
+    REQUIRE(result.draw_list.size() == 4);
+    const auto& selection = std::get<jrpgmaker::ui::DrawRect>(result.draw_list.primitives()[2]);
+    const auto& caret = std::get<jrpgmaker::ui::DrawRect>(result.draw_list.primitives()[3]);
+    REQUIRE(selection.recipe == "selection");
+    REQUIRE(selection.rect.width > 0.0f);
+    REQUIRE(caret.recipe == "caret");
+    REQUIRE(caret.rect.width == 1.0f);
+}

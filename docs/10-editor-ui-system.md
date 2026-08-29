@@ -124,7 +124,7 @@ status: StatusBar
 | `Text` | localized text、选择禁用、测量结果 | P13-0 |
 | `Panel` | children、padding、recipe | 已有基础，P13-0 主题化 |
 | `Button`/`ToggleButton` | hover/pressed/focus/disabled、activate | P13-1 |
-| `TextField` | UTF-8 文本、selection、caret、IME composition、commit/cancel | P13-1（core 状态、键盘/IME host、字段命中与真实 glyph 已落地；caret/selection 绘制仍待补） |
+| `TextField` | UTF-8 文本、selection、caret、IME composition、commit/cancel | P13-1（core 状态、键盘/IME host、字段命中、真实 glyph 与 theme 驱动 caret/selection 装饰已落地） |
 | `NumberField` | 文本编辑态、类型化 commit、范围诊断 | P13-3（integer 已接入 adapter 校验与复合归一化；浮点/范围控件仍待补） |
 | `CheckBox`/`Select` | value、focus、change command | P13-3 |
 | `ScrollView` | offset、viewport、wheel/keyboard scroll、clamp | P13-1 |
@@ -164,7 +164,7 @@ status: StatusBar
 - `engine/ui` 输出后端无关 `DrawList`：矩形、localized text 参数和 glyph quad；当前已落地有界矩形/`recipe`/状态、占位符参数、glyph atlas UV、有序 primitive 合同和 CPU 文本裁剪，纹理/图标统一资源与显式 z-order仍待补齐；`tools/editor` 不直接录制 D3D12/Vulkan 命令。
 - 布局节点可声明受校验的像素 `bounds`；`editor::BuildShellDrawList` 仅把布局 bounds、recipe 和 label key 投影到 DrawList，不在 host 中写面板坐标或文案。
 - `render::BuildUiDrawPacket` 将 DrawList 按原始顺序解析为有界 NDC 顶点/索引上传包，并把 recipe/state、semantic token 和颜色错误作为结构化诊断返回；`UploadUiDrawPacket`/`RecordUiDrawPacket` 负责 RHI buffer 上传、绑定与 indexed draw，主题只提供资源 id/token，不持有 GPU handle。
-- 字体资源由 theme 声明候选文件列表和像素规格；启动时验证候选文件并按声明顺序加载可用字体，`ui::Font` 提供 FreeType 灰度 bitmap 与 pitch 输出，`GlyphAtlas` 以有界容量生成 UV，RHI text batch 已完成纹理上传/采样绘制，文本投影已支持按字符的有序 fallback。字体预热策略和 caret/selection 绘制仍待补齐。
+- 字体资源由 theme 声明候选文件列表和像素规格；启动时验证候选文件并按声明顺序加载可用字体，`ui::Font` 提供 FreeType 灰度 bitmap 与 pitch 输出，`GlyphAtlas` 以有界容量生成 UV，RHI text batch 已完成纹理上传/采样绘制，文本投影已支持按字符的有序 fallback，并由真实 glyph advance 生成 theme 驱动的 selection/caret 装饰。字体预热策略仍待补齐。
 - Windows/Linux 首批都至少验证拉丁、简体中文和日文标点；不能把“字体加载成功”当作 CJK 真实渲染通过。
 
 ## 可访问性与可测试性

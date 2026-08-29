@@ -24,6 +24,10 @@ struct EditorSessionState {
     DiagnosticPanelProjection diagnostic_panel;
     DiffProjection diff;
     std::vector<project::Diagnostic> diagnostics;
+    std::size_t text_selection_start = 0;
+    std::size_t text_selection_end = 0;
+    std::size_t text_caret = 0;
+    bool text_composing = false;
 };
 
 class EditorSession final {

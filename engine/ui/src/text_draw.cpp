@@ -76,6 +76,16 @@ TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& loc
             const auto value = ResolveText(localized->second, text->arguments);
             float pen_x = text->rect.x;
             const float baseline = text->rect.y + static_cast<float>(pixel_height);
+            const auto decoration = text->edit;
+            const auto selection_start = decoration
+                                             ? std::min(decoration->selection_start, value.size())
+                                             : 0;
+            const auto selection_end = decoration
+                                           ? std::min(decoration->selection_end, value.size())
+                                           : 0;
+            float selection_left = pen_x;
+            float selection_right = pen_x;
+            float caret_x = pen_x;
             std::size_t offset = 0;
             while (offset < value.size()) {
                 std::uint32_t codepoint = 0;
@@ -84,6 +94,12 @@ TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& loc
                     result.diagnostics.push_back({"ui.text.utf8_invalid", primitive_index});
                     break;
                 }
+                if (decoration && before == selection_start)
+                    selection_left = pen_x;
+                if (decoration && before == selection_end)
+                    selection_right = pen_x;
+                if (decoration && before == decoration->caret)
+                    caret_x = pen_x;
                 Font* glyph_font = nullptr;
                 if (font.LoadGlyph(codepoint, pixel_height))
                     glyph_font = &font;
@@ -131,6 +147,24 @@ TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& loc
                 pen_x += advance;
                 if (offset == before)
                     break;
+            }
+            if (decoration) {
+                if (selection_start == value.size())
+                    selection_left = pen_x;
+                if (selection_end == value.size())
+                    selection_right = pen_x;
+                if (decoration->caret >= value.size())
+                    caret_x = pen_x;
+                if (selection_start != selection_end && selection_right > selection_left &&
+                    !decoration->selection_recipe.empty())
+                    (void) result.draw_list.Add(DrawRect{{selection_left, text->rect.y,
+                                                           selection_right - selection_left,
+                                                           text->rect.height},
+                                                          decoration->selection_recipe, "normal"});
+                if (!decoration->caret_recipe.empty())
+                    (void) result.draw_list.Add(DrawRect{{caret_x, text->rect.y, 1.0f,
+                                                           text->rect.height},
+                                                          decoration->caret_recipe, "normal"});
             }
         } else {
             (void) result.draw_list.Add(primitive);

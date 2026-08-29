@@ -38,6 +38,8 @@
   "recipes": {
     "panel": {"normal": "surface.panel", "hover": "surface.raised", "pressed": "surface.raised", "focused": "focus.ring", "disabled": "surface.panel"},
     "button": {"normal": "surface.panel", "hover": "surface.raised", "pressed": "surface.selection", "focused": "focus.ring", "disabled": "text.disabled"},
-    "input": {"normal": "surface.input", "hover": "surface.raised", "pressed": "surface.input", "focused": "focus.ring", "disabled": "text.disabled"}
+    "input": {"normal": "surface.input", "hover": "surface.raised", "pressed": "surface.input", "focused": "focus.ring", "disabled": "text.disabled"},
+    "selection": {"normal": "surface.selection", "hover": "surface.selection", "pressed": "surface.selection", "focused": "surface.selection", "disabled": "surface.selection"},
+    "caret": {"normal": "surface.selection", "hover": "surface.selection", "pressed": "surface.selection", "focused": "surface.selection", "disabled": "surface.selection"}
   }
 }

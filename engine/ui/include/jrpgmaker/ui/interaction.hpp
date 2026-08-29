@@ -69,6 +69,8 @@ public:
                              std::uint64_t widget_id);
     [[nodiscard]] const std::string& text() const { return text_; }
     [[nodiscard]] std::size_t caret() const { return caret_; }
+    [[nodiscard]] std::size_t selection_start() const { return selection_start_; }
+    [[nodiscard]] std::size_t selection_end() const { return selection_end_; }
     [[nodiscard]] bool composing() const { return composing_; }
     void SetText(std::string value);
     void SelectAll();

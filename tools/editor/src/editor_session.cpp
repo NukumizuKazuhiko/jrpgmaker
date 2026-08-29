@@ -52,6 +52,10 @@ void EditorSession::RebuildProjection() {
 }
 
 void EditorSession::SyncTextField(bool select_all) {
+    state_.text_selection_start = 0;
+    state_.text_selection_end = 0;
+    state_.text_caret = 0;
+    state_.text_composing = false;
     if (state_.form.fields.empty() || state_.selected_field >= state_.form.fields.size())
         return;
     const auto& value = state_.form.fields[state_.selected_field].value;
@@ -60,6 +64,10 @@ void EditorSession::SyncTextField(bool select_all) {
     text_field_.SetText(value.is_string() ? value.get<std::string>() : value.dump());
     if (select_all)
         text_field_.SelectAll();
+    state_.text_selection_start = text_field_.selection_start();
+    state_.text_selection_end = text_field_.selection_end();
+    state_.text_caret = text_field_.caret();
+    state_.text_composing = text_field_.composing();
 }
 
 bool EditorSession::Open() {
@@ -190,6 +198,7 @@ bool EditorSession::ApplySelectedText(std::string_view value) {
     if (!text_field_.Apply({.type = ui::UiEventType::kTextInput, .text = std::string(value)},
                            commands, state_.selected_field + 1))
         return false;
+    SyncTextField(false);
     for (const auto& command : commands) {
         if (command.type != ui::UiCommandType::kTextChanged)
             continue;
@@ -215,9 +224,11 @@ bool EditorSession::ApplySelectedComposition(std::string_view value) {
     if (field.read_only || field.value_type != "string")
         return false;
     std::vector<ui::UiCommand> commands;
-    return text_field_.Apply(
+    const bool applied = text_field_.Apply(
         {.type = ui::UiEventType::kTextComposition, .text = std::string(value)}, commands,
         state_.selected_field + 1);
+    SyncTextField(false);
+    return applied;
 }
 
 bool EditorSession::ApplySelectedKey(std::string_view key) {
@@ -235,6 +246,7 @@ bool EditorSession::ApplySelectedKey(std::string_view key) {
     std::vector<ui::UiCommand> commands;
     if (!text_field_.Apply(event, commands, state_.selected_field + 1))
         return false;
+    SyncTextField(false);
     for (const auto& command : commands)
         if (command.type == ui::UiCommandType::kTextChanged)
             return ApplySelected(command.text);
