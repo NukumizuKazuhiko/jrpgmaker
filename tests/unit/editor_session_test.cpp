@@ -95,6 +95,20 @@ TEST_CASE("editor session atomically adjusts navigation dimensions", "[editor]")
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("editor session commits integer text through the adapter contract", "[editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.SelectDocument("core.navigation"));
+    REQUIRE(session.SelectField(0));
+    REQUIRE(session.ApplySelectedText("6"));
+    REQUIRE(session.state().form.fields[0].value == 6);
+    REQUIRE(session.state().form.fields[2].value.size() == 30);
+    REQUIRE(session.Save());
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("editor session appends text after the initial field selection is replaced", "[editor]") {
     const auto root = MakeFixture();
     jrpgmaker::editor::EditorSession session(root);

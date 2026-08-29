@@ -1,5 +1,6 @@
 #include "jrpgmaker/editor/editor_session.hpp"
 
+#include <charconv>
 #include <limits>
 #include <utility>
 
@@ -37,9 +38,9 @@ void EditorSession::SyncTextField(bool select_all) {
     if (state_.form.fields.empty() || state_.selected_field >= state_.form.fields.size())
         return;
     const auto& value = state_.form.fields[state_.selected_field].value;
-    if (!value.is_string())
+    if (!value.is_string() && !value.is_number_integer())
         return;
-    text_field_.SetText(value.get<std::string>());
+    text_field_.SetText(value.is_string() ? value.get<std::string>() : value.dump());
     if (select_all)
         text_field_.SelectAll();
 }
@@ -166,15 +167,26 @@ bool EditorSession::ApplySelectedText(std::string_view value) {
         state_.selected_field >= state_.form.fields.size())
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
-    if (field.read_only || field.value_type != "string")
+    if (field.read_only || (field.value_type != "string" && field.value_type != "integer"))
         return false;
     std::vector<ui::UiCommand> commands;
     if (!text_field_.Apply({.type = ui::UiEventType::kTextInput, .text = std::string(value)},
                            commands, state_.selected_field + 1))
         return false;
-    for (const auto& command : commands)
-        if (command.type == ui::UiCommandType::kTextChanged)
+    for (const auto& command : commands) {
+        if (command.type != ui::UiCommandType::kTextChanged)
+            continue;
+        if (field.value_type == "string")
             return ApplySelected(command.text);
+        std::int64_t parsed = 0;
+        const auto [end, error] = std::from_chars(command.text.data(),
+                                                  command.text.data() + command.text.size(), parsed);
+        if (error != std::errc{} || end != command.text.data() + command.text.size()) {
+            SetDiagnostics({{"project.edit.integer_invalid", field.path}});
+            return false;
+        }
+        return ApplySelected(parsed);
+    }
     return false;
 }
 
