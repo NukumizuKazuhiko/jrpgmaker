@@ -71,12 +71,15 @@ public:
     [[nodiscard]] std::size_t caret() const { return caret_; }
     [[nodiscard]] bool composing() const { return composing_; }
     void SetText(std::string value);
+    void SelectAll();
 
 private:
     void Emit(UiCommandType type, std::vector<UiCommand>& commands, std::uint64_t widget_id,
               std::string value = {}) const;
     std::string text_;
     std::size_t caret_ = 0;
+    std::size_t selection_start_ = 0;
+    std::size_t selection_end_ = 0;
     bool composing_ = false;
 };
 

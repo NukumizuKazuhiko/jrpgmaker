@@ -20,6 +20,17 @@ void EditorSession::RebuildProjection() {
     state_.revision = snapshot_->revision;
 }
 
+void EditorSession::SyncTextField(bool select_all) {
+    if (state_.form.fields.empty() || state_.selected_field >= state_.form.fields.size())
+        return;
+    const auto& value = state_.form.fields[state_.selected_field].value;
+    if (!value.is_string())
+        return;
+    text_field_.SetText(value.get<std::string>());
+    if (select_all)
+        text_field_.SelectAll();
+}
+
 bool EditorSession::Open() {
     const auto result = workspace_.Open();
     if (!result) {
@@ -34,6 +45,7 @@ bool EditorSession::Open() {
     focus_context_.ClearFocusables();
     for (std::size_t index = 0; index < state_.form.fields.size(); ++index)
         (void) focus_context_.RegisterFocusable(index + 1, index);
+    SyncTextField(true);
     SetDiagnostics(state_.preview.diagnostics);
     return state_.preview.valid;
 }
@@ -53,6 +65,7 @@ bool EditorSession::SelectNext() {
     if (!focus_context_.MoveFocus(1))
         return false;
     state_.selected_field = static_cast<std::size_t>(focus_context_.focused_widget() - 1);
+    SyncTextField(true);
     return state_.selected_field < state_.form.fields.size();
 }
 
@@ -62,6 +75,7 @@ bool EditorSession::SelectPrevious() {
     if (!focus_context_.MoveFocus(-1))
         return false;
     state_.selected_field = static_cast<std::size_t>(focus_context_.focused_widget() - 1);
+    SyncTextField(true);
     return state_.selected_field < state_.form.fields.size();
 }
 
@@ -86,12 +100,41 @@ bool EditorSession::ApplySelected(nlohmann::json value) {
 }
 
 bool EditorSession::ApplySelectedText(std::string_view value) {
-    if (!state_.open || state_.form.fields.empty() || state_.selected_field >= state_.form.fields.size())
+    if (!state_.open || state_.form.fields.empty() ||
+        state_.selected_field >= state_.form.fields.size())
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
     if (field.read_only || field.value_type != "string")
         return false;
-    return ApplySelected(std::string(value));
+    std::vector<ui::UiCommand> commands;
+    if (!text_field_.Apply({.type = ui::UiEventType::kTextInput, .text = std::string(value)},
+                           commands, state_.selected_field + 1))
+        return false;
+    for (const auto& command : commands)
+        if (command.type == ui::UiCommandType::kTextChanged)
+            return ApplySelected(command.text);
+    return false;
+}
+
+bool EditorSession::ApplySelectedKey(std::string_view key) {
+    if (!state_.open || state_.form.fields.empty() ||
+        state_.selected_field >= state_.form.fields.size())
+        return false;
+    const auto& field = state_.form.fields[state_.selected_field];
+    if (field.read_only || field.value_type != "string")
+        return false;
+    ui::UiEvent event{.type = ui::UiEventType::kKeyDown, .text = std::string(key)};
+    if (key == "Enter")
+        event.type = ui::UiEventType::kConfirm;
+    else if (key == "Escape")
+        event.type = ui::UiEventType::kCancel;
+    std::vector<ui::UiCommand> commands;
+    if (!text_field_.Apply(event, commands, state_.selected_field + 1))
+        return false;
+    for (const auto& command : commands)
+        if (command.type == ui::UiCommandType::kTextChanged)
+            return ApplySelected(command.text);
+    return true;
 }
 
 bool EditorSession::Save() {
@@ -123,6 +166,8 @@ bool EditorSession::StartPreview(const std::filesystem::path& executable) {
     return preview_process_.Start(executable, root_);
 }
 
-void EditorSession::PollPreview() { preview_process_.Poll(); }
+void EditorSession::PollPreview() {
+    preview_process_.Poll();
+}
 
 } // namespace jrpgmaker::editor

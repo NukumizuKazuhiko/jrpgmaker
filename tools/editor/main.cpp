@@ -3,18 +3,18 @@
 
 #include <SDL3/SDL.h>
 
-#include <array>
-#include <memory>
-#include <optional>
-#include <stdexcept>
-#include "jrpgmaker/editor/editor_shell.hpp"
 #include "jrpgmaker/editor/editor_session.hpp"
+#include "jrpgmaker/editor/editor_shell.hpp"
 #include "jrpgmaker/project/workspace.hpp"
 #include "jrpgmaker/render/ui_draw_adapter.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
 #include "jrpgmaker/rhi/swapchain.hpp"
-#include "shaders_generated.hpp"
 #include "jrpgmaker/ui/editor_resources.hpp"
+#include "shaders_generated.hpp"
+#include <array>
+#include <memory>
+#include <optional>
+#include <stdexcept>
 
 namespace {
 
@@ -42,8 +42,8 @@ jrpgmaker::rhi::ClearColor ThemeClearColor(const jrpgmaker::ui::EditorTheme& the
             color->second.a * scale};
 }
 
-const jrpgmaker::editor::ShellNode* FindShellNode(
-    const jrpgmaker::editor::ShellProjection& projection, std::string_view id) {
+const jrpgmaker::editor::ShellNode*
+FindShellNode(const jrpgmaker::editor::ShellProjection& projection, std::string_view id) {
     for (const auto& node : projection.nodes)
         if (node.id == id)
             return &node;
@@ -59,8 +59,8 @@ int main(int argc, char** argv) {
     if (argc == 3 && std::string(argv[2]) != "--smoke")
         return 2;
 
-    const auto resources = jrpgmaker::ui::LoadEditorResources(
-        std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_ROOT));
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_ROOT));
     if (!resources) {
         PrintStartupDiagnostics(resources.diagnostics);
         return 1;
@@ -123,20 +123,22 @@ int main(int argc, char** argv) {
              .semantic_name = "COLOR"},
         };
         jrpgmaker::rhi::GraphicsPipelineDesc pipeline_desc{
-            .vertex_shader = {
+            .vertex_shader =
+                {
 #if defined(_WIN32)
-                jrpgmaker::shaders::kUiVsDxil, jrpgmaker::shaders::kUiVsDxil_size
+                    jrpgmaker::shaders::kUiVsDxil, jrpgmaker::shaders::kUiVsDxil_size
 #else
-                jrpgmaker::shaders::kUiVsSpv, jrpgmaker::shaders::kUiVsSpv_size
+                    jrpgmaker::shaders::kUiVsSpv, jrpgmaker::shaders::kUiVsSpv_size
 #endif
-            },
-            .pixel_shader = {
+                },
+            .pixel_shader =
+                {
 #if defined(_WIN32)
-                jrpgmaker::shaders::kUiPsDxil, jrpgmaker::shaders::kUiPsDxil_size
+                    jrpgmaker::shaders::kUiPsDxil, jrpgmaker::shaders::kUiPsDxil_size
 #else
-                jrpgmaker::shaders::kUiPsSpv, jrpgmaker::shaders::kUiPsSpv_size
+                    jrpgmaker::shaders::kUiPsSpv, jrpgmaker::shaders::kUiPsSpv_size
 #endif
-            },
+                },
             .color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm,
             .vertex_input = {attributes, 2, sizeof(jrpgmaker::render::UiVertex)}};
         pipeline = device->CreatePipeline(pipeline_desc);
@@ -163,8 +165,8 @@ int main(int argc, char** argv) {
                     (void) draw_list.Add(primitive);
             }
         }
-        const auto packet = jrpgmaker::render::BuildUiDrawPacket(
-            draw_list, resources.bundle->theme, {1280.0f, 720.0f});
+        const auto packet = jrpgmaker::render::BuildUiDrawPacket(draw_list, resources.bundle->theme,
+                                                                 {1280.0f, 720.0f});
         if (!packet.ok())
             throw std::runtime_error("editor.ui.draw_packet_invalid");
         gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
@@ -191,8 +193,14 @@ int main(int argc, char** argv) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
                 running = false;
-            else if (event.type == SDL_EVENT_KEY_DOWN)
-            {
+            else if (event.type == SDL_EVENT_KEY_DOWN) {
+                if (session != nullptr) {
+                    const auto key_name = std::string(SDL_GetKeyName(event.key.key));
+                    if (key_name == "Left" || key_name == "Right" || key_name == "Backspace") {
+                        ui_dirty = session->ApplySelectedKey(key_name) || ui_dirty;
+                        continue;
+                    }
+                }
                 const auto modifiers = SDL_GetModState();
                 const auto action = input_map.Translate(
                     SDL_GetKeyName(event.key.key), true, (modifiers & SDL_KMOD_CTRL) != 0,
@@ -214,6 +222,10 @@ int main(int argc, char** argv) {
                     ui_dirty = session->SelectNext() || ui_dirty;
                 } else if (*action == jrpgmaker::editor::EditorAction::kSelectPrevious) {
                     ui_dirty = session->SelectPrevious() || ui_dirty;
+                } else if (*action == jrpgmaker::editor::EditorAction::kConfirm) {
+                    ui_dirty = session->ApplySelectedKey("Enter") || ui_dirty;
+                } else if (*action == jrpgmaker::editor::EditorAction::kCancel) {
+                    ui_dirty = session->ApplySelectedKey("Escape") || ui_dirty;
                 }
             } else if (event.type == SDL_EVENT_TEXT_INPUT && session != nullptr) {
                 if (!session->ApplySelectedText(event.text.text))

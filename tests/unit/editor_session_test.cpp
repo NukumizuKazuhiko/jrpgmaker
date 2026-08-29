@@ -52,6 +52,17 @@ TEST_CASE("editor session routes string text input through the typed edit contra
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("editor session appends text after the initial field selection is replaced", "[editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.ApplySelectedText("project"));
+    REQUIRE(session.ApplySelectedText(".text"));
+    REQUIRE(session.state().form.fields.front().value == "project.text");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("editor session treats an unchanged save as successful", "[editor]") {
     const auto root = MakeFixture();
     jrpgmaker::editor::EditorSession session(root);

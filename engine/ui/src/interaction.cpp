@@ -6,7 +6,9 @@
 namespace jrpgmaker::ui {
 namespace {
 
-bool IsContinuation(unsigned char value) { return (value & 0xC0u) == 0x80u; }
+bool IsContinuation(unsigned char value) {
+    return (value & 0xC0u) == 0x80u;
+}
 
 std::size_t PreviousCodepoint(const std::string& value, std::size_t offset) {
     if (offset == 0)
@@ -60,13 +62,12 @@ bool UiContext::SetFocus(std::uint64_t widget_id) {
 bool UiContext::MoveFocus(int direction) {
     if (focusables_.empty() || direction == 0)
         return false;
-    const auto current = std::find_if(focusables_.begin(), focusables_.end(),
-                                      [this](const FocusEntry& entry) {
-                                          return entry.widget_id == focused_widget_;
-                                      });
-    std::size_t index = current == focusables_.end()
-                            ? 0
-                            : static_cast<std::size_t>(current - focusables_.begin());
+    const auto current =
+        std::find_if(focusables_.begin(), focusables_.end(), [this](const FocusEntry& entry) {
+            return entry.widget_id == focused_widget_;
+        });
+    std::size_t index =
+        current == focusables_.end() ? 0 : static_cast<std::size_t>(current - focusables_.begin());
     const auto count = focusables_.size();
     index = direction > 0 ? (index + 1) % count : (index + count - 1) % count;
     focused_widget_ = focusables_[index].widget_id;
@@ -74,10 +75,9 @@ bool UiContext::MoveFocus(int direction) {
 }
 
 bool UiContext::IsFocusable(std::uint64_t widget_id) const {
-    return std::any_of(focusables_.begin(), focusables_.end(),
-                       [widget_id](const FocusEntry& entry) {
-                           return entry.widget_id == widget_id;
-                       });
+    return std::any_of(
+        focusables_.begin(), focusables_.end(),
+        [widget_id](const FocusEntry& entry) { return entry.widget_id == widget_id; });
 }
 
 void TextFieldState::Emit(UiCommandType type, std::vector<UiCommand>& commands,
@@ -90,7 +90,15 @@ void TextFieldState::SetText(std::string value) {
         value.resize(kMaxBytes);
     text_ = std::move(value);
     caret_ = text_.size();
+    selection_start_ = caret_;
+    selection_end_ = caret_;
     composing_ = false;
+}
+
+void TextFieldState::SelectAll() {
+    selection_start_ = 0;
+    selection_end_ = text_.size();
+    caret_ = selection_end_;
 }
 
 bool TextFieldState::Apply(const UiEvent& event, std::vector<UiCommand>& commands,
@@ -99,8 +107,14 @@ bool TextFieldState::Apply(const UiEvent& event, std::vector<UiCommand>& command
     case UiEventType::kTextInput:
         if (event.text.empty() || text_.size() > kMaxBytes - event.text.size())
             return false;
+        if (selection_start_ != selection_end_) {
+            text_.erase(selection_start_, selection_end_ - selection_start_);
+            caret_ = selection_start_;
+        }
         text_.insert(caret_, event.text);
         caret_ += event.text.size();
+        selection_start_ = caret_;
+        selection_end_ = caret_;
         Emit(UiCommandType::kTextChanged, commands, widget_id, text_);
         return true;
     case UiEventType::kTextComposition:
@@ -108,17 +122,32 @@ bool TextFieldState::Apply(const UiEvent& event, std::vector<UiCommand>& command
         return true;
     case UiEventType::kKeyDown:
         if (event.text == "Left") {
-            caret_ = PreviousCodepoint(text_, caret_);
+            caret_ = selection_start_ != selection_end_ ? selection_start_
+                                                        : PreviousCodepoint(text_, caret_);
+            selection_start_ = caret_;
+            selection_end_ = caret_;
             return true;
         }
         if (event.text == "Right") {
-            caret_ = NextCodepoint(text_, caret_);
+            caret_ =
+                selection_start_ != selection_end_ ? selection_end_ : NextCodepoint(text_, caret_);
+            selection_start_ = caret_;
+            selection_end_ = caret_;
+            return true;
+        }
+        if (event.text == "Backspace" && selection_start_ != selection_end_) {
+            text_.erase(selection_start_, selection_end_ - selection_start_);
+            caret_ = selection_start_;
+            selection_end_ = caret_;
+            Emit(UiCommandType::kTextChanged, commands, widget_id, text_);
             return true;
         }
         if (event.text == "Backspace" && caret_ > 0) {
             const auto previous = PreviousCodepoint(text_, caret_);
             text_.erase(previous, caret_ - previous);
             caret_ = previous;
+            selection_start_ = caret_;
+            selection_end_ = caret_;
             Emit(UiCommandType::kTextChanged, commands, widget_id, text_);
             return true;
         }

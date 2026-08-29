@@ -7,9 +7,9 @@
 #include <string_view>
 
 #include "jrpgmaker/editor/form_projection.hpp"
+#include "jrpgmaker/editor/preview_process.hpp"
 #include "jrpgmaker/project/workspace.hpp"
 #include "jrpgmaker/ui/interaction.hpp"
-#include "jrpgmaker/editor/preview_process.hpp"
 
 namespace jrpgmaker::editor {
 
@@ -33,6 +33,7 @@ public:
     [[nodiscard]] bool SelectPrevious();
     [[nodiscard]] bool ApplySelected(nlohmann::json value);
     [[nodiscard]] bool ApplySelectedText(std::string_view value);
+    [[nodiscard]] bool ApplySelectedKey(std::string_view key);
     [[nodiscard]] bool Save();
     [[nodiscard]] bool StartPreview(const std::filesystem::path& executable);
     void PollPreview();
@@ -42,11 +43,13 @@ public:
 private:
     void SetDiagnostics(std::vector<project::Diagnostic> diagnostics);
     void RebuildProjection();
+    void SyncTextField(bool select_all);
 
     project::DocumentAdapterRegistry adapters_ = project::CreateDefaultDocumentAdapters();
     std::filesystem::path root_;
     project::ProjectWorkspace workspace_;
     ui::UiContext focus_context_;
+    ui::TextFieldState text_field_;
     PreviewProcess preview_process_;
     std::optional<project::ProjectSnapshot> snapshot_;
     EditorSessionState state_;
