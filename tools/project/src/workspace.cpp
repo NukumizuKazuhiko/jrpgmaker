@@ -634,9 +634,10 @@ CommitResult ProjectWorkspace::Commit(const SaveToken& token) {
             Add(result.diagnostics, "project.save.document_unloaded", id);
             return result;
         }
+        const auto document_path = root_ / document_it->path;
         SaveFile file{.id = id,
-                      .path = root_ / document_it->path,
-                      .temporary = root_ / ("." + document_it->path.filename().string() + ".tmp"),
+                      .path = document_path,
+                      .temporary = std::filesystem::path(document_path.string() + ".tmp"),
                       .backup = {},
                       .backed_up = false,
                       .installed = false};
