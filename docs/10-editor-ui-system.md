@@ -142,7 +142,7 @@ status: StatusBar
 | 模块 | 只消费 | 只发出 |
 |---|---|---|
 | `WorkspaceTree` | `ProjectSnapshot`/`DocumentDescriptor` | open/select/refresh command |
-| `DocumentTabs` | document projection、revision、dirty state | edit/undo/redo/close command |
+| `DocumentTabs` | manifest 驱动的 document projection、revision、dirty state、diagnostic count | edit/undo/redo/close command |
 | `InspectorForm` | field descriptors、候选值、diagnostics | 类型化 `EditCommand` |
 | `DiagnosticPanel` | `DiagnosticSet` | filter/navigate-to-field command |
 | `DiffPanel` | `ChangeSet` | accept/cancel/save command |

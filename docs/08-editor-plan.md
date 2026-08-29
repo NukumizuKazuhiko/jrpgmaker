@@ -64,7 +64,7 @@
 - 面板只消费结构化诊断，不解析终端文本。
 - 验收：同一项目由 CLI 和 GUI 产生相同诊断摘要与字段路径。
 
-当前进度：workspace 的结构化诊断与预览指标已经进入 DrawList，并能通过 locale 参数显示；文档标签页、诊断筛选、字段定位和稳定 diff 的 GUI projection 尚未接入。
+当前进度：workspace 的结构化诊断与预览指标已经进入 DrawList，并能通过 locale 参数显示；manifest 驱动的文档标签、诊断 code/path 过滤与文档归属、稳定 diff projection 已接入，交互式切换文档和字段定位仍待完成。
 
 ### P13-3 第一组 schema-aware 编辑
 

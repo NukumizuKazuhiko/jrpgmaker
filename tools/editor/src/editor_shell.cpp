@@ -98,6 +98,23 @@ ui::DrawList BuildShellDrawList(const ShellProjection& projection) {
     return draw_list;
 }
 
+ui::DrawList BuildDocumentTabsDrawList(const DocumentTabsProjection& projection, ui::Rect bounds) {
+    ui::DrawList draw_list;
+    if (projection.tabs.empty() || bounds.width <= 0.0f || bounds.height <= 0.0f)
+        return draw_list;
+    const float tab_width = bounds.width / static_cast<float>(projection.tabs.size());
+    for (std::size_t index = 0; index < projection.tabs.size(); ++index) {
+        const auto& tab = projection.tabs[index];
+        const ui::Rect tab_bounds{bounds.x + tab_width * static_cast<float>(index), bounds.y,
+                                  tab_width, bounds.height};
+        const char* state = tab.active ? (tab.dirty ? "active_dirty" : "active")
+                                       : (tab.dirty ? "dirty" : "normal");
+        (void) draw_list.Add(ui::DrawRect{tab_bounds, "tab", state});
+        (void) draw_list.Add(ui::DrawText{tab_bounds, tab.label_key, {}});
+    }
+    return draw_list;
+}
+
 ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds,
                                float row_height, std::size_t selected_field) {
     ui::DrawList draw_list;

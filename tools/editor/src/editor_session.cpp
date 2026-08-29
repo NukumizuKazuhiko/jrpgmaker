@@ -9,6 +9,14 @@ EditorSession::EditorSession(std::filesystem::path root)
 
 void EditorSession::SetDiagnostics(std::vector<project::Diagnostic> diagnostics) {
     state_.diagnostics = std::move(diagnostics);
+    if (snapshot_)
+        state_.tabs = BuildDocumentTabsProjection(workspace_.DescribeDocuments(*snapshot_),
+                                                  state_.form.document_id, state_.dirty,
+                                                  state_.diagnostics);
+    if (snapshot_)
+        state_.diagnostic_panel = BuildDiagnosticPanelProjection(
+            workspace_.DescribeDocuments(*snapshot_), state_.diagnostics,
+            state_.diagnostic_panel.filter);
 }
 
 void EditorSession::RebuildProjection() {
@@ -17,6 +25,10 @@ void EditorSession::RebuildProjection() {
         return;
     state_.form = BuildFormProjection(*adapter, workspace_.CurrentDocument());
     state_.preview = BuildWorkspacePreview(workspace_.Diagnose(*snapshot_));
+    state_.tabs = BuildDocumentTabsProjection(workspace_.DescribeDocuments(*snapshot_),
+                                              state_.form.document_id, state_.dirty,
+                                              state_.preview.diagnostics);
+    state_.diff = BuildDiffProjection(workspace_.PendingChanges());
     state_.revision = snapshot_->revision;
 }
 

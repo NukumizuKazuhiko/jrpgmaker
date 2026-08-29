@@ -13,5 +13,15 @@
     "editor.workspace.diagnostics": "诊断",
     "editor.value": "{value}",
     "editor.diagnostic.code": "诊断：{code}"
+    ,"editor.document.project": "项目"
+    ,"editor.document.events": "事件"
+    ,"editor.document.navigation": "导航"
+    ,"editor.document.collision": "碰撞"
+    ,"editor.document.camera": "相机"
+    ,"editor.document.interaction": "交互"
+    ,"editor.document.material": "材质"
+    ,"editor.document.input": "输入"
+    ,"editor.document.localization": "本地化"
+    ,"editor.document.resources": "资源"
   }
 }

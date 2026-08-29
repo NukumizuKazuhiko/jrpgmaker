@@ -202,6 +202,13 @@ int main(int argc, char** argv) {
             throw std::runtime_error("editor.ui.text_pipeline_creation_failed");
         auto draw_list = jrpgmaker::editor::BuildShellDrawList(*shell);
         if (session != nullptr) {
+            const auto* tabs_node = FindShellNode(*shell, "workspace.tabs");
+            if (tabs_node != nullptr) {
+                const auto tabs_draw_list = jrpgmaker::editor::BuildDocumentTabsDrawList(
+                    session->state().tabs, tabs_node->bounds);
+                for (const auto& primitive : tabs_draw_list.primitives())
+                    (void) draw_list.Add(primitive);
+            }
             const auto* form_node = FindShellNode(*shell, "workspace.form");
             const auto row_height = resources.bundle->theme.dimensions.at("font.body") +
                                     resources.bundle->theme.dimensions.at("space.sm");
@@ -332,6 +339,13 @@ int main(int argc, char** argv) {
             device->WaitForGpuIdle();
             jrpgmaker::render::DestroyUiGpuBatch(*device, gpu_batch);
             auto draw_list = jrpgmaker::editor::BuildShellDrawList(*shell);
+            const auto* tabs_node = FindShellNode(*shell, "workspace.tabs");
+            if (session != nullptr && tabs_node != nullptr) {
+                const auto tabs_draw_list = jrpgmaker::editor::BuildDocumentTabsDrawList(
+                    session->state().tabs, tabs_node->bounds);
+                for (const auto& primitive : tabs_draw_list.primitives())
+                    (void) draw_list.Add(primitive);
+            }
             const auto* form_node = FindShellNode(*shell, "workspace.form");
             const auto row_height = resources.bundle->theme.dimensions.at("font.body") +
                                     resources.bundle->theme.dimensions.at("space.sm");

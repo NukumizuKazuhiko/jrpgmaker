@@ -102,3 +102,43 @@ TEST_CASE("preview draw projection preserves structured metric and diagnostic ke
     REQUIRE(std::get<jrpgmaker::ui::DrawText>(diagnostic_draw.primitives()[1]).text_key ==
             "editor.diagnostic.code");
 }
+
+TEST_CASE("document tabs preserve manifest order and dirty active state", "[ui][editor]") {
+    const std::vector<jrpgmaker::project::DocumentDescriptor> documents = {
+        {"project.manifest", "project.json", "editor.document.project", true},
+        {"domain.event_script", "events.json", "editor.document.events", true},
+        {"core.material", "materials.json", "editor.document.material", false}};
+    const auto tabs = jrpgmaker::editor::BuildDocumentTabsProjection(
+        documents, "domain.event_script", true, {{"project.bad", "events.json"}});
+    REQUIRE(tabs.tabs.size() == 3);
+    REQUIRE(tabs.tabs[0].document_id == "project.manifest");
+    REQUIRE_FALSE(tabs.tabs[0].active);
+    REQUIRE(tabs.tabs[1].active);
+    REQUIRE(tabs.tabs[1].dirty);
+    REQUIRE(tabs.tabs[1].diagnostic_count == 1);
+    REQUIRE_FALSE(tabs.tabs[2].editable);
+
+    const auto draw_list = jrpgmaker::editor::BuildDocumentTabsDrawList(tabs, {0, 0, 300, 30});
+    REQUIRE(draw_list.size() == 6);
+    REQUIRE(std::get<jrpgmaker::ui::DrawRect>(draw_list.primitives()[2]).state == "active_dirty");
+}
+
+TEST_CASE("diagnostics filter and diff projection retain stable document ownership", "[editor]") {
+    const std::vector<jrpgmaker::project::DocumentDescriptor> documents = {
+        {"project.manifest", "project.json", "editor.document.project", true},
+        {"core.navigation", "navigation.json", "editor.document.navigation", true}};
+    const std::vector<jrpgmaker::project::Diagnostic> diagnostics = {
+        {"navigation.invalid", "navigation.json"}, {"project.invalid", "project.json"}};
+    const auto filtered = jrpgmaker::editor::BuildDiagnosticPanelProjection(
+        documents, diagnostics, "navigation");
+    REQUIRE(filtered.items.size() == 1);
+    REQUIRE(filtered.items[0].document_id == "core.navigation");
+    REQUIRE(filtered.items[0].diagnostic.code == "navigation.invalid");
+
+    const std::vector<jrpgmaker::project::Change> changes = {
+        {"project.manifest", "/id", "a", "b", 2},
+        {"project.manifest", "/render_style", "x", "y", 1}};
+    const auto diff = jrpgmaker::editor::BuildDiffProjection(changes);
+    REQUIRE(diff.changes[0].sequence == 1);
+    REQUIRE(diff.changes[1].sequence == 2);
+}

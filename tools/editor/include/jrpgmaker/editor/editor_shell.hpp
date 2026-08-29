@@ -65,6 +65,9 @@ BuildShellProjection(const ui::EditorLayout& layout);
 
 [[nodiscard]] ui::DrawList BuildShellDrawList(const ShellProjection& projection);
 
+[[nodiscard]] ui::DrawList BuildDocumentTabsDrawList(const DocumentTabsProjection& projection,
+                                                      ui::Rect bounds);
+
 [[nodiscard]] ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds,
                                               float row_height, std::size_t selected_field);
 

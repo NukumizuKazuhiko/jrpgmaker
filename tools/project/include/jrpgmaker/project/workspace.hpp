@@ -64,6 +64,13 @@ struct ProjectSnapshot {
     std::uint64_t revision = 0;
 };
 
+struct DocumentDescriptor {
+    std::string id;
+    std::filesystem::path path;
+    std::string label_key;
+    bool editable = false;
+};
+
 struct WorkspaceResult {
     std::optional<ProjectSnapshot> snapshot;
     std::vector<Diagnostic> diagnostics;
@@ -134,9 +141,12 @@ public:
                               DocumentAdapterRegistry adapters = CreateDefaultDocumentAdapters());
 
     [[nodiscard]] WorkspaceResult Open();
+    [[nodiscard]] std::vector<DocumentDescriptor>
+    DescribeDocuments(const ProjectSnapshot& snapshot) const;
     [[nodiscard]] DiagnosticSet Diagnose(const ProjectSnapshot& snapshot) const;
     [[nodiscard]] EditResult Apply(const EditCommand& command);
     [[nodiscard]] const nlohmann::json& CurrentDocument() const { return working_document_; }
+    [[nodiscard]] const std::vector<Change>& PendingChanges() const { return pending_changes_; }
     [[nodiscard]] SavePlan PrepareSave(std::uint64_t expected_revision) const;
     [[nodiscard]] CommitResult Commit(const SaveToken& token);
     [[nodiscard]] MigrationResult Migrate(std::uint32_t target_schema = 1) const;

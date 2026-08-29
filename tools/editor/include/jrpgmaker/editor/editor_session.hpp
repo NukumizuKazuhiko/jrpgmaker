@@ -20,6 +20,9 @@ struct EditorSessionState {
     std::uint64_t revision = 0;
     FormProjection form;
     PreviewProjection preview;
+    DocumentTabsProjection tabs;
+    DiagnosticPanelProjection diagnostic_panel;
+    DiffProjection diff;
     std::vector<project::Diagnostic> diagnostics;
 };
 

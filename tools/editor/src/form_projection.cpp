@@ -2,6 +2,10 @@
 
 #include <utility>
 
+#include <string_view>
+
+#include <algorithm>
+
 namespace jrpgmaker::editor {
 
 FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
@@ -23,6 +27,61 @@ FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
             field.value = nullptr;
         projection.fields.push_back(std::move(field));
     }
+    return projection;
+}
+
+DocumentTabsProjection BuildDocumentTabsProjection(
+    const std::vector<project::DocumentDescriptor>& documents, std::string_view active_document_id,
+    bool dirty, const std::vector<project::Diagnostic>& diagnostics) {
+    DocumentTabsProjection projection;
+    projection.tabs.reserve(documents.size());
+    for (const auto& document : documents) {
+        std::size_t diagnostic_count = 0;
+        const auto relative_path = document.path.generic_string();
+        for (const auto& diagnostic : diagnostics) {
+            if (diagnostic.path == relative_path ||
+                (document.id == "project.manifest" && diagnostic.path == "project.json"))
+                ++diagnostic_count;
+        }
+        projection.tabs.push_back(DocumentTabProjection{
+            .document_id = document.id,
+            .path = relative_path,
+            .label_key = document.label_key,
+            .active = document.id == active_document_id,
+            .dirty = dirty && document.id == active_document_id,
+            .editable = document.editable,
+            .diagnostic_count = diagnostic_count});
+    }
+    return projection;
+}
+
+DiagnosticPanelProjection BuildDiagnosticPanelProjection(
+    const std::vector<project::DocumentDescriptor>& documents,
+    const std::vector<project::Diagnostic>& diagnostics, std::string_view filter) {
+    DiagnosticPanelProjection projection{.filter = std::string(filter), .items = {}};
+    for (const auto& diagnostic : diagnostics) {
+        if (!filter.empty() && diagnostic.code.find(filter) == std::string::npos &&
+            diagnostic.path.find(filter) == std::string::npos)
+            continue;
+        std::string document_id;
+        for (const auto& document : documents) {
+            if (diagnostic.path == document.path.generic_string() ||
+                (document.id == "project.manifest" && diagnostic.path == "project.json")) {
+                document_id = document.id;
+                break;
+            }
+        }
+        projection.items.push_back(DiagnosticProjection{std::move(document_id), diagnostic});
+    }
+    return projection;
+}
+
+DiffProjection BuildDiffProjection(const std::vector<project::Change>& changes) {
+    DiffProjection projection{.changes = changes};
+    std::stable_sort(projection.changes.begin(), projection.changes.end(),
+                     [](const auto& left, const auto& right) {
+                         return left.sequence < right.sequence;
+                     });
     return projection;
 }
 

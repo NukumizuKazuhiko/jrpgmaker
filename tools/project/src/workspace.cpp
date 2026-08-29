@@ -1,6 +1,7 @@
 #include "jrpgmaker/project/workspace.hpp"
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 
 #include <nlohmann/json.hpp>
@@ -220,6 +221,42 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
 
 ProjectWorkspace::ProjectWorkspace(std::filesystem::path root, DocumentAdapterRegistry adapters)
     : root_(std::move(root)), adapters_(std::move(adapters)) {}
+
+std::vector<DocumentDescriptor>
+ProjectWorkspace::DescribeDocuments(const ProjectSnapshot& snapshot) const {
+    struct Entry {
+        const char* id;
+        const char* path;
+        const char* label_key;
+    };
+    const std::array entries = {
+        Entry{"project.manifest", "project.json", "editor.document.project"},
+        Entry{"domain.event_script", snapshot.manifest.event_script.c_str(),
+              "editor.document.events"},
+        Entry{"core.navigation", snapshot.manifest.navigation.c_str(),
+              "editor.document.navigation"},
+        Entry{"core.collision", snapshot.manifest.collision.c_str(),
+              "editor.document.collision"},
+        Entry{"core.camera", snapshot.manifest.camera.c_str(), "editor.document.camera"},
+        Entry{"domain.interaction", snapshot.manifest.interaction.c_str(),
+              "editor.document.interaction"},
+        Entry{"core.material", snapshot.manifest.material_document.c_str(),
+              "editor.document.material"},
+        Entry{"app.input_actions", snapshot.manifest.input_actions.c_str(),
+              "editor.document.input"},
+        Entry{"domain.localization", snapshot.manifest.localization.c_str(),
+              "editor.document.localization"},
+        Entry{"project.resources", snapshot.manifest.resource_manifest.c_str(),
+              "editor.document.resources"},
+    };
+    std::vector<DocumentDescriptor> result;
+    result.reserve(entries.size());
+    for (const auto& entry : entries) {
+        result.push_back(DocumentDescriptor{entry.id, entry.path, entry.label_key,
+                                            adapters_.Find(entry.id) != nullptr});
+    }
+    return result;
+}
 
 WorkspaceResult ProjectWorkspace::Open() {
     WorkspaceResult result;
