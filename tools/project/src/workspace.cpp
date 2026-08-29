@@ -226,16 +226,18 @@ DocumentAdapterRegistry CreateDefaultDocumentAdapters() {
         .fields = {{"/actions", "object[]", "editor.input.actions", "action_list", true, false}},
         .validate = [](const nlohmann::json& document) {
             const auto parsed = core::ParseInputActionMap(document);
-            return parsed ? std::vector<Diagnostic>{}
-                           : std::vector<Diagnostic>{{"project.document.invalid", "input_actions"}};
+            if (parsed)
+                return std::vector<Diagnostic>{};
+            return std::vector<Diagnostic>{{"project.document.invalid", "input_actions"}};
         }});
     (void) registry.Register(DocumentAdapter{
         .type_id = "domain.localization",
         .fields = {{"/strings", "object", "editor.localization.strings", "string_map", true, false}},
         .validate = [](const nlohmann::json& document) {
             const auto parsed = domain::ParseLocalizationTable(document);
-            return parsed ? std::vector<Diagnostic>{}
-                           : std::vector<Diagnostic>{{"project.document.invalid", "localization"}};
+            if (parsed)
+                return std::vector<Diagnostic>{};
+            return std::vector<Diagnostic>{{"project.document.invalid", "localization"}};
         }});
     (void) registry.Register(DocumentAdapter{
         .type_id = "project.resources",

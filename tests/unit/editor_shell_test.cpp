@@ -87,13 +87,13 @@ TEST_CASE("form draw projection emits focused theme states from adapter metadata
 
 TEST_CASE("preview draw projection preserves structured metric and diagnostic keys", "[ui][editor]") {
     const jrpgmaker::editor::PreviewProjection valid{
-        .valid = true,
+        .valid = true, .process_running = false, .process_exit_code = 0, .process_error = {},
         .diagnostics = {},
         .metrics = {{"editor.preview.event_count", "integer", 2}}};
     const auto metric_draw = jrpgmaker::editor::BuildPreviewDrawList(valid, {0, 0, 100, 40}, 20);
     REQUIRE(metric_draw.size() == 3);
     const jrpgmaker::editor::PreviewProjection invalid{
-        .valid = false,
+        .valid = false, .process_running = false, .process_exit_code = 0, .process_error = {},
         .diagnostics = {{"project.invalid", "project.json"}},
         .metrics = {}};
     const auto diagnostic_draw =
@@ -145,7 +145,12 @@ TEST_CASE("diagnostics filter and diff projection retain stable document ownersh
 
 TEST_CASE("preview draw projection exposes bounded process status", "[ui][editor]") {
     const jrpgmaker::editor::PreviewProjection preview{
-        .valid = true, .process_running = false, .process_exit_code = 7, .process_error = {}};
+        .valid = true,
+        .process_running = false,
+        .process_exit_code = 7,
+        .process_error = {},
+        .diagnostics = {},
+        .metrics = {}};
     const auto draw_list = jrpgmaker::editor::BuildPreviewDrawList(preview, {0, 0, 100, 40}, 20);
     REQUIRE(draw_list.size() == 2);
     REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[1]).text_key ==

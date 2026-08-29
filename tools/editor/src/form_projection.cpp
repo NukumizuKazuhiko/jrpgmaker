@@ -87,6 +87,9 @@ DiffProjection BuildDiffProjection(const std::vector<project::Change>& changes) 
 
 PreviewProjection BuildWorkspacePreview(const project::DiagnosticSet& diagnosis) {
     PreviewProjection projection{.valid = diagnosis.diagnostics.empty(),
+                                 .process_running = false,
+                                 .process_exit_code = 0,
+                                 .process_error = {},
                                  .diagnostics = diagnosis.diagnostics,
                                  .metrics = {}};
     if (!projection.valid)
