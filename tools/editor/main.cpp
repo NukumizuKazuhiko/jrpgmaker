@@ -332,8 +332,13 @@ int main(int argc, char** argv) {
                 if (session != nullptr) {
                     const auto key_name = std::string(SDL_GetKeyName(event.key.key));
                     if (key_name == "Left" || key_name == "Right" || key_name == "Backspace") {
-                        ui_dirty = session->ApplySelectedKey(key_name) || ui_dirty;
-                        continue;
+                        // Text editing owns the key only when the focused field accepts it.
+                        // Unsupported keys must continue through the data-driven action map;
+                        // otherwise select fields can never receive choice_next/previous.
+                        if (session->ApplySelectedKey(key_name)) {
+                            ui_dirty = true;
+                            continue;
+                        }
                     }
                 }
                 const auto modifiers = SDL_GetModState();
