@@ -66,7 +66,8 @@ TEST_CASE("editor shell projection produces draw primitives from layout bounds",
 TEST_CASE("ui draw list is backend agnostic and bounded", "[ui][editor]") {
     jrpgmaker::ui::DrawList draw_list;
     REQUIRE(draw_list.Add(jrpgmaker::ui::DrawRect{{0.0f, 0.0f, 10.0f, 10.0f}, "panel"}));
-    REQUIRE(draw_list.Add(jrpgmaker::ui::DrawText{{1.0f, 1.0f, 8.0f, 8.0f}, "editor.window.title"}));
+    REQUIRE(draw_list.Add(
+        jrpgmaker::ui::DrawText{{1.0f, 1.0f, 8.0f, 8.0f}, "editor.window.title", {}}));
     REQUIRE(draw_list.size() == 2);
     REQUIRE(std::holds_alternative<jrpgmaker::ui::DrawRect>(draw_list.primitives().front()));
 }

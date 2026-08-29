@@ -93,7 +93,7 @@ ui::DrawList BuildShellDrawList(const ShellProjection& projection) {
         if (!node.recipe.empty())
             (void) draw_list.Add(ui::DrawRect{node.bounds, node.recipe});
         if (!node.label_key.empty())
-            (void) draw_list.Add(ui::DrawText{node.bounds, node.label_key});
+            (void) draw_list.Add(ui::DrawText{node.bounds, node.label_key, {}});
     }
     return draw_list;
 }
@@ -111,7 +111,7 @@ ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds
         const auto recipe = field.recipe.empty() ? "input" : field.recipe;
         (void) draw_list.Add(ui::DrawRect{row, recipe, state});
         if (!field.label_key.empty())
-            (void) draw_list.Add(ui::DrawText{row, field.label_key});
+            (void) draw_list.Add(ui::DrawText{row, field.label_key, {}});
         if (!field.value.is_null()) {
             const std::string value = field.value.is_string()
                                           ? field.value.get<std::string>()
@@ -146,7 +146,7 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
                            row_height};
         (void) draw_list.Add(ui::DrawRect{row, "panel", "normal"});
         if (!metric.label_key.empty())
-            (void) draw_list.Add(ui::DrawText{row, metric.label_key});
+            (void) draw_list.Add(ui::DrawText{row, metric.label_key, {}});
         (void) draw_list.Add(ui::DrawText{{bounds.x + bounds.width * 0.5f, row.y,
                                            bounds.width * 0.5f, row.height},
                                           "editor.value", {{"value", metric.value.dump()}}});

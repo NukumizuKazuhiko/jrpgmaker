@@ -152,7 +152,8 @@ TEST_CASE("text draw resolves localized CJK into glyph quads", "[ui][font][text-
     jrpgmaker::ui::EditorLocale locale;
     locale.strings.emplace("editor.title", "世界");
     jrpgmaker::ui::DrawList source;
-    REQUIRE(source.Add(jrpgmaker::ui::DrawText{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.title"}));
+    REQUIRE(source.Add(
+        jrpgmaker::ui::DrawText{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.title", {}}));
     GlyphAtlas atlas(128, 64, 16);
     const auto result = jrpgmaker::ui::BuildTextDrawList(source, locale, font, atlas, 24);
     REQUIRE(result.ok());

@@ -18,7 +18,7 @@ jrpgmaker::ui::EditorTheme Theme() {
 TEST_CASE("ui draw adapter builds ordered ndc geometry", "[render][ui]") {
     jrpgmaker::ui::DrawList list;
     REQUIRE(list.Add(jrpgmaker::ui::DrawRect{{10.0f, 20.0f, 30.0f, 40.0f}, "button"}));
-    REQUIRE(list.Add(jrpgmaker::ui::DrawText{{0.0f, 0.0f, 10.0f, 10.0f}, "editor.title"}));
+    REQUIRE(list.Add(jrpgmaker::ui::DrawText{{0.0f, 0.0f, 10.0f, 10.0f}, "editor.title", {}}));
 
     const auto packet = jrpgmaker::render::BuildUiDrawPacket(list, Theme(), {100.0f, 100.0f});
     REQUIRE(packet.ok());
@@ -33,7 +33,7 @@ TEST_CASE("ui draw adapter reports invalid theme and geometry", "[render][ui]") 
     jrpgmaker::ui::DrawList list;
     REQUIRE(list.Add(jrpgmaker::ui::DrawRect{{0.0f, 0.0f, 2.0f, 2.0f}, "missing"}));
     REQUIRE(list.Add(jrpgmaker::ui::DrawRect{{99.0f, 0.0f, 2.0f, 2.0f}, "button"}));
-    REQUIRE(list.Add(jrpgmaker::ui::DrawText{{}, ""}));
+    REQUIRE(list.Add(jrpgmaker::ui::DrawText{{}, "", {}}));
 
     const auto packet = jrpgmaker::render::BuildUiDrawPacket(list, Theme(), {100.0f, 100.0f});
     REQUIRE_FALSE(packet.ok());
