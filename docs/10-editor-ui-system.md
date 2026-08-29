@@ -164,7 +164,7 @@ status: StatusBar
 - `engine/ui` 输出后端无关 `DrawList`：矩形、localized text 参数和 glyph quad；当前已落地有界矩形/`recipe`/状态、占位符参数、glyph atlas UV、有序 primitive 合同和 CPU 文本裁剪，纹理/图标统一资源与显式 z-order仍待补齐；`tools/editor` 不直接录制 D3D12/Vulkan 命令。
 - 布局节点可声明受校验的像素 `bounds`；`editor::BuildShellDrawList` 仅把布局 bounds、recipe 和 label key 投影到 DrawList，不在 host 中写面板坐标或文案。
 - `render::BuildUiDrawPacket` 将 DrawList 按原始顺序解析为有界 NDC 顶点/索引上传包，并把 recipe/state、semantic token 和颜色错误作为结构化诊断返回；`UploadUiDrawPacket`/`RecordUiDrawPacket` 负责 RHI buffer 上传、绑定与 indexed draw，主题只提供资源 id/token，不持有 GPU handle。
-- 字体资源由 theme 声明候选文件列表和像素规格；启动时验证候选文件并加载可用字体，`ui::Font` 提供 FreeType 灰度 bitmap 与 pitch 输出，`GlyphAtlas` 以有界容量生成 UV，RHI text batch 已完成纹理上传/采样绘制。多字体逐字 fallback、预热策略和 caret/selection 绘制仍待补齐。
+- 字体资源由 theme 声明候选文件列表和像素规格；启动时验证候选文件并按声明顺序加载可用字体，`ui::Font` 提供 FreeType 灰度 bitmap 与 pitch 输出，`GlyphAtlas` 以有界容量生成 UV，RHI text batch 已完成纹理上传/采样绘制，文本投影已支持按字符的有序 fallback。字体预热策略和 caret/selection 绘制仍待补齐。
 - Windows/Linux 首批都至少验证拉丁、简体中文和日文标点；不能把“字体加载成功”当作 CJK 真实渲染通过。
 
 ## 可访问性与可测试性
