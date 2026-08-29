@@ -2,14 +2,16 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string_view>
 
 #include "jrpgmaker/editor/editor_session.hpp"
 #include "jrpgmaker/editor/preview_process.hpp"
 
 namespace {
 
-std::filesystem::path MakeFixture() {
-    const auto root = std::filesystem::temp_directory_path() / "jrpgmaker_editor_session_fixture";
+std::filesystem::path MakeFixture(std::string_view suffix = {}) {
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("jrpgmaker_editor_session_fixture" + std::string(suffix));
     std::error_code error;
     std::filesystem::remove_all(root, error);
     std::filesystem::create_directories(root / "assets/data");
@@ -39,6 +41,20 @@ TEST_CASE("editor session applies selected adapter field and commits through wor
     REQUIRE(manifest["id"] == "project.session");
     std::error_code error;
     std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor session can switch projects through the path open contract", "[editor]") {
+    const auto first = MakeFixture("_first");
+    const auto second = MakeFixture("_second");
+    jrpgmaker::editor::EditorSession session(first);
+    REQUIRE(session.Open());
+    REQUIRE(session.ApplySelected("project.first"));
+    REQUIRE(session.Open(second));
+    REQUIRE(session.state().open);
+    REQUIRE(session.state().form.fields.front().value == "project.demo");
+    std::error_code error;
+    std::filesystem::remove_all(first, error);
+    std::filesystem::remove_all(second, error);
 }
 
 TEST_CASE("editor session routes string text input through the typed edit contract", "[editor]") {

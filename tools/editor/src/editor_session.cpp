@@ -14,6 +14,18 @@ EditorSession::EditorSession(std::filesystem::path root)
 EditorSession::EditorSession(std::filesystem::path root, project::DocumentAdapterRegistry adapters)
     : adapters_(std::move(adapters)), root_(root), workspace_(std::move(root), adapters_) {}
 
+bool EditorSession::Open(std::filesystem::path root) {
+    if (root.empty())
+        return false;
+    preview_process_.Stop();
+    root_ = std::move(root);
+    workspace_ = project::ProjectWorkspace(root_, adapters_);
+    snapshot_.reset();
+    state_ = {};
+    focus_context_.ClearFocusables();
+    return Open();
+}
+
 void EditorSession::SetDiagnostics(std::vector<project::Diagnostic> diagnostics) {
     state_.diagnostics = std::move(diagnostics);
     if (snapshot_)

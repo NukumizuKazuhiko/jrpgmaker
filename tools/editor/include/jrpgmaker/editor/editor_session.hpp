@@ -32,6 +32,7 @@ public:
     EditorSession(std::filesystem::path root, project::DocumentAdapterRegistry adapters);
 
     [[nodiscard]] bool Open();
+    [[nodiscard]] bool Open(std::filesystem::path root);
     [[nodiscard]] bool Refresh();
     [[nodiscard]] bool SelectDocument(std::string_view document_id);
     [[nodiscard]] bool SetDiagnosticFilter(std::string_view filter);

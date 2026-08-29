@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <iostream>
+#include <mutex>
 
 #include <SDL3/SDL.h>
 
@@ -60,6 +61,20 @@ FindShellNode(const jrpgmaker::editor::ShellProjection& projection, std::string_
     return nullptr;
 }
 
+struct ProjectDialogState {
+    std::mutex mutex;
+    std::optional<std::filesystem::path> selected_root;
+    bool pending = false;
+};
+
+void SDLCALL ProjectFolderDialogCallback(void* userdata, const char* const* filelist, int) {
+    auto& state = *static_cast<ProjectDialogState*>(userdata);
+    std::lock_guard lock(state.mutex);
+    state.pending = false;
+    if (filelist != nullptr && filelist[0] != nullptr && filelist[0][0] != '\0')
+        state.selected_root = std::filesystem::path(filelist[0]);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -109,6 +124,7 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
+    ProjectDialogState project_dialog;
 
     const auto title = resources.bundle->locale.strings.at("editor.window.title");
     if (!SDL_Init(SDL_INIT_VIDEO))
@@ -355,7 +371,9 @@ int main(int argc, char** argv) {
                 const auto action = input_map.Translate(
                     SDL_GetKeyName(event.key.key), true, (modifiers & SDL_KMOD_CTRL) != 0,
                     (modifiers & SDL_KMOD_SHIFT) != 0, (modifiers & SDL_KMOD_ALT) != 0);
-                if (!action || session == nullptr)
+                if (!action)
+                    continue;
+                if (session == nullptr && *action != jrpgmaker::editor::EditorAction::kOpen)
                     continue;
                 if (*action == jrpgmaker::editor::EditorAction::kRefresh) {
                     if (!session->Refresh())
@@ -365,6 +383,13 @@ int main(int argc, char** argv) {
                     if (!session->Save())
                         for (const auto& diagnostic : session->state().diagnostics)
                             std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+                } else if (*action == jrpgmaker::editor::EditorAction::kOpen) {
+                    std::lock_guard lock(project_dialog.mutex);
+                    if (!project_dialog.pending) {
+                        project_dialog.pending = true;
+                        SDL_ShowOpenFolderDialog(ProjectFolderDialogCallback, &project_dialog,
+                                                 window, nullptr, false);
+                    }
                 } else if (*action == jrpgmaker::editor::EditorAction::kPreview) {
                     if (!session->StartPreview(JRPGMAKER_RUNTIME_EXECUTABLE))
                         std::cerr << "editor.preview.process_start_failed\n";
@@ -396,6 +421,20 @@ int main(int argc, char** argv) {
             } else if (event.type == SDL_EVENT_TEXT_EDITING && session != nullptr) {
                 (void) session->ApplySelectedComposition(event.edit.text);
             }
+        }
+        std::optional<std::filesystem::path> selected_root;
+        {
+            std::lock_guard lock(project_dialog.mutex);
+            selected_root = std::move(project_dialog.selected_root);
+            project_dialog.selected_root.reset();
+        }
+        if (selected_root) {
+            if (session == nullptr)
+                session = std::make_unique<jrpgmaker::editor::EditorSession>(*selected_root);
+            if (!session->Open(*selected_root))
+                for (const auto& diagnostic : session->state().diagnostics)
+                    std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+            ui_dirty = true;
         }
         if (session != nullptr)
             if (session->PollPreview())
