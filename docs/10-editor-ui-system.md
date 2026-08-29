@@ -124,7 +124,7 @@ status: StatusBar
 | `Text` | localized text、选择禁用、测量结果 | P13-0 |
 | `Panel` | children、padding、recipe | 已有基础，P13-0 主题化 |
 | `Button`/`ToggleButton` | hover/pressed/focus/disabled、activate | P13-1 |
-| `TextField` | UTF-8 文本、selection、caret、IME composition、commit/cancel | P13-1（core 状态、键盘/IME host 与字段命中已落地，真实 glyph 仍待补） |
+| `TextField` | UTF-8 文本、selection、caret、IME composition、commit/cancel | P13-1（core 状态、键盘/IME host、字段命中与真实 glyph 已落地；caret/selection 绘制仍待补） |
 | `NumberField` | 文本编辑态、类型化 commit、范围诊断 | P13-3 |
 | `CheckBox`/`Select` | value、focus、change command | P13-3 |
 | `ScrollView` | offset、viewport、wheel/keyboard scroll、clamp | P13-1 |
@@ -161,10 +161,10 @@ status: StatusBar
 
 ## 渲染与字体 seam
 
-- `engine/ui` 输出后端无关 `DrawList`：矩形、裁剪、纹理/图标、glyph run 和 z-order；当前已落地有界矩形/`recipe`/状态与 i18n key primitive 合同，后续补齐裁剪、glyph run 和 z-order；`tools/editor` 不直接录制 D3D12/Vulkan 命令。
+- `engine/ui` 输出后端无关 `DrawList`：矩形、localized text 参数和 glyph quad；当前已落地有界矩形/`recipe`/状态、占位符参数、glyph atlas UV 与有序 primitive 合同，裁剪、纹理/图标统一资源和显式 z-order仍待补齐；`tools/editor` 不直接录制 D3D12/Vulkan 命令。
 - 布局节点可声明受校验的像素 `bounds`；`editor::BuildShellDrawList` 仅把布局 bounds、recipe 和 label key 投影到 DrawList，不在 host 中写面板坐标或文案。
 - `render::BuildUiDrawPacket` 将 DrawList 按原始顺序解析为有界 NDC 顶点/索引上传包，并把 recipe/state、semantic token 和颜色错误作为结构化诊断返回；`UploadUiDrawPacket`/`RecordUiDrawPacket` 负责 RHI buffer 上传、绑定与 indexed draw，主题只提供资源 id/token，不持有 GPU handle。
-- 字体资源由 theme 声明 family、文件 id、fallback 列表和像素规格；启动时验证文件存在并预热基础 glyph，`ui::Font` 已提供可验证的 FreeType 灰度 bitmap 与 pitch 输出，缺字按主题 fallback 顺序处理；glyph atlas 与 GPU 绘制仍待补齐。
+- 字体资源由 theme 声明候选文件列表和像素规格；启动时验证候选文件并加载可用字体，`ui::Font` 提供 FreeType 灰度 bitmap 与 pitch 输出，`GlyphAtlas` 以有界容量生成 UV，RHI text batch 已完成纹理上传/采样绘制。多字体逐字 fallback、预热策略和 caret/selection 绘制仍待补齐。
 - Windows/Linux 首批都至少验证拉丁、简体中文和日文标点；不能把“字体加载成功”当作 CJK 真实渲染通过。
 
 ## 可访问性与可测试性
@@ -177,7 +177,7 @@ status: StatusBar
 
 ## P13-0 交付顺序
 
-1. 先定义 `EditorStartupDiagnostic`、`LocalizedText`、theme/i18n/layout 值对象与 parser。当前已实现 editor manifest/locale/layout/theme 的独立值对象与有界 parser；启动诊断聚合仍待补齐。
+1. 先定义 `EditorStartupDiagnostic`、`LocalizedText`、theme/i18n/layout 值对象与 parser。当前已实现 editor manifest/locale/layout/theme 的独立值对象、有界 parser、启动诊断聚合与资源驱动字体候选。
 2. 提交默认/高对比 theme、`zh-CN`/`en` locale 和 workspace layout fixture，并建立资源 lint。当前资源 fixture 已提交并由 editor 资源合同测试实读验证；`jrpgmaker_editorlint <editor-resource-root>` 已提供独立 lint 入口。
 3. 扩展 `engine/ui` 的事件、焦点、命令和 DrawList seam；保留现有 Widget/Text 测试。
 4. 完成 `tools/project` 工作区 seam 后，才允许 `tools/editor` 用这些资源创建窗口。
