@@ -96,7 +96,7 @@ ui::DrawList BuildShellDrawList(const ShellProjection& projection) {
         if (!node.recipe.empty())
             (void) draw_list.Add(ui::DrawRect{node.bounds, node.recipe});
         if (!node.label_key.empty())
-            (void) draw_list.Add(ui::DrawText{node.bounds, node.label_key, {}});
+            (void) draw_list.Add(ui::DrawText{node.bounds, node.label_key, {}, std::nullopt});
     }
     return draw_list;
 }
@@ -111,7 +111,8 @@ ui::DrawList BuildStatusBarDrawList(const StatusBarProjection& projection, ui::R
                      : projection.dirty    ? "editor.status.dirty"
                                             : "editor.status.clean";
     (void) draw_list.Add(ui::DrawText{bounds, key,
-                                      {{"revision", std::to_string(projection.revision)}}});
+                                      {{"revision", std::to_string(projection.revision)}},
+                                      std::nullopt});
     return draw_list;
 }
 
@@ -127,7 +128,7 @@ ui::DrawList BuildDocumentTabsDrawList(const DocumentTabsProjection& projection,
         const char* state = tab.active ? (tab.dirty ? "active_dirty" : "active")
                                        : (tab.dirty ? "dirty" : "normal");
         (void) draw_list.Add(ui::DrawRect{tab_bounds, "tab", state});
-        (void) draw_list.Add(ui::DrawText{tab_bounds, tab.label_key, {}});
+        (void) draw_list.Add(ui::DrawText{tab_bounds, tab.label_key, {}, std::nullopt});
     }
     return draw_list;
 }
@@ -146,14 +147,14 @@ ui::DrawList BuildFormDrawList(const FormProjection& projection, ui::Rect bounds
         const auto recipe = field.recipe.empty() ? "input" : field.recipe;
         (void) draw_list.Add(ui::DrawRect{row, recipe, state});
         if (!field.label_key.empty())
-            (void) draw_list.Add(ui::DrawText{row, field.label_key, {}});
+            (void) draw_list.Add(ui::DrawText{row, field.label_key, {}, std::nullopt});
         if (!field.value.is_null()) {
             const std::string value = field.value.is_string()
                                           ? field.value.get<std::string>()
                                           : field.value.dump();
             ui::DrawText value_text{{row.x + row.width * 0.5f, row.y, row.width * 0.5f,
                                      row.height},
-                                    "editor.value", {{"value", value}}};
+                                    "editor.value", {{"value", value}}, std::nullopt};
             if (text_field != nullptr && text_field->active && index == selected_field &&
                 (field.value_type == "string" || field.value_type == "integer"))
                 value_text.edit = ui::DrawText::EditDecoration{
@@ -179,7 +180,7 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
                 (void) draw_list.Add(ui::DrawText{
                     row, "editor.diagnostic.code",
                     {{"code", projection.diagnostics[index].code},
-                     {"path", projection.diagnostics[index].path}}});
+                     {"path", projection.diagnostics[index].path}}, std::nullopt});
         }
         return draw_list;
     }
@@ -189,10 +190,11 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
                            row_height};
         (void) draw_list.Add(ui::DrawRect{row, "panel", "normal"});
         if (!metric.label_key.empty())
-            (void) draw_list.Add(ui::DrawText{row, metric.label_key, {}});
+            (void) draw_list.Add(ui::DrawText{row, metric.label_key, {}, std::nullopt});
         (void) draw_list.Add(ui::DrawText{{bounds.x + bounds.width * 0.5f, row.y,
                                            bounds.width * 0.5f, row.height},
-                                          "editor.value", {{"value", metric.value.dump()}}});
+                                          "editor.value", {{"value", metric.value.dump()}},
+                                          std::nullopt});
     }
     if (projection.process_running || projection.process_exit_code != 0 ||
         !projection.process_error.empty() || !projection.standard_output.empty() ||
@@ -206,7 +208,8 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
                                : projection.process_error.empty()
                                      ? std::to_string(projection.process_exit_code)
                                      : projection.process_error;
-        (void) draw_list.Add(ui::DrawText{row, "editor.preview.process", {{"value", value}}});
+        (void) draw_list.Add(
+            ui::DrawText{row, "editor.preview.process", {{"value", value}}, std::nullopt});
     }
     const auto add_log = [&draw_list, &bounds, row_height, &projection](std::string_view key,
                                                                           const std::string& value,
@@ -218,7 +221,8 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
         const ui::Rect row{bounds.x, bounds.y + row_height * static_cast<float>(row_index),
                            bounds.width, row_height};
         (void) draw_list.Add(ui::DrawRect{row, "input", "disabled"});
-        (void) draw_list.Add(ui::DrawText{row, std::string(key), {{"value", bounded}}});
+        (void) draw_list.Add(
+            ui::DrawText{row, std::string(key), {{"value", bounded}}, std::nullopt});
     };
     std::size_t log_row = projection.metrics.size() + 1;
     add_log("editor.preview.stdout", projection.standard_output, log_row++);

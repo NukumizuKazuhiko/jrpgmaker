@@ -76,7 +76,7 @@ TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& loc
             const auto value = ResolveText(localized->second, text->arguments);
             float pen_x = text->rect.x;
             const float baseline = text->rect.y + static_cast<float>(pixel_height);
-            const auto decoration = text->edit;
+            const auto decoration = text->edit && text->edit->enabled ? text->edit : std::nullopt;
             const auto selection_start = decoration
                                              ? std::min(decoration->selection_start, value.size())
                                              : 0;

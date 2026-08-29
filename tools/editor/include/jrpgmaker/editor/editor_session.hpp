@@ -60,6 +60,7 @@ public:
 private:
     void SetDiagnostics(std::vector<project::Diagnostic> diagnostics);
     void RebuildProjection();
+    void PublishTextFieldState();
     void SyncTextField(bool select_all);
 
     project::DocumentAdapterRegistry adapters_ = project::CreateDefaultDocumentAdapters();

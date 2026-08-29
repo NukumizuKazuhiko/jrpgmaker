@@ -153,7 +153,8 @@ TEST_CASE("text draw resolves localized CJK into glyph quads", "[ui][font][text-
     locale.strings.emplace("editor.title", "世界");
     jrpgmaker::ui::DrawList source;
     REQUIRE(source.Add(
-        jrpgmaker::ui::DrawText{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.title", {}}));
+        jrpgmaker::ui::DrawText{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.title", {},
+                                std::nullopt}));
     GlyphAtlas atlas(128, 64, 16);
     const auto result = jrpgmaker::ui::BuildTextDrawList(source, locale, font, atlas, 24);
     REQUIRE(result.ok());
@@ -179,7 +180,8 @@ TEST_CASE("text draw uses an ordered fallback font for missing glyphs", "[ui][fo
     locale.strings.emplace("editor.title", "世界");
     jrpgmaker::ui::DrawList source;
     REQUIRE(source.Add(
-        jrpgmaker::ui::DrawText{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.title", {}}));
+        jrpgmaker::ui::DrawText{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.title", {},
+                                std::nullopt}));
     GlyphAtlas atlas(128, 64, 16);
     const std::vector<Font*> fallbacks = {&fallback};
     const auto result =
@@ -199,7 +201,8 @@ TEST_CASE("text draw projects caret and selection using glyph advances", "[ui][f
     jrpgmaker::ui::EditorLocale locale;
     locale.strings.emplace("editor.value", "世界");
     jrpgmaker::ui::DrawList source;
-    jrpgmaker::ui::DrawText text{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.value", {}};
+    jrpgmaker::ui::DrawText text{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.value", {},
+                                 std::nullopt};
     text.edit = jrpgmaker::ui::DrawText::EditDecoration{
         0, std::string("世界").size(), 3, "selection", "caret", true};
     REQUIRE(source.Add(std::move(text)));

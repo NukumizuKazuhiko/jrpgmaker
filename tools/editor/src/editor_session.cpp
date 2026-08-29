@@ -64,6 +64,10 @@ void EditorSession::SyncTextField(bool select_all) {
     text_field_.SetText(value.is_string() ? value.get<std::string>() : value.dump());
     if (select_all)
         text_field_.SelectAll();
+    PublishTextFieldState();
+}
+
+void EditorSession::PublishTextFieldState() {
     state_.text_selection_start = text_field_.selection_start();
     state_.text_selection_end = text_field_.selection_end();
     state_.text_caret = text_field_.caret();
@@ -194,16 +198,20 @@ bool EditorSession::ApplySelectedText(std::string_view value) {
     const auto& field = state_.form.fields[state_.selected_field];
     if (field.read_only || (field.value_type != "string" && field.value_type != "integer"))
         return false;
+    const auto value_type = field.value_type;
     std::vector<ui::UiCommand> commands;
     if (!text_field_.Apply({.type = ui::UiEventType::kTextInput, .text = std::string(value)},
                            commands, state_.selected_field + 1))
         return false;
-    SyncTextField(false);
     for (const auto& command : commands) {
         if (command.type != ui::UiCommandType::kTextChanged)
             continue;
-        if (field.value_type == "string")
-            return ApplySelected(command.text);
+        if (value_type == "string") {
+            const bool applied = ApplySelected(command.text);
+            if (applied)
+                SyncTextField(false);
+            return applied;
+        }
         std::int64_t parsed = 0;
         const auto [end, error] = std::from_chars(command.text.data(),
                                                   command.text.data() + command.text.size(), parsed);
@@ -211,7 +219,10 @@ bool EditorSession::ApplySelectedText(std::string_view value) {
             SetDiagnostics({{"project.edit.integer_invalid", field.path}});
             return false;
         }
-        return ApplySelected(parsed);
+        const bool applied = ApplySelected(parsed);
+        if (applied)
+            SyncTextField(false);
+        return applied;
     }
     return false;
 }
@@ -246,10 +257,15 @@ bool EditorSession::ApplySelectedKey(std::string_view key) {
     std::vector<ui::UiCommand> commands;
     if (!text_field_.Apply(event, commands, state_.selected_field + 1))
         return false;
-    SyncTextField(false);
-    for (const auto& command : commands)
-        if (command.type == ui::UiCommandType::kTextChanged)
-            return ApplySelected(command.text);
+    for (const auto& command : commands) {
+        if (command.type != ui::UiCommandType::kTextChanged)
+            continue;
+        const bool applied = ApplySelected(command.text);
+        if (applied)
+            SyncTextField(false);
+        return applied;
+    }
+    PublishTextFieldState();
     return true;
 }
 
@@ -264,7 +280,10 @@ bool EditorSession::AdjustSelectedInteger(int delta) {
     if ((delta > 0 && current == std::numeric_limits<std::int64_t>::max()) ||
         (delta < 0 && current == std::numeric_limits<std::int64_t>::min()))
         return false;
-    return ApplySelected(current + delta);
+    const bool applied = ApplySelected(current + delta);
+    if (applied)
+        SyncTextField(false);
+    return applied;
 }
 
 bool EditorSession::ToggleSelectedBoolean() {
