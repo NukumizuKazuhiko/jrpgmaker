@@ -33,6 +33,8 @@ public:
     [[nodiscard]] bool Open();
     [[nodiscard]] bool Refresh();
     [[nodiscard]] bool SelectDocument(std::string_view document_id);
+    [[nodiscard]] bool SetDiagnosticFilter(std::string_view filter);
+    [[nodiscard]] bool LocateDiagnostic(std::size_t index);
     [[nodiscard]] bool SelectNext();
     [[nodiscard]] bool SelectPrevious();
     [[nodiscard]] bool SelectField(std::size_t index);

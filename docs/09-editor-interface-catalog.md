@@ -119,6 +119,7 @@ interface 规则：
 - `editor::BuildPreviewDrawList` 消费 `PreviewProjection` 与诊断面板 bounds，将结构化指标或诊断 code 投影为有界状态行；它不重新统计项目数据。
 - `project::ProjectWorkspace::DescribeDocuments` 根据已打开的 `ProjectManifest` 引用和已注册 adapter 生成稳定文档目录；`editor::BuildDocumentTabsProjection`/`BuildDocumentTabsDrawList` 消费该目录，标签顺序、路径、可编辑性、dirty 和诊断数量均来自结构化状态。
 - `editor::BuildDiagnosticPanelProjection` 将诊断按稳定文档 id 归属并支持 code/path 过滤；`editor::BuildDiffProjection` 按 workspace change sequence 输出确定性变更 projection。
+- `EditorSession::SetDiagnosticFilter` 更新结构化诊断 projection；`LocateDiagnostic` 先按诊断归属选择文档，再按精确 field path 定位字段，无法精确到字段时保留文档选择而不猜测路径。
 - `project::ProjectWorkspace::SelectDocument` 只允许在无 pending changes 时切换到 manifest 引用且存在 adapter 的文档；切换后 `CurrentDocument` 与 `CurrentDocumentId` 始终成对更新，Apply/Commit 使用当前文档路径，未保存切换返回结构化诊断。
 - 默认 registry 复用现有输入动作、本地化 parser，并为材质/资源清单提供 schema 1 结构校验；这些文档通过同一 `DocumentAdapter` seam 进入 tabs、form、Apply 和保存流程，材质编辑同时校验其 `style_plugin_id` 与 manifest 的 `render_style`。
 - `PreviewProjection` 现在包含独立的进程运行态、退出码和启动错误；`EditorSession::PollPreview` 仅在状态改变时返回重绘信号，host 据此刷新 draw list，避免每帧重建。

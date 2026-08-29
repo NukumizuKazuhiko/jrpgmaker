@@ -89,6 +89,27 @@ bool EditorSession::SelectDocument(std::string_view document_id) {
     return true;
 }
 
+bool EditorSession::SetDiagnosticFilter(std::string_view filter) {
+    if (!state_.open || !snapshot_)
+        return false;
+    state_.diagnostic_panel = BuildDiagnosticPanelProjection(
+        workspace_.DescribeDocuments(*snapshot_), state_.diagnostics, filter);
+    return true;
+}
+
+bool EditorSession::LocateDiagnostic(std::size_t index) {
+    if (!state_.open || index >= state_.diagnostic_panel.items.size())
+        return false;
+    const auto& item = state_.diagnostic_panel.items[index];
+    if (item.document_id.empty() || !SelectDocument(item.document_id))
+        return false;
+    for (std::size_t field_index = 0; field_index < state_.form.fields.size(); ++field_index) {
+        if (state_.form.fields[field_index].path == item.diagnostic.path)
+            return SelectField(field_index);
+    }
+    return true;
+}
+
 bool EditorSession::SelectNext() {
     if (!state_.open || state_.form.fields.empty())
         return false;
