@@ -53,6 +53,12 @@ bool DecodeUtf8(const std::string& text, std::size_t& offset, std::uint32_t& cod
 
 TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& locale, Font& font,
                                  GlyphAtlas& atlas, std::uint32_t pixel_height) {
+    return BuildTextDrawList(source, locale, font, {}, atlas, pixel_height);
+}
+
+TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& locale, Font& font,
+                                 const std::vector<Font*>& fallback_fonts, GlyphAtlas& atlas,
+                                 std::uint32_t pixel_height) {
     TextDrawResult result;
     if (pixel_height == 0) {
         result.diagnostics.push_back({"ui.text.pixel_height_invalid", 0});
@@ -78,13 +84,25 @@ TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& loc
                     result.diagnostics.push_back({"ui.text.utf8_invalid", primitive_index});
                     break;
                 }
-                if (!font.LoadGlyph(codepoint, pixel_height)) {
+                Font* glyph_font = nullptr;
+                if (font.LoadGlyph(codepoint, pixel_height))
+                    glyph_font = &font;
+                else {
+                    for (auto* fallback : fallback_fonts) {
+                        if (fallback != nullptr && fallback != &font &&
+                            fallback->LoadGlyph(codepoint, pixel_height)) {
+                            glyph_font = fallback;
+                            break;
+                        }
+                    }
+                }
+                if (glyph_font == nullptr) {
                     result.diagnostics.push_back({"ui.text.glyph_missing", primitive_index});
                     continue;
                 }
-                const float advance = static_cast<float>(font.glyph_advance_x()) / 64.0f;
-                if (font.glyph_width() > 0 && font.glyph_height() > 0) {
-                    const auto entry = atlas.Add(font, codepoint, pixel_height);
+                const float advance = static_cast<float>(glyph_font->glyph_advance_x()) / 64.0f;
+                if (glyph_font->glyph_width() > 0 && glyph_font->glyph_height() > 0) {
+                    const auto entry = atlas.Add(*glyph_font, codepoint, pixel_height);
                     if (!entry) {
                         result.diagnostics.push_back({"ui.text.atlas_full", primitive_index});
                     } else {

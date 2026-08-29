@@ -28,4 +28,12 @@ struct TextDrawResult {
                                                const EditorLocale& locale, Font& font,
                                                GlyphAtlas& atlas, std::uint32_t pixel_height);
 
+// Uses `font` first, then the borrowed fallback fonts in order for codepoints
+// missing from the primary face. The caller owns every font and must keep them
+// alive for the duration of the call.
+[[nodiscard]] TextDrawResult BuildTextDrawList(const DrawList& source,
+                                               const EditorLocale& locale, Font& font,
+                                               const std::vector<Font*>& fallback_fonts,
+                                               GlyphAtlas& atlas, std::uint32_t pixel_height);
+
 } // namespace jrpgmaker::ui

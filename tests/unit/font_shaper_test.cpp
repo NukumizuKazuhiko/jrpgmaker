@@ -166,3 +166,25 @@ TEST_CASE("text draw resolves localized CJK into glyph quads", "[ui][font][text-
     REQUIRE(glyph->rect.x + glyph->rect.width <= 110.0f);
     REQUIRE(glyph->rect.y + glyph->rect.height <= 50.0f);
 }
+
+TEST_CASE("text draw uses an ordered fallback font for missing glyphs", "[ui][font][text-draw]") {
+    const auto font_path = FindCjkFont();
+    if (font_path.empty())
+        SKIP("no CJK system font found on this host");
+
+    Font primary;
+    Font fallback;
+    REQUIRE(fallback.Load(font_path.string()));
+    jrpgmaker::ui::EditorLocale locale;
+    locale.strings.emplace("editor.title", "世界");
+    jrpgmaker::ui::DrawList source;
+    REQUIRE(source.Add(
+        jrpgmaker::ui::DrawText{{10.0f, 20.0f, 100.0f, 30.0f}, "editor.title", {}}));
+    GlyphAtlas atlas(128, 64, 16);
+    const std::vector<Font*> fallbacks = {&fallback};
+    const auto result =
+        jrpgmaker::ui::BuildTextDrawList(source, locale, primary, fallbacks, atlas, 24);
+
+    REQUIRE(result.ok());
+    REQUIRE(result.draw_list.size() == 2);
+}

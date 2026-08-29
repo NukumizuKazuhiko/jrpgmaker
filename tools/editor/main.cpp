@@ -44,11 +44,12 @@ jrpgmaker::rhi::ClearColor ThemeClearColor(const jrpgmaker::ui::EditorTheme& the
             color->second.a * scale};
 }
 
-std::optional<std::filesystem::path> FindEditorFont(const jrpgmaker::ui::EditorTheme& theme) {
+std::vector<std::filesystem::path> FindEditorFonts(const jrpgmaker::ui::EditorTheme& theme) {
+    std::vector<std::filesystem::path> result;
     for (const auto& path : theme.font_paths)
         if (std::filesystem::exists(path))
-            return std::filesystem::path(path);
-    return std::nullopt;
+            result.emplace_back(path);
+    return result;
 }
 
 const jrpgmaker::editor::ShellNode*
@@ -78,13 +79,21 @@ int main(int argc, char** argv) {
     if (!shell)
         return 1;
     const auto input_map = jrpgmaker::editor::BuildInputMap(resources.bundle->action_map);
-    const auto font_path = FindEditorFont(resources.bundle->theme);
-    if (!font_path) {
+    const auto font_paths = FindEditorFonts(resources.bundle->theme);
+    if (font_paths.empty()) {
         std::cerr << "editor.font.unavailable\n";
         return 1;
     }
-    jrpgmaker::ui::Font font;
-    if (!font.Load(font_path->string())) {
+    std::vector<std::unique_ptr<jrpgmaker::ui::Font>> fonts;
+    std::vector<jrpgmaker::ui::Font*> fallback_fonts;
+    for (const auto& font_path : font_paths) {
+        auto font = std::make_unique<jrpgmaker::ui::Font>();
+        if (font->Load(font_path.string())) {
+            fallback_fonts.push_back(font.get());
+            fonts.push_back(std::move(font));
+        }
+    }
+    if (fonts.empty()) {
         std::cerr << "editor.font.load_failed\n";
         return 1;
     }
@@ -236,8 +245,8 @@ int main(int argc, char** argv) {
             throw std::runtime_error("editor.ui.draw_packet_invalid");
         gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
         const auto text_draw = jrpgmaker::ui::BuildTextDrawList(
-            draw_list, resources.bundle->locale, font, glyph_atlas,
-            static_cast<std::uint32_t>(resources.bundle->theme.dimensions.at("font.body")));
+                draw_list, resources.bundle->locale, *fonts.front(), fallback_fonts, glyph_atlas,
+                static_cast<std::uint32_t>(resources.bundle->theme.dimensions.at("font.body")));
         if (!text_draw.ok()) {
             for (const auto& diagnostic : text_draw.diagnostics)
                 std::cerr << diagnostic.code << '\t' << diagnostic.primitive_index << '\n';
@@ -414,7 +423,7 @@ int main(int argc, char** argv) {
             gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
             jrpgmaker::render::DestroyUiTextGpuBatch(*device, text_gpu_batch);
             const auto text_draw = jrpgmaker::ui::BuildTextDrawList(
-                draw_list, resources.bundle->locale, font, glyph_atlas,
+                draw_list, resources.bundle->locale, *fonts.front(), fallback_fonts, glyph_atlas,
                 static_cast<std::uint32_t>(resources.bundle->theme.dimensions.at("font.body")));
             if (!text_draw.ok())
                 throw std::runtime_error("editor.ui.text_draw_invalid");
