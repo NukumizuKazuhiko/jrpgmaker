@@ -53,7 +53,7 @@
 - `PreviewProcess` 通过参数数组启动独立 runtime，Windows 使用 `CreateProcess`、Linux 使用 `posix_spawn`，编辑器只消费有界运行状态，不共享 runtime 的 ECS/RHI 或可变文件句柄。
 - `tools/editor` 的 layout 已转换为独立 shell projection，输入映射使用不依赖 SDL 的 `InputMap` 合同；具体 key binding 由后续版本化 editor action 资源提供。
 - editor action map 已纳入启动 manifest，由 `engine/ui` 有界解析并由 host 构造 `InputMap`；重复 key 和非法 action 资源在启动阶段拒绝。
-- `engine/ui` 已提供有界后端无关 `DrawList`（矩形、localized text 参数与 glyph quad）；`render` 已分别编译面板 NDC packet 和带 atlas UV 的 sampled-text packet，并由两个 RHI pipeline 上传/绘制。editor host 已完成 SDL 窗口、D3D12/Vulkan swapchain、主题字体候选、FreeType 灰度栅格化、CJK glyph atlas 和一帧实际文字提交；裁剪、显式 z-order 与多字体逐字 fallback 仍待实现。
+- `engine/ui` 已提供有界后端无关 `DrawList`（矩形、localized text 参数与 glyph quad）；`render` 已分别编译面板 NDC packet 和带 atlas UV 的 sampled-text packet，并由两个 RHI pipeline 上传/绘制。editor host 已完成 SDL 窗口、D3D12/Vulkan swapchain、主题字体候选、FreeType 灰度栅格化、CJK glyph atlas、CPU 文本裁剪和一帧实际文字提交；显式 z-order 与多字体逐字 fallback 仍待实现。
 - 表单区域已由布局资源中的 `Form` 节点提供边界；adapter 字段被投影为有界控件行，焦点状态通过 theme recipe 的 `focused` 状态绘制，SDL 键盘、文本输入和表单鼠标命中通过 `EditorSession` 进入类型化 Apply。
 - 已实现命令行初始项目路径、工作区加载、字段值/诊断码/预览指标的 locale 参数 projection；项目路径选择、状态栏和完整错误面板仍待实现。
 - 验收：空项目、正常项目和损坏项目均能显示结构化状态；关闭编辑器不修改文件。
@@ -85,7 +85,7 @@
 - 发布包、CLI、运行时和编辑器分别构建，编辑器不进入发布包。
 - 验收：Windows 与 Linux 完成创建→编辑→校验→构建→运行→迁移；P12 全量测试和发布包门禁保持通过。
 
-当前进度：`PreviewProcess` 已提供有界独立进程启动 seam，editor 可触发预览；预览退出状态/输出在 GUI 中的结构化显示、发布包回归和完整跨文档流程尚未闭合。
+当前进度：`PreviewProcess` 已提供有界独立进程启动 seam，editor 可触发预览；运行中/退出码/启动错误已进入 GUI projection，stdout/stderr 日志面板、发布包回归和完整跨文档事务仍未闭合。
 
 ## 测试与停止条件
 
