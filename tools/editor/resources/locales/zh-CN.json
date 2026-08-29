@@ -12,7 +12,7 @@
     "editor.workspace.inspector": "属性",
     "editor.workspace.diagnostics": "诊断",
     "editor.value": "{value}",
-    "editor.diagnostic.code": "诊断：{code}"
+    "editor.diagnostic.code": "诊断：{code}（{path}）"
     ,"editor.document.project": "项目"
     ,"editor.document.events": "事件"
     ,"editor.document.navigation": "导航"

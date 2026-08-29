@@ -112,8 +112,10 @@ TEST_CASE("preview draw projection preserves structured metric and diagnostic ke
     const auto diagnostic_draw =
         jrpgmaker::editor::BuildPreviewDrawList(invalid, {0, 0, 100, 40}, 20);
     REQUIRE(diagnostic_draw.size() == 2);
-    REQUIRE(std::get<jrpgmaker::ui::DrawText>(diagnostic_draw.primitives()[1]).text_key ==
-            "editor.diagnostic.code");
+    const auto& diagnostic_text = std::get<jrpgmaker::ui::DrawText>(diagnostic_draw.primitives()[1]);
+    REQUIRE(diagnostic_text.text_key == "editor.diagnostic.code");
+    REQUIRE(diagnostic_text.arguments.at("code") == "project.invalid");
+    REQUIRE(diagnostic_text.arguments.at("path") == "project.json");
 }
 
 TEST_CASE("document tabs preserve manifest order and dirty active state", "[ui][editor]") {

@@ -156,7 +156,9 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
             (void) draw_list.Add(ui::DrawRect{row, "input", "disabled"});
             if (!projection.diagnostics[index].code.empty())
                 (void) draw_list.Add(ui::DrawText{
-                    row, "editor.diagnostic.code", {{"code", projection.diagnostics[index].code}}});
+                    row, "editor.diagnostic.code",
+                    {{"code", projection.diagnostics[index].code},
+                     {"path", projection.diagnostics[index].path}}});
         }
         return draw_list;
     }
