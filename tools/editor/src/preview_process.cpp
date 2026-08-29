@@ -191,6 +191,8 @@ void PreviewProcess::Poll() {
     const DWORD result = WaitForSingleObject(impl_->process.hProcess, 0);
     if (result != WAIT_OBJECT_0)
         return;
+    drain(impl_->output_read, state_.standard_output);
+    drain(impl_->error_read, state_.standard_error);
     DWORD exit_code = 1;
     (void) GetExitCodeProcess(impl_->process.hProcess, &exit_code);
     state_.exit_code = static_cast<int>(exit_code);
@@ -215,6 +217,8 @@ void PreviewProcess::Poll() {
     const auto result = waitpid(impl_->pid, &status, WNOHANG);
     if (result == 0)
         return;
+    drain(impl_->output_read, state_.standard_output);
+    drain(impl_->error_read, state_.standard_error);
     state_.running = false;
     state_.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
     close(impl_->output_read);
