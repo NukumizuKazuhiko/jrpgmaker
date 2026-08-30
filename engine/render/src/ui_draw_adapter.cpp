@@ -2,10 +2,12 @@
 
 #include <cmath>
 #include <limits>
-#include <vector>
 #include <stdexcept>
 #include <string_view>
 #include <variant>
+#include <vector>
+
+#include "jrpgmaker/ui/editor_resources.hpp"
 
 namespace jrpgmaker::render {
 namespace {
@@ -14,9 +16,9 @@ constexpr std::size_t kVerticesPerRect = 4;
 constexpr std::size_t kIndicesPerRect = 6;
 
 bool ValidRect(const ui::Rect& rect) {
-    return rect.x >= 0.0f && rect.y >= 0.0f && rect.width >= 0.0f &&
-           rect.height >= 0.0f && std::isfinite(rect.x) && std::isfinite(rect.y) &&
-           std::isfinite(rect.width) && std::isfinite(rect.height);
+    return rect.x >= 0.0f && rect.y >= 0.0f && rect.width >= 0.0f && rect.height >= 0.0f &&
+           std::isfinite(rect.x) && std::isfinite(rect.y) && std::isfinite(rect.width) &&
+           std::isfinite(rect.height);
 }
 
 std::optional<ui::Rect> ClipToViewport(const ui::Rect& rect, const UiViewport& viewport) {
@@ -44,8 +46,8 @@ void AddDiagnostic(UiDrawPacket& packet, std::string_view code, std::size_t inde
 UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list, const ui::EditorTheme& theme,
                                UiViewport viewport) {
     UiDrawPacket packet;
-    if (!(viewport.width > 0.0f) || !(viewport.height > 0.0f) ||
-        !std::isfinite(viewport.width) || !std::isfinite(viewport.height)) {
+    if (!(viewport.width > 0.0f) || !(viewport.height > 0.0f) || !std::isfinite(viewport.width) ||
+        !std::isfinite(viewport.height)) {
         AddDiagnostic(packet, "ui.viewport.invalid", 0);
         return packet;
     }
@@ -110,16 +112,16 @@ UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list, const ui::EditorTh
         packet.vertices.push_back({{right, top, 0.0f}, rgba});
         packet.vertices.push_back({{right, bottom, 0.0f}, rgba});
         packet.vertices.push_back({{left, bottom, 0.0f}, rgba});
-        packet.indices.insert(packet.indices.end(), {base, base + 1, base + 2,
-                                                      base, base + 2, base + 3});
+        packet.indices.insert(packet.indices.end(),
+                              {base, base + 1, base + 2, base, base + 2, base + 3});
     }
     return packet;
 }
 
 UiTextDrawPacket BuildUiTextDrawPacket(const ui::DrawList& draw_list, UiViewport viewport) {
     UiTextDrawPacket packet;
-    if (!(viewport.width > 0.0f) || !(viewport.height > 0.0f) ||
-        !std::isfinite(viewport.width) || !std::isfinite(viewport.height)) {
+    if (!(viewport.width > 0.0f) || !(viewport.height > 0.0f) || !std::isfinite(viewport.width) ||
+        !std::isfinite(viewport.height)) {
         packet.diagnostics.push_back({"ui.viewport.invalid", 0});
         return packet;
     }
@@ -136,66 +138,86 @@ UiTextDrawPacket BuildUiTextDrawPacket(const ui::DrawList& draw_list, UiViewport
         const float left = 2.0f * glyph->rect.x / viewport.width - 1.0f;
         const float right = 2.0f * (glyph->rect.x + glyph->rect.width) / viewport.width - 1.0f;
         const float top = 1.0f - 2.0f * glyph->rect.y / viewport.height;
-        const float bottom =
-            1.0f - 2.0f * (glyph->rect.y + glyph->rect.height) / viewport.height;
+        const float bottom = 1.0f - 2.0f * (glyph->rect.y + glyph->rect.height) / viewport.height;
         const auto base = static_cast<std::uint32_t>(packet.vertices.size());
         packet.vertices.push_back({{left, top, 0.0f}, {glyph->uv.x, glyph->uv.y}, glyph->color});
-        packet.vertices.push_back({{right, top, 0.0f},
-                                   {glyph->uv.x + glyph->uv.width, glyph->uv.y}, glyph->color});
+        packet.vertices.push_back(
+            {{right, top, 0.0f}, {glyph->uv.x + glyph->uv.width, glyph->uv.y}, glyph->color});
         packet.vertices.push_back({{right, bottom, 0.0f},
-                                   {glyph->uv.x + glyph->uv.width,
-                                    glyph->uv.y + glyph->uv.height},
+                                   {glyph->uv.x + glyph->uv.width, glyph->uv.y + glyph->uv.height},
                                    glyph->color});
-        packet.vertices.push_back({{left, bottom, 0.0f},
-                                   {glyph->uv.x, glyph->uv.y + glyph->uv.height}, glyph->color});
-        packet.indices.insert(packet.indices.end(), {base, base + 1, base + 2,
-                                                     base, base + 2, base + 3});
+        packet.vertices.push_back(
+            {{left, bottom, 0.0f}, {glyph->uv.x, glyph->uv.y + glyph->uv.height}, glyph->color});
+        packet.indices.insert(packet.indices.end(),
+                              {base, base + 1, base + 2, base, base + 2, base + 3});
     }
     return packet;
 }
 
-UiTextGpuBatch UploadUiTextDrawPacket(rhi::IDevice& device, const UiTextDrawPacket& packet,
-                                      const ui::GlyphAtlas& atlas) {
+void UpdateUiTextGpuBatch(rhi::IDevice& device, UiTextGpuBatch& batch,
+                          const UiTextDrawPacket& packet, const ui::GlyphAtlas& atlas) {
     if (!packet.ok())
         throw std::invalid_argument("ui text draw packet contains diagnostics");
-    if (packet.vertices.empty() || packet.indices.empty())
-        return {};
-    UiTextGpuBatch batch;
+    if (packet.vertices.empty() || packet.indices.empty()) {
+        batch.index_count = 0;
+        return;
+    }
     try {
-        batch.texture = device.CreateTexture({atlas.width(), atlas.height(),
-                                               rhi::Format::kR8G8B8A8Unorm,
-                                               rhi::TextureUsage::kSampled});
-        if (batch.texture == rhi::TextureHandle::kInvalid)
-            throw std::runtime_error("ui glyph texture creation failed");
+        if (batch.texture == rhi::TextureHandle::kInvalid) {
+            batch.texture =
+                device.CreateTexture({atlas.width(), atlas.height(), rhi::Format::kR8G8B8A8Unorm,
+                                      rhi::TextureUsage::kSampled});
+            if (batch.texture == rhi::TextureHandle::kInvalid)
+                throw std::runtime_error("ui glyph texture creation failed");
+        }
         std::vector<std::uint8_t> rgba(atlas.pixels().size() * 4u, 255u);
         for (std::size_t index = 0; index < atlas.pixels().size(); ++index)
             rgba[index * 4u + 3u] = atlas.pixels()[index];
         device.UploadTexture(batch.texture, rgba.data(),
                              static_cast<std::uint64_t>(atlas.width()) * 4u);
-        batch.sampler = device.CreateSampler({rhi::SamplerFilter::kNearest,
-                                              rhi::SamplerAddress::kClamp});
-        if (batch.sampler == rhi::SamplerHandle::kInvalid)
-            throw std::runtime_error("ui glyph sampler creation failed");
-        batch.vertex_buffer = device.CreateBuffer({
-            static_cast<std::uint64_t>(packet.vertices.size() * sizeof(UiTextVertex)),
-            rhi::BufferUsage::kVertex});
+        if (batch.sampler == rhi::SamplerHandle::kInvalid) {
+            batch.sampler =
+                device.CreateSampler({rhi::SamplerFilter::kNearest, rhi::SamplerAddress::kClamp});
+            if (batch.sampler == rhi::SamplerHandle::kInvalid)
+                throw std::runtime_error("ui glyph sampler creation failed");
+        }
+        constexpr std::uint64_t kVertexCapacity =
+            static_cast<std::uint64_t>(ui::DrawList::kMaxPrimitives) * 4u * sizeof(UiTextVertex);
+        constexpr std::uint64_t kIndexCapacity =
+            static_cast<std::uint64_t>(ui::DrawList::kMaxPrimitives) * 6u * sizeof(std::uint32_t);
+        if (batch.vertex_buffer == rhi::BufferHandle::kInvalid) {
+            batch.vertex_buffer = device.CreateBuffer({kVertexCapacity, rhi::BufferUsage::kVertex});
+            batch.vertex_capacity_bytes = kVertexCapacity;
+        }
         if (batch.vertex_buffer == rhi::BufferHandle::kInvalid)
             throw std::runtime_error("ui text vertex buffer creation failed");
-        device.MapWrite(batch.vertex_buffer, packet.vertices.data(),
-                        static_cast<std::uint64_t>(packet.vertices.size() * sizeof(UiTextVertex)));
-        batch.index_buffer = device.CreateBuffer({
-            static_cast<std::uint64_t>(packet.indices.size() * sizeof(std::uint32_t)),
-            rhi::BufferUsage::kIndex});
+        if (batch.index_buffer == rhi::BufferHandle::kInvalid) {
+            batch.index_buffer = device.CreateBuffer({kIndexCapacity, rhi::BufferUsage::kIndex});
+            batch.index_capacity_bytes = kIndexCapacity;
+        }
         if (batch.index_buffer == rhi::BufferHandle::kInvalid)
             throw std::runtime_error("ui text index buffer creation failed");
-        device.MapWrite(batch.index_buffer, packet.indices.data(),
-                        static_cast<std::uint64_t>(packet.indices.size() * sizeof(std::uint32_t)));
+        const auto vertex_bytes =
+            static_cast<std::uint64_t>(packet.vertices.size() * sizeof(UiTextVertex));
+        const auto index_bytes =
+            static_cast<std::uint64_t>(packet.indices.size() * sizeof(std::uint32_t));
+        if (vertex_bytes > batch.vertex_capacity_bytes || index_bytes > batch.index_capacity_bytes)
+            throw std::length_error("ui text draw packet exceeds bounded GPU batch capacity");
+        device.MapWrite(batch.vertex_buffer, packet.vertices.data(), vertex_bytes);
+        device.MapWrite(batch.index_buffer, packet.indices.data(), index_bytes);
         batch.index_count = static_cast<std::uint32_t>(packet.indices.size());
-        return batch;
     } catch (...) {
-        DestroyUiTextGpuBatch(device, batch);
+        if (batch.index_count == 0)
+            DestroyUiTextGpuBatch(device, batch);
         throw;
     }
+}
+
+UiTextGpuBatch UploadUiTextDrawPacket(rhi::IDevice& device, const UiTextDrawPacket& packet,
+                                      const ui::GlyphAtlas& atlas) {
+    UiTextGpuBatch batch;
+    UpdateUiTextGpuBatch(device, batch, packet, atlas);
+    return batch;
 }
 
 void RecordUiTextDrawPacket(rhi::ICommandList& command_list, rhi::PipelineHandle pipeline,
@@ -233,6 +255,8 @@ void DestroyUiTextGpuBatch(rhi::IDevice& device, UiTextGpuBatch& batch) {
         batch.texture = rhi::TextureHandle::kInvalid;
     }
     batch.index_count = 0;
+    batch.vertex_capacity_bytes = 0;
+    batch.index_capacity_bytes = 0;
 }
 
 UiGpuBatch UploadUiDrawPacket(rhi::IDevice& device, const UiDrawPacket& packet) {

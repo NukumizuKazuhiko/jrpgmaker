@@ -31,11 +31,9 @@ struct FieldDescriptor {
     std::vector<std::string> choices;
 };
 
-using DocumentValidator =
-    std::function<std::vector<Diagnostic>(const nlohmann::json& document)>;
+using DocumentValidator = std::function<std::vector<Diagnostic>(const nlohmann::json& document)>;
 using DocumentEditNormalizer =
-    std::function<std::vector<Diagnostic>(std::string_view field_path,
-                                          nlohmann::json& candidate)>;
+    std::function<std::vector<Diagnostic>(std::string_view field_path, nlohmann::json& candidate)>;
 
 struct DocumentAdapter {
     std::string type_id;
@@ -66,9 +64,10 @@ private:
 
 [[nodiscard]] DocumentAdapterRegistry CreateDefaultDocumentAdapters();
 
-[[nodiscard]] AdapterResult RegisterEditorDescriptor(
-    DocumentAdapterRegistry& registry, const plugin::EditorDescriptor& descriptor,
-    DocumentValidator validator, DocumentEditNormalizer normalizer = {});
+[[nodiscard]] AdapterResult RegisterEditorDescriptor(DocumentAdapterRegistry& registry,
+                                                     const plugin::EditorDescriptor& descriptor,
+                                                     DocumentValidator validator,
+                                                     DocumentEditNormalizer normalizer = {});
 
 struct ProjectSnapshot {
     std::filesystem::path root;
@@ -82,6 +81,7 @@ struct DocumentDescriptor {
     std::string label_key;
     bool editable = false;
     std::string type_id;
+    std::string category_key;
 };
 
 struct WorkspaceResult {

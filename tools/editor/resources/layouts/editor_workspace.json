@@ -4,14 +4,54 @@
   "root": {
     "type": "SplitPane",
     "id": "workspace.root",
-    "label_key": "editor.window.title",
+    "label_key": "",
     "recipe": "panel",
     "bounds": {"x": 0, "y": 0, "width": 1280, "height": 720},
     "children": [
-      {"type": "WorkspaceTree", "id": "workspace.tree", "label_key": "editor.workspace.tree", "recipe": "panel", "bounds": {"x": 0, "y": 0, "width": 280, "height": 720}},
+      {"type": "MenuBar", "id": "workspace.menu", "recipe": "panel", "bounds": {"x": 0, "y": 0, "width": 1280, "height": 28}, "children": [
+        {"type": "Menu", "id": "menu.file", "label_key": "editor.menu.file", "recipe": "button", "children": [
+          {"type": "MenuItem", "id": "menu.file.open", "label_key": "editor.action.open", "command": "file.open"},
+          {"type": "MenuItem", "id": "menu.file.save", "label_key": "editor.action.save", "command": "file.save"},
+          {"type": "MenuItem", "id": "menu.file.refresh", "label_key": "editor.action.refresh", "command": "file.refresh"}
+        ]},
+        {"type": "Menu", "id": "menu.project", "label_key": "editor.menu.project", "recipe": "button", "children": [
+          {"type": "MenuItem", "id": "menu.project.overview", "label_key": "editor.menu.project_overview", "command": "document.project.manifest"},
+          {"type": "Menu", "id": "menu.project.settings", "label_key": "editor.menu.project_settings", "recipe": "button", "children": [
+            {"type": "MenuItem", "id": "menu.project.settings.general", "label_key": "editor.menu.general", "command": "document.project.manifest"},
+            {"type": "MenuItem", "id": "menu.project.settings.rendering", "label_key": "editor.menu.rendering", "command": "document.core.material"},
+            {"type": "MenuItem", "id": "menu.project.settings.camera", "label_key": "editor.menu.camera", "command": "document.core.camera"},
+            {"type": "MenuItem", "id": "menu.project.settings.input", "label_key": "editor.menu.input", "command": "document.app.input_actions"},
+            {"type": "MenuItem", "id": "menu.project.settings.localization", "label_key": "editor.menu.localization", "command": "document.domain.localization"}
+            ,{"type": "MenuItem", "id": "menu.project.settings.plugins", "label_key": "editor.menu.plugins", "command": "document.plugin"}
+          ]}
+        ]},
+        {"type": "Menu", "id": "menu.assets", "label_key": "editor.menu.assets", "recipe": "button", "children": [
+          {"type": "MenuItem", "id": "menu.assets.all", "label_key": "editor.menu.all_resources", "command": "document.project.resources"},
+          {"type": "MenuItem", "id": "menu.assets.material", "label_key": "editor.document.material", "command": "document.core.material"},
+          {"type": "MenuItem", "id": "menu.assets.rendering", "label_key": "editor.menu.rendering_resources", "command": "document.project.resources"},
+          {"type": "MenuItem", "id": "menu.assets.plugin_data", "label_key": "editor.menu.plugin_data", "command": "document.plugin"}
+        ]},
+        {"type": "Menu", "id": "menu.run", "label_key": "editor.menu.run", "recipe": "button", "children": [
+          {"type": "MenuItem", "id": "menu.run.preview", "label_key": "editor.action.run_preview", "command": "run.preview"},
+          {"type": "MenuItem", "id": "menu.run.stop", "label_key": "editor.action.stop_preview", "command": "run.stop"}
+        ]},
+        {"type": "Menu", "id": "menu.window", "label_key": "editor.menu.window", "recipe": "button", "children": [
+          {"type": "MenuItem", "id": "menu.window.project", "label_key": "editor.workspace.project", "command": "window.focus.workspace.project"},
+          {"type": "MenuItem", "id": "menu.window.hierarchy", "label_key": "editor.workspace.hierarchy", "command": "window.focus.workspace.hierarchy"},
+          {"type": "MenuItem", "id": "menu.window.scene", "label_key": "editor.workspace.scene", "command": "window.focus.workspace.scene"},
+          {"type": "MenuItem", "id": "menu.window.inspector", "label_key": "editor.workspace.inspector", "command": "window.focus.workspace.form"},
+          {"type": "MenuItem", "id": "menu.window.diagnostics", "label_key": "editor.workspace.diagnostics", "command": "window.focus.workspace.diagnostics"}
+        ]}
+      ]},
+      {"type": "Toolbar", "id": "workspace.toolbar", "label_key": "", "recipe": "button", "bounds": {"x": 0, "y": 28, "width": 1280, "height": 34}},
+      {"type": "WorkspaceTree", "id": "workspace.tree", "recipe": "panel", "bounds": {"x": 0, "y": 62, "width": 280, "height": 658}, "children": [
+        {"type": "Project", "id": "workspace.project", "label_key": "editor.workspace.project", "recipe": "panel", "bounds": {"x": 0, "y": 62, "width": 280, "height": 350}},
+        {"type": "Hierarchy", "id": "workspace.hierarchy", "label_key": "editor.workspace.hierarchy", "recipe": "panel", "bounds": {"x": 0, "y": 412, "width": 280, "height": 308}}
+      ]},
       {"type": "SplitPane", "id": "workspace.content", "recipe": "panel", "bounds": {"x": 280, "y": 0, "width": 1000, "height": 720}, "children": [
         {"type": "DocumentTabs", "id": "workspace.tabs", "recipe": "panel", "bounds": {"x": 280, "y": 0, "width": 1000, "height": 600}, "children": [
-          {"type": "Form", "id": "workspace.form", "recipe": "panel", "bounds": {"x": 300, "y": 24, "width": 940, "height": 540}}
+          {"type": "SceneView", "id": "workspace.scene", "label_key": "editor.workspace.scene", "recipe": "panel", "bounds": {"x": 300, "y": 24, "width": 620, "height": 540}},
+          {"type": "Inspector", "id": "workspace.form", "label_key": "editor.workspace.inspector", "recipe": "panel", "bounds": {"x": 940, "y": 24, "width": 300, "height": 540}}
         ]},
         {"type": "DiagnosticPanel", "id": "workspace.diagnostics", "label_key": "editor.workspace.diagnostics", "recipe": "panel", "bounds": {"x": 280, "y": 600, "width": 1000, "height": 96}},
         {"type": "StatusBar", "id": "workspace.status", "recipe": "panel", "bounds": {"x": 280, "y": 696, "width": 1000, "height": 24}}

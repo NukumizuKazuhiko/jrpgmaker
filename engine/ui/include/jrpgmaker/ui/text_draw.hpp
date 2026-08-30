@@ -24,15 +24,23 @@ struct TextDrawResult {
 
 // Resolves localized DrawText keys into positioned atlas quads. The caller
 // owns the font and atlas; this function only emits CPU draw primitives.
-[[nodiscard]] TextDrawResult BuildTextDrawList(const DrawList& source,
-                                               const EditorLocale& locale, Font& font,
-                                               GlyphAtlas& atlas, std::uint32_t pixel_height);
+[[nodiscard]] TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& locale,
+                                               Font& font, GlyphAtlas& atlas,
+                                               std::uint32_t pixel_height);
 
 // Uses `font` first, then the borrowed fallback fonts in order for codepoints
 // missing from the primary face. The caller owns every font and must keep them
 // alive for the duration of the call.
-[[nodiscard]] TextDrawResult BuildTextDrawList(const DrawList& source,
-                                               const EditorLocale& locale, Font& font,
+[[nodiscard]] TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& locale,
+                                               Font& font, const std::vector<Font*>& fallback_fonts,
+                                               GlyphAtlas& atlas, std::uint32_t pixel_height);
+
+// Shapes only DrawResolvedText primitives. Localized DrawText keys are
+// rejected when no locale resolver is supplied, preventing runtime code from
+// silently treating localization keys as user-visible text.
+[[nodiscard]] TextDrawResult BuildTextDrawList(const DrawList& source, Font& font,
+                                               GlyphAtlas& atlas, std::uint32_t pixel_height);
+[[nodiscard]] TextDrawResult BuildTextDrawList(const DrawList& source, Font& font,
                                                const std::vector<Font*>& fallback_fonts,
                                                GlyphAtlas& atlas, std::uint32_t pixel_height);
 

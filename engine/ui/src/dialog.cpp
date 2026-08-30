@@ -64,4 +64,17 @@ std::optional<std::size_t> DialogPresentation::selected_option() const {
     return snapshot_.selected_option;
 }
 
+DialogPresentationResult
+InteractionPromptPresentation::Show(std::string_view text_key,
+                                    const domain::LocalizationTable& localization) {
+    const auto found = localization.entries.find(std::string(text_key));
+    if (found == localization.entries.end()) {
+        return {.ok = false,
+                .error = "interaction prompt key is missing from localization: " +
+                         std::string(text_key)};
+    }
+    text_ = found->second;
+    return {.ok = true, .error = {}};
+}
+
 } // namespace jrpgmaker::ui

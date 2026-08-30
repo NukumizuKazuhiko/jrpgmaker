@@ -21,8 +21,8 @@ std::string ResolveText(const std::string& format,
             continue;
         }
         const auto argument = arguments.find(format.substr(index + 1, end - index - 1));
-        result += argument == arguments.end() ? format.substr(index, end - index + 1)
-                                              : argument->second;
+        result +=
+            argument == arguments.end() ? format.substr(index, end - index + 1) : argument->second;
         index = end + 1;
     }
     return result;
@@ -67,22 +67,33 @@ TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& loc
     for (std::size_t primitive_index = 0; primitive_index < source.primitives().size();
          ++primitive_index) {
         const auto& primitive = source.primitives()[primitive_index];
-        if (const auto* text = std::get_if<DrawText>(&primitive)) {
-            const auto localized = locale.strings.find(text->text_key);
-            if (localized == locale.strings.end()) {
-                result.diagnostics.push_back({"ui.text.localization_missing", primitive_index});
-                continue;
+        const auto* text = std::get_if<DrawText>(&primitive);
+        const auto* resolved_text = std::get_if<DrawResolvedText>(&primitive);
+        if (text != nullptr || resolved_text != nullptr) {
+            std::string value;
+            Rect text_rect;
+            std::optional<DrawText::EditDecoration> text_edit;
+            if (text != nullptr) {
+                const auto localized = locale.strings.find(text->text_key);
+                if (localized == locale.strings.end()) {
+                    result.diagnostics.push_back({"ui.text.localization_missing", primitive_index});
+                    continue;
+                }
+                value = ResolveText(localized->second, text->arguments);
+                text_rect = text->rect;
+                text_edit = text->edit;
+            } else {
+                value = resolved_text->text;
+                text_rect = resolved_text->rect;
+                text_edit = resolved_text->edit;
             }
-            const auto value = ResolveText(localized->second, text->arguments);
-            float pen_x = text->rect.x;
-            const float baseline = text->rect.y + static_cast<float>(pixel_height);
-            const auto decoration = text->edit && text->edit->enabled ? text->edit : std::nullopt;
-            const auto selection_start = decoration
-                                             ? std::min(decoration->selection_start, value.size())
-                                             : 0;
-            const auto selection_end = decoration
-                                           ? std::min(decoration->selection_end, value.size())
-                                           : 0;
+            float pen_x = text_rect.x;
+            const float baseline = text_rect.y + static_cast<float>(pixel_height);
+            const auto decoration = text_edit && text_edit->enabled ? text_edit : std::nullopt;
+            const auto selection_start =
+                decoration ? std::min(decoration->selection_start, value.size()) : 0;
+            const auto selection_end =
+                decoration ? std::min(decoration->selection_end, value.size()) : 0;
             float selection_left = pen_x;
             float selection_right = pen_x;
             float caret_x = pen_x;
@@ -126,21 +137,21 @@ TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& loc
                                               baseline - static_cast<float>(entry->bearing_y),
                                               static_cast<float>(entry->width),
                                               static_cast<float>(entry->height)};
-                        const float left = std::max(glyph_rect.x, text->rect.x);
-                        const float top = std::max(glyph_rect.y, text->rect.y);
+                        const float left = std::max(glyph_rect.x, text_rect.x);
+                        const float top = std::max(glyph_rect.y, text_rect.y);
                         const float right = std::min(glyph_rect.x + glyph_rect.width,
-                                                     text->rect.x + text->rect.width);
+                                                     text_rect.x + text_rect.width);
                         const float bottom = std::min(glyph_rect.y + glyph_rect.height,
-                                                      text->rect.y + text->rect.height);
+                                                      text_rect.y + text_rect.height);
                         if (right > left && bottom > top) {
                             const float u_scale = (entry->u1 - entry->u0) / glyph_rect.width;
                             const float v_scale = (entry->v1 - entry->v0) / glyph_rect.height;
-                            (void) result.draw_list.Add(DrawGlyph{
-                                {left, top, right - left, bottom - top},
-                                {entry->u0 + (left - glyph_rect.x) * u_scale,
-                                 entry->v0 + (top - glyph_rect.y) * v_scale,
-                                 (right - left) * u_scale, (bottom - top) * v_scale},
-                                {1.0f, 1.0f, 1.0f, 1.0f}});
+                            (void) result.draw_list.Add(
+                                DrawGlyph{{left, top, right - left, bottom - top},
+                                          {entry->u0 + (left - glyph_rect.x) * u_scale,
+                                           entry->v0 + (top - glyph_rect.y) * v_scale,
+                                           (right - left) * u_scale, (bottom - top) * v_scale},
+                                          {1.0f, 1.0f, 1.0f, 1.0f}});
                         }
                     }
                 }
@@ -157,20 +168,34 @@ TextDrawResult BuildTextDrawList(const DrawList& source, const EditorLocale& loc
                     caret_x = pen_x;
                 if (selection_start != selection_end && selection_right > selection_left &&
                     !decoration->selection_recipe.empty())
-                    (void) result.draw_list.Add(DrawRect{{selection_left, text->rect.y,
-                                                           selection_right - selection_left,
-                                                           text->rect.height},
-                                                          decoration->selection_recipe, "normal"});
+                    (void) result.draw_list.Add(
+                        DrawRect{{selection_left, text_rect.y, selection_right - selection_left,
+                                  text_rect.height},
+                                 decoration->selection_recipe,
+                                 "normal"});
                 if (!decoration->caret_recipe.empty())
-                    (void) result.draw_list.Add(DrawRect{{caret_x, text->rect.y, 1.0f,
-                                                           text->rect.height},
-                                                          decoration->caret_recipe, "normal"});
+                    (void) result.draw_list.Add(
+                        DrawRect{{caret_x, text_rect.y, 1.0f, text_rect.height},
+                                 decoration->caret_recipe,
+                                 "normal"});
             }
         } else {
             (void) result.draw_list.Add(primitive);
         }
     }
     return result;
+}
+
+TextDrawResult BuildTextDrawList(const DrawList& source, Font& font, GlyphAtlas& atlas,
+                                 std::uint32_t pixel_height) {
+    return BuildTextDrawList(source, font, {}, atlas, pixel_height);
+}
+
+TextDrawResult BuildTextDrawList(const DrawList& source, Font& font,
+                                 const std::vector<Font*>& fallback_fonts, GlyphAtlas& atlas,
+                                 std::uint32_t pixel_height) {
+    const EditorLocale no_localized_keys;
+    return BuildTextDrawList(source, no_localized_keys, font, fallback_fonts, atlas, pixel_height);
 }
 
 } // namespace jrpgmaker::ui

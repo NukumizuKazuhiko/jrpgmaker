@@ -14,3 +14,6 @@ CMakeLists.txt.user
 *.user
 .DS_Store
 .codegraph/
+
+# Local P13 manual fixtures and GUI evidence captures.
+.tmp-p13-*/

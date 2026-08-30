@@ -1,10 +1,10 @@
 #include "jrpgmaker/ui/editor_resources.hpp"
 
 #include <algorithm>
-#include <cmath>
 #include <cctype>
-#include <functional>
+#include <cmath>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <set>
 #include <string_view>
@@ -22,8 +22,9 @@ bool ValidId(const nlohmann::json& value) {
     if (!value.is_string() || value.get<std::string>().empty())
         return false;
     const auto id = value.get<std::string>();
-    return std::all_of(id.begin(), id.end(),
-                       [](unsigned char c) { return std::isalnum(c) != 0 || c == '.' || c == '-' || c == '_'; });
+    return std::all_of(id.begin(), id.end(), [](unsigned char c) {
+        return std::isalnum(c) != 0 || c == '.' || c == '-' || c == '_';
+    });
 }
 
 bool StringArray(const nlohmann::json& value, std::vector<std::string>& result,
@@ -35,19 +36,21 @@ bool StringArray(const nlohmann::json& value, std::vector<std::string>& result,
     std::unordered_set<std::string> seen;
     for (std::size_t i = 0; i < value.size(); ++i) {
         if (!ValidId(value[i])) {
-            Error(errors, "editor.resource.invalid_id", std::string(path) + "/" + std::to_string(i));
+            Error(errors, "editor.resource.invalid_id",
+                  std::string(path) + "/" + std::to_string(i));
             continue;
         }
         const auto id = value[i].get<std::string>();
         if (!seen.insert(id).second)
-            Error(errors, "editor.resource.duplicate_id", std::string(path) + "/" + std::to_string(i));
+            Error(errors, "editor.resource.duplicate_id",
+                  std::string(path) + "/" + std::to_string(i));
         result.push_back(id);
     }
     return true;
 }
 
-bool ManifestId(const nlohmann::json& document, const char* key,
-                std::string& result, std::vector<EditorResourceError>& errors) {
+bool ManifestId(const nlohmann::json& document, const char* key, std::string& result,
+                std::vector<EditorResourceError>& errors) {
     if (!document.contains(key) || !ValidId(document[key])) {
         Error(errors, "editor.resource.required_id", key);
         return false;
@@ -79,6 +82,12 @@ bool ParseLayoutNode(const nlohmann::json& document, EditorLayoutNode& node,
         else
             node.label_key = document["label_key"].get<std::string>();
     }
+    if (document.contains("command")) {
+        if (!ValidId(document["command"]))
+            Error(errors, "editor.layout.invalid_command", path + "/command");
+        else
+            node.command = document["command"].get<std::string>();
+    }
     if (document.contains("recipe")) {
         if (!document["recipe"].is_string())
             Error(errors, "editor.layout.invalid_recipe", path + "/recipe");
@@ -88,9 +97,9 @@ bool ParseLayoutNode(const nlohmann::json& document, EditorLayoutNode& node,
     if (document.contains("bounds")) {
         const auto& bounds = document["bounds"];
         if (!bounds.is_object() || !bounds.contains("x") || !bounds.contains("y") ||
-            !bounds.contains("width") || !bounds.contains("height") ||
-            !bounds["x"].is_number() || !bounds["y"].is_number() ||
-            !bounds["width"].is_number() || !bounds["height"].is_number()) {
+            !bounds.contains("width") || !bounds.contains("height") || !bounds["x"].is_number() ||
+            !bounds["y"].is_number() || !bounds["width"].is_number() ||
+            !bounds["height"].is_number()) {
             Error(errors, "editor.layout.invalid_bounds", path + "/bounds");
         } else {
             node.bounds = Rect{bounds["x"].get<float>(), bounds["y"].get<float>(),
@@ -121,9 +130,8 @@ bool ParseLayoutNode(const nlohmann::json& document, EditorLayoutNode& node,
 bool ValidHexColor(const std::string& value) {
     if ((value.size() != 7 && value.size() != 9) || value.front() != '#')
         return false;
-    return std::all_of(value.begin() + 1, value.end(), [](unsigned char c) {
-        return std::isxdigit(c) != 0;
-    });
+    return std::all_of(value.begin() + 1, value.end(),
+                       [](unsigned char c) { return std::isxdigit(c) != 0; });
 }
 
 std::optional<EditorColor> ParseColor(const std::string& value) {
@@ -227,16 +235,17 @@ EditorResourceParseResult<EditorManifest> ParseEditorManifest(const nlohmann::js
     if (document.contains("default_theme") && ValidId(document["default_theme"]))
         result.value.default_theme = document["default_theme"].get<std::string>();
     if (document.contains("default_layout") && ValidId(document["default_layout"]))
-            result.value.default_layout = document["default_layout"].get<std::string>();
+        result.value.default_layout = document["default_layout"].get<std::string>();
     if (document.contains("action_map") && !SafeResourcePath(document["action_map"]))
         Error(result.errors, "editor.manifest.invalid_action_map", "/action_map");
     else if (document.contains("action_map"))
         result.value.action_map = document["action_map"].get<std::string>();
     if (document.contains("locale_fallbacks") && document["locale_fallbacks"].is_array())
         for (const auto& value : document["locale_fallbacks"])
-            if (ValidId(value)) result.value.locale_fallbacks.push_back(value.get<std::string>());
-    StringArray(document.value("available_locales", nlohmann::json{}), result.value.available_locales,
-                result.errors, "/available_locales");
+            if (ValidId(value))
+                result.value.locale_fallbacks.push_back(value.get<std::string>());
+    StringArray(document.value("available_locales", nlohmann::json{}),
+                result.value.available_locales, result.errors, "/available_locales");
     StringArray(document.value("available_themes", nlohmann::json{}), result.value.available_themes,
                 result.errors, "/available_themes");
     if (std::find(result.value.available_locales.begin(), result.value.available_locales.end(),
@@ -249,7 +258,7 @@ EditorResourceParseResult<EditorManifest> ParseEditorManifest(const nlohmann::js
 }
 
 EditorResourceParseResult<EditorLocale> ParseEditorLocale(const nlohmann::json& document,
-                                                           const EditorManifest& manifest) {
+                                                          const EditorManifest& manifest) {
     EditorResourceParseResult<EditorLocale> result;
     if (!document.is_object() || document.value("schema", 0) != 1)
         Error(result.errors, "editor.locale.schema", "/schema");
@@ -257,8 +266,8 @@ EditorResourceParseResult<EditorLocale> ParseEditorLocale(const nlohmann::json& 
         Error(result.errors, "editor.locale.required_id", "/locale");
     else
         result.value.locale = document["locale"].get<std::string>();
-    if (std::find(manifest.available_locales.begin(), manifest.available_locales.end(), result.value.locale) ==
-        manifest.available_locales.end())
+    if (std::find(manifest.available_locales.begin(), manifest.available_locales.end(),
+                  result.value.locale) == manifest.available_locales.end())
         Error(result.errors, "editor.locale.unregistered", "/locale");
     const auto* strings = document.contains("strings") ? &document["strings"] : nullptr;
     if (strings == nullptr || !strings->is_object()) {
@@ -281,8 +290,7 @@ EditorResourceParseResult<EditorLocale> ParseEditorLocale(const nlohmann::json& 
     return result;
 }
 
-EditorResourceParseResult<EditorActionMap>
-ParseEditorActionMap(const nlohmann::json& document) {
+EditorResourceParseResult<EditorActionMap> ParseEditorActionMap(const nlohmann::json& document) {
     EditorResourceParseResult<EditorActionMap> result;
     if (!document.is_object() || document.value("schema", 0) != 1)
         Error(result.errors, "editor.action_map.schema", "/schema");
@@ -370,14 +378,16 @@ EditorResourceParseResult<EditorTheme> ParseEditorTheme(const nlohmann::json& do
         }
     }
 
-    const auto* semantic = document.contains("semantic_tokens") ? &document["semantic_tokens"] : nullptr;
+    const auto* semantic =
+        document.contains("semantic_tokens") ? &document["semantic_tokens"] : nullptr;
     if (semantic == nullptr || !semantic->is_object()) {
         Error(result.errors, "editor.theme.semantic_tokens_required", "/semantic_tokens");
     } else {
         for (auto it = semantic->begin(); it != semantic->end(); ++it) {
             if (!ValidId(it.key()) || !it.value().is_string() ||
                 !result.value.colors.contains(it.value().get<std::string>()))
-                Error(result.errors, "editor.theme.invalid_semantic_token", "/semantic_tokens/" + it.key());
+                Error(result.errors, "editor.theme.invalid_semantic_token",
+                      "/semantic_tokens/" + it.key());
             else
                 result.value.semantic_tokens.emplace(it.key(), it.value().get<std::string>());
         }
@@ -398,7 +408,8 @@ EditorResourceParseResult<EditorTheme> ParseEditorTheme(const nlohmann::json& do
             EditorThemeRecipe parsed;
             for (const char* state : states) {
                 if (!recipe.value().contains(state) || !recipe.value()[state].is_string() ||
-                    !result.value.semantic_tokens.contains(recipe.value()[state].get<std::string>()))
+                    !result.value.semantic_tokens.contains(
+                        recipe.value()[state].get<std::string>()))
                     Error(result.errors, "editor.theme.recipe_state_invalid",
                           "/recipes/" + recipe.key() + "/" + state);
                 else
@@ -456,8 +467,8 @@ EditorStartupResult LoadEditorResources(const std::filesystem::path& root) {
     nlohmann::json theme_document;
     const auto theme_path = root / "themes" / ResourceFileName(manifest.value.default_theme);
     const auto theme_read = ReadJson(theme_path, theme_document, result.diagnostics);
-    const auto theme = theme_read ? ParseEditorTheme(theme_document)
-                                  : EditorResourceParseResult<EditorTheme>{};
+    const auto theme =
+        theme_read ? ParseEditorTheme(theme_document) : EditorResourceParseResult<EditorTheme>{};
     if (theme_read)
         AddResourceErrors(theme.errors, theme_path, result.diagnostics);
 
@@ -482,13 +493,15 @@ EditorStartupResult LoadEditorResources(const std::filesystem::path& root) {
             for (const auto& [key, text] : baseline) {
                 const auto translated = locale.strings.find(key);
                 if (translated == locale.strings.end()) {
-                    StartupError(result.diagnostics, "editor.locale.key_missing", locale_id + "/" + key);
+                    StartupError(result.diagnostics, "editor.locale.key_missing",
+                                 locale_id + "/" + key);
                     continue;
                 }
                 bool base_valid = true;
                 bool translated_valid = true;
                 const auto base_names = PlaceholderNames(text, base_valid);
-                const auto translated_names = PlaceholderNames(translated->second, translated_valid);
+                const auto translated_names =
+                    PlaceholderNames(translated->second, translated_valid);
                 if (!base_valid || !translated_valid || base_names != translated_names)
                     StartupError(result.diagnostics, "editor.locale.placeholder_mismatch",
                                  locale_id + "/" + key);
@@ -499,9 +512,10 @@ EditorStartupResult LoadEditorResources(const std::filesystem::path& root) {
             StartupError(result.diagnostics, "editor.locale.empty", manifest.value.default_locale);
     }
 
-    if (result.diagnostics.empty() && action_map_read && action_map && theme_read && theme && layout_read && layout) {
-        result.bundle = EditorResourceBundle{manifest.value, locale_it->second, action_map.value, theme.value,
-                                            layout.value};
+    if (result.diagnostics.empty() && action_map_read && action_map && theme_read && theme &&
+        layout_read && layout) {
+        result.bundle = EditorResourceBundle{manifest.value, locale_it->second, action_map.value,
+                                             theme.value, layout.value};
     }
     return result;
 }

@@ -1,5 +1,6 @@
 #include "jrpgmaker/editor/form_projection.hpp"
 
+#include <cctype>
 #include <utility>
 
 #include <string_view>
@@ -9,7 +10,7 @@
 namespace jrpgmaker::editor {
 
 FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
-                                    const nlohmann::json& document) {
+                                   const nlohmann::json& document) {
     FormProjection projection{.document_id = adapter.type_id, .fields = {}};
     projection.fields.reserve(adapter.fields.size());
     for (const auto& descriptor : adapter.fields) {
@@ -31,9 +32,10 @@ FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
     return projection;
 }
 
-DocumentTabsProjection BuildDocumentTabsProjection(
-    const std::vector<project::DocumentDescriptor>& documents, std::string_view active_document_id,
-    bool dirty, const std::vector<project::Diagnostic>& diagnostics) {
+DocumentTabsProjection
+BuildDocumentTabsProjection(const std::vector<project::DocumentDescriptor>& documents,
+                            std::string_view active_document_id, bool dirty,
+                            const std::vector<project::Diagnostic>& diagnostics) {
     std::vector<project::Change> changes;
     if (dirty)
         changes.push_back(project::Change{.document_id = std::string(active_document_id),
@@ -44,9 +46,11 @@ DocumentTabsProjection BuildDocumentTabsProjection(
     return BuildDocumentTabsProjection(documents, active_document_id, changes, diagnostics);
 }
 
-DocumentTabsProjection BuildDocumentTabsProjection(
-    const std::vector<project::DocumentDescriptor>& documents, std::string_view active_document_id,
-    const std::vector<project::Change>& changes, const std::vector<project::Diagnostic>& diagnostics) {
+DocumentTabsProjection
+BuildDocumentTabsProjection(const std::vector<project::DocumentDescriptor>& documents,
+                            std::string_view active_document_id,
+                            const std::vector<project::Change>& changes,
+                            const std::vector<project::Diagnostic>& diagnostics) {
     DocumentTabsProjection projection;
     projection.tabs.reserve(documents.size());
     for (const auto& document : documents) {
@@ -57,24 +61,77 @@ DocumentTabsProjection BuildDocumentTabsProjection(
                 (document.id == "project.manifest" && diagnostic.path == "project.json"))
                 ++diagnostic_count;
         }
-        const auto changed = std::any_of(changes.begin(), changes.end(), [&document](const auto& change) {
-            return change.document_id == document.id;
-        });
-        projection.tabs.push_back(DocumentTabProjection{
-            .document_id = document.id,
-            .path = relative_path,
-            .label_key = document.label_key,
-            .active = document.id == active_document_id,
-            .dirty = changed,
-            .editable = document.editable,
-            .diagnostic_count = diagnostic_count});
+        const auto changed =
+            std::any_of(changes.begin(), changes.end(), [&document](const auto& change) {
+                return change.document_id == document.id;
+            });
+        projection.tabs.push_back(DocumentTabProjection{.document_id = document.id,
+                                                        .path = relative_path,
+                                                        .label_key = document.label_key,
+                                                        .active = document.id == active_document_id,
+                                                        .dirty = changed,
+                                                        .editable = document.editable,
+                                                        .diagnostic_count = diagnostic_count,
+                                                        .category_key = document.category_key,
+                                                        .type_id = document.type_id});
     }
     return projection;
 }
 
-DiagnosticPanelProjection BuildDiagnosticPanelProjection(
-    const std::vector<project::DocumentDescriptor>& documents,
-    const std::vector<project::Diagnostic>& diagnostics, std::string_view filter) {
+ProjectPanelProjection BuildProjectPanelProjection(const DocumentTabsProjection& documents,
+                                                   std::string_view filter, std::size_t max_rows) {
+    ProjectPanelProjection projection{.filter = std::string(filter), .rows = {}};
+    if (max_rows == 0)
+        return projection;
+    projection.rows.push_back({ProjectPanelRowKind::kFilter, {}, 0});
+    std::string previous_category;
+    const auto matches = [filter](const DocumentTabProjection& document) {
+        if (filter.empty())
+            return true;
+        const auto contains = [filter](std::string_view value) {
+            if (value.size() < filter.size())
+                return false;
+            for (std::size_t offset = 0; offset + filter.size() <= value.size(); ++offset) {
+                bool match = true;
+                for (std::size_t index = 0; index < filter.size(); ++index) {
+                    const auto left = static_cast<unsigned char>(value[offset + index]);
+                    const auto right = static_cast<unsigned char>(filter[index]);
+                    if (std::tolower(left) != std::tolower(right)) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match)
+                    return true;
+            }
+            return false;
+        };
+        return contains(document.document_id) || contains(document.path) ||
+               contains(document.label_key);
+    };
+    for (std::size_t index = 0; index < documents.tabs.size(); ++index) {
+        const auto& document = documents.tabs[index];
+        if (!matches(document))
+            continue;
+        const auto category =
+            document.category_key.empty() ? "editor.project.category.other" : document.category_key;
+        if (category != previous_category) {
+            if (projection.rows.size() + 2 > max_rows)
+                break;
+            projection.rows.push_back({ProjectPanelRowKind::kCategory, std::string(category), 0});
+            previous_category = category;
+        }
+        if (projection.rows.size() + 1 > max_rows)
+            break;
+        projection.rows.push_back({ProjectPanelRowKind::kDocument, {}, index});
+    }
+    return projection;
+}
+
+DiagnosticPanelProjection
+BuildDiagnosticPanelProjection(const std::vector<project::DocumentDescriptor>& documents,
+                               const std::vector<project::Diagnostic>& diagnostics,
+                               std::string_view filter) {
     DiagnosticPanelProjection projection{.filter = std::string(filter), .items = {}};
     for (const auto& diagnostic : diagnostics) {
         if (!filter.empty() && diagnostic.code.find(filter) == std::string::npos &&
@@ -95,10 +152,9 @@ DiagnosticPanelProjection BuildDiagnosticPanelProjection(
 
 DiffProjection BuildDiffProjection(const std::vector<project::Change>& changes) {
     DiffProjection projection{.changes = changes};
-    std::stable_sort(projection.changes.begin(), projection.changes.end(),
-                     [](const auto& left, const auto& right) {
-                         return left.sequence < right.sequence;
-                     });
+    std::stable_sort(
+        projection.changes.begin(), projection.changes.end(),
+        [](const auto& left, const auto& right) { return left.sequence < right.sequence; });
     return projection;
 }
 

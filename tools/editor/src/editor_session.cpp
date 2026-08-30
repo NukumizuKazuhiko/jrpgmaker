@@ -1,4 +1,5 @@
 #include "jrpgmaker/editor/editor_session.hpp"
+#include "jrpgmaker/core/map_data.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -37,6 +38,10 @@ bool ReadJson(const std::filesystem::path& path, nlohmann::json& document,
         return false;
     }
     return true;
+}
+
+bool IsNavigationCellSelection(const std::optional<SelectionTarget>& selection) {
+    return selection.has_value() && selection->kind == "navigation.cell";
 }
 
 } // namespace
@@ -95,6 +100,40 @@ void EditorSession::RebuildProjection() {
                                     state_.preview.diagnostics);
     state_.diff = BuildDiffProjection(workspace_.PendingChanges());
     state_.revision = snapshot_->revision;
+    const auto previous_selection = state_.selection;
+    state_.navigation.reset();
+    if (workspace_.CurrentDocumentId() == "core.navigation") {
+        try {
+            const auto grid = core::ParseNavigationGrid(workspace_.CurrentDocument());
+            NavigationProjection navigation;
+            navigation.document_id = "core.navigation";
+            navigation.width = grid.width();
+            navigation.height = grid.height();
+            const auto count = std::min<std::size_t>(static_cast<std::size_t>(grid.width()) *
+                                                         static_cast<std::size_t>(grid.height()),
+                                                     NavigationProjection::kMaxProjectedCells);
+            navigation.cells.reserve(count);
+            for (std::size_t index = 0; index < count; ++index) {
+                const int x = static_cast<int>(index % static_cast<std::size_t>(grid.width()));
+                const int y = static_cast<int>(index / static_cast<std::size_t>(grid.width()));
+                navigation.cells.push_back({x, y, grid.IsWalkable({x, y}), false, {}});
+            }
+            state_.navigation = std::move(navigation);
+            if (previous_selection && previous_selection->document_id == "core.navigation") {
+                const auto prefix = std::string("/walkable/");
+                if (previous_selection->object_path.rfind(prefix, 0) == 0) {
+                    try {
+                        (void) SelectNavigationCell(
+                            std::stoull(previous_selection->object_path.substr(prefix.size())));
+                    } catch (...) {
+                        state_.selection.reset();
+                    }
+                }
+            }
+        } catch (const std::exception&) {
+            state_.navigation.reset();
+        }
+    }
 }
 
 void EditorSession::SyncTextField(bool select_all) {
@@ -134,6 +173,7 @@ bool EditorSession::Open() {
     state_ = {};
     state_.open = true;
     RebuildProjection();
+    state_.selection = SelectionTarget{state_.form.document_id, "/", "document"};
     focus_context_.ClearFocusables();
     for (std::size_t index = 0; index < state_.form.fields.size(); ++index)
         (void) focus_context_.RegisterFocusable(index + 1, index);
@@ -255,12 +295,13 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
                     const auto document_id = "plugin:" + document.type_id + ":" + relative;
                     if (!external_ids.insert(document_id).second)
                         continue;
-                    external_documents_.push_back(
-                        project::DocumentDescriptor{.id = document_id,
-                                                    .path = relative,
-                                                    .label_key = "plugin." + id + ".document",
-                                                    .editable = true,
-                                                    .type_id = document.type_id});
+                    external_documents_.push_back(project::DocumentDescriptor{
+                        .id = document_id,
+                        .path = relative,
+                        .label_key = "plugin." + id + ".document",
+                        .editable = true,
+                        .type_id = document.type_id,
+                        .category_key = "editor.project.category.plugins"});
                     ++discovered;
                 }
                 if (iterator_error)
@@ -289,6 +330,7 @@ bool EditorSession::SelectDocument(std::string_view document_id) {
         return false;
     }
     state_.selected_field = 0;
+    state_.selection = SelectionTarget{std::string(document_id), "/", "document"};
     RebuildProjection();
     focus_context_.ClearFocusables();
     for (std::size_t index = 0; index < state_.form.fields.size(); ++index)
@@ -296,6 +338,46 @@ bool EditorSession::SelectDocument(std::string_view document_id) {
     SyncTextField(true);
     SetDiagnostics(state_.preview.diagnostics);
     return true;
+}
+
+bool EditorSession::SelectNavigationCell(std::size_t index) {
+    if (!state_.open || !state_.navigation || index >= state_.navigation->cells.size())
+        return false;
+    auto& navigation = *state_.navigation;
+    if (navigation.selected)
+        navigation.cells[*navigation.selected].selected = false;
+    navigation.selected = index;
+    navigation.cells[index].selected = true;
+    state_.selection =
+        SelectionTarget{"core.navigation", "/walkable/" + std::to_string(index), "navigation.cell"};
+    return true;
+}
+
+bool EditorSession::ToggleSelectedNavigationWalkable() {
+    if (!state_.selection || !state_.navigation || !state_.navigation->selected)
+        return false;
+    const auto index = *state_.navigation->selected;
+    const auto result = workspace_.Apply({"core.navigation", "/walkable/" + std::to_string(index),
+                                          !state_.navigation->cells[index].walkable});
+    if (!result) {
+        SetDiagnostics(result.diagnostics);
+        return false;
+    }
+    state_.dirty = true;
+    state_.revision = result.revision;
+    snapshot_->revision = result.revision;
+    RebuildProjection();
+    SetDiagnostics({});
+    return true;
+}
+
+void EditorSession::StopPreview() {
+    preview_process_.Stop();
+    state_.preview.process_running = preview_process_.state().running;
+    state_.preview.process_exit_code = preview_process_.state().exit_code;
+    state_.preview.process_error = preview_process_.state().error;
+    state_.preview.standard_output = preview_process_.state().standard_output;
+    state_.preview.standard_error = preview_process_.state().standard_error;
 }
 
 bool EditorSession::SetDiagnosticFilter(std::string_view filter) {
@@ -370,7 +452,7 @@ bool EditorSession::ApplySelected(nlohmann::json value) {
 }
 
 bool EditorSession::ApplySelectedText(std::string_view value) {
-    if (!state_.open || state_.form.fields.empty() ||
+    if (!state_.open || IsNavigationCellSelection(state_.selection) || state_.form.fields.empty() ||
         state_.selected_field >= state_.form.fields.size())
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
@@ -406,7 +488,7 @@ bool EditorSession::ApplySelectedText(std::string_view value) {
 }
 
 bool EditorSession::ApplySelectedComposition(std::string_view value) {
-    if (!state_.open || state_.form.fields.empty() ||
+    if (!state_.open || IsNavigationCellSelection(state_.selection) || state_.form.fields.empty() ||
         state_.selected_field >= state_.form.fields.size())
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
@@ -421,7 +503,7 @@ bool EditorSession::ApplySelectedComposition(std::string_view value) {
 }
 
 bool EditorSession::ApplySelectedKey(std::string_view key) {
-    if (!state_.open || state_.form.fields.empty() ||
+    if (!state_.open || IsNavigationCellSelection(state_.selection) || state_.form.fields.empty() ||
         state_.selected_field >= state_.form.fields.size())
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
@@ -502,6 +584,7 @@ bool EditorSession::Save() {
     }
     if (!plan.token || plan.changes.empty()) {
         state_.dirty = false;
+        RebuildProjection();
         SetDiagnostics({});
         return true;
     }
@@ -511,6 +594,7 @@ bool EditorSession::Save() {
         return false;
     }
     state_.dirty = false;
+    RebuildProjection();
     SetDiagnostics({});
     return true;
 }

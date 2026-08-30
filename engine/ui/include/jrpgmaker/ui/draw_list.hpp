@@ -36,13 +36,22 @@ struct DrawText {
     std::optional<EditDecoration> edit;
 };
 
+// Text that has already been resolved by its presentation owner. Runtime
+// dialog and prompt projections use this form because domain localization is
+// resolved before rendering; editor projections continue to use DrawText keys.
+struct DrawResolvedText {
+    Rect rect;
+    std::string text;
+    std::optional<DrawText::EditDecoration> edit;
+};
+
 struct DrawGlyph {
     Rect rect;
     Rect uv;
     glm::vec4 color{1.0f};
 };
 
-using DrawPrimitive = std::variant<DrawRect, DrawText, DrawGlyph>;
+using DrawPrimitive = std::variant<DrawRect, DrawText, DrawResolvedText, DrawGlyph>;
 
 class DrawList final {
 public:

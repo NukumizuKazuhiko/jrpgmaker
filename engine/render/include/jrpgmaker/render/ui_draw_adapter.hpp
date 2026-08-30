@@ -4,15 +4,15 @@
 #include <string>
 #include <vector>
 
-#include <glm/vec3.hpp>
 #include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include "jrpgmaker/rhi/command_list.hpp"
+#include "jrpgmaker/rhi/device.hpp"
 #include "jrpgmaker/ui/draw_list.hpp"
 #include "jrpgmaker/ui/editor_resources.hpp"
 #include "jrpgmaker/ui/glyph_atlas.hpp"
-#include "jrpgmaker/rhi/command_list.hpp"
-#include "jrpgmaker/rhi/device.hpp"
 
 namespace jrpgmaker::render {
 
@@ -68,6 +68,8 @@ struct UiTextGpuBatch {
     rhi::TextureHandle texture = rhi::TextureHandle::kInvalid;
     rhi::SamplerHandle sampler = rhi::SamplerHandle::kInvalid;
     std::uint32_t index_count = 0;
+    std::uint64_t vertex_capacity_bytes = 0;
+    std::uint64_t index_capacity_bytes = 0;
 
     [[nodiscard]] bool empty() const { return index_count == 0; }
 };
@@ -76,15 +78,21 @@ struct UiTextGpuBatch {
 // Text remains a key so glyph shaping and localization stay owned by the text
 // pipeline; this adapter only owns primitive ordering and geometry conversion.
 [[nodiscard]] UiDrawPacket BuildUiDrawPacket(const ui::DrawList& draw_list,
-                                             const ui::EditorTheme& theme,
-                                             UiViewport viewport);
+                                             const ui::EditorTheme& theme, UiViewport viewport);
 
 [[nodiscard]] UiTextDrawPacket BuildUiTextDrawPacket(const ui::DrawList& draw_list,
-                                                    UiViewport viewport);
+                                                     UiViewport viewport);
 
 [[nodiscard]] UiTextGpuBatch UploadUiTextDrawPacket(rhi::IDevice& device,
                                                     const UiTextDrawPacket& packet,
                                                     const ui::GlyphAtlas& atlas);
+
+// Updates a runtime text batch without replacing resources between frames.
+// The first non-empty update allocates bounded buffers and a sampled atlas;
+// later updates only upload the atlas and packet contents. The caller must
+// wait for GPU idle before destroying the batch.
+void UpdateUiTextGpuBatch(rhi::IDevice& device, UiTextGpuBatch& batch,
+                          const UiTextDrawPacket& packet, const ui::GlyphAtlas& atlas);
 
 void RecordUiTextDrawPacket(rhi::ICommandList& command_list, rhi::PipelineHandle pipeline,
                             const UiTextGpuBatch& batch);

@@ -1,7 +1,16 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <filesystem>
+
 #include "jrpgmaker/editor/editor_shell.hpp"
+#include "jrpgmaker/editor/form_projection.hpp"
 #include "jrpgmaker/ui/draw_list.hpp"
+#include "jrpgmaker/ui/editor_resources.hpp"
+#include "jrpgmaker/ui/glyph_atlas.hpp"
+#include "jrpgmaker/ui/menu.hpp"
+#include "jrpgmaker/ui/text.hpp"
+#include "jrpgmaker/ui/text_draw.hpp"
 
 TEST_CASE("editor input map translates only pressed configured keys", "[editor]") {
     jrpgmaker::editor::InputMap input;
@@ -13,6 +22,46 @@ TEST_CASE("editor input map translates only pressed configured keys", "[editor]"
     REQUIRE(input.Translate("S", true, true, false, false) ==
             jrpgmaker::editor::EditorAction::kSave);
     REQUIRE_FALSE(input.Translate("S", true, false, false, false).has_value());
+}
+
+TEST_CASE("ui menu opens a submenu and emits a structured command", "[ui][menu]") {
+    jrpgmaker::ui::MenuController menu;
+    REQUIRE(menu.SetModel(
+        {.roots = {{.id = 1,
+                    .label_key = "editor.menu.file",
+                    .children = {
+                        {.id = 2, .label_key = "editor.action.save", .command = "file.save"}}}}}));
+    REQUIRE(
+        menu.Layout({0, 0, 300, 28}, {.root_width = 100, .row_height = 24, .popup_width = 180}));
+    REQUIRE(menu.PointerDown(20, 12).changed);
+    REQUIRE(menu.open());
+    const auto command = menu.PointerDown(40, 28 + 12);
+    REQUIRE(command.commands.size() == 1);
+    REQUIRE(command.commands.front().type == jrpgmaker::ui::UiCommandType::kActivate);
+    REQUIRE(command.commands.front().text == "file.save");
+    REQUIRE_FALSE(menu.open());
+}
+
+TEST_CASE("ui menu keyboard navigation and escape obey focus ownership", "[ui][menu][ui context]") {
+    jrpgmaker::ui::MenuController menu;
+    REQUIRE(menu.SetModel({.roots = {{.id = 1,
+                                      .label_key = "editor.menu.project",
+                                      .children = {{.id = 2,
+                                                    .label_key = "editor.document.camera",
+                                                    .command = "document.core.camera"},
+                                                   {.id = 3,
+                                                    .label_key = "editor.document.input",
+                                                    .command = "document.app.input_actions"}}}}}));
+    REQUIRE(
+        menu.Layout({0, 0, 240, 28}, {.root_width = 120, .row_height = 24, .popup_width = 180}));
+    REQUIRE(menu.KeyDown("Alt").changed);
+    REQUIRE(menu.KeyDown("Down").changed);
+    REQUIRE(menu.KeyDown("Down").changed);
+    REQUIRE(menu.BuildDrawList("button", "panel", "button").size() == 6);
+    const auto command = menu.KeyDown("Enter");
+    REQUIRE(command.commands.size() == 1);
+    REQUIRE(command.commands.front().text == "document.app.input_actions");
+    REQUIRE_FALSE(menu.KeyDown("Escape").changed);
 }
 
 TEST_CASE("editor input map is built from the action resource", "[editor]") {
@@ -73,6 +122,88 @@ TEST_CASE("editor shell projection produces draw primitives from layout bounds",
     REQUIRE(std::holds_alternative<jrpgmaker::ui::DrawText>(draw_list.primitives()[1]));
 }
 
+TEST_CASE("editor toolbar projects four distinct commands", "[ui][editor][toolbar]") {
+    const auto draw_list = jrpgmaker::editor::BuildToolbarDrawList({0, 0, 400, 32}, false, false);
+    REQUIRE(draw_list.size() == 8);
+    REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[1]).text_key ==
+            "editor.action.open");
+    REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[3]).text_key ==
+            "editor.action.save");
+    REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[5]).text_key ==
+            "editor.action.run_preview");
+    REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[7]).text_key ==
+            "editor.action.stop_preview");
+}
+
+TEST_CASE("project panel projects bounded categories and case insensitive filtering",
+          "[editor][project][selection]") {
+    const jrpgmaker::editor::DocumentTabsProjection documents{
+        .tabs = {{.document_id = "project.manifest",
+                  .path = "project.json",
+                  .label_key = "editor.document.project",
+                  .category_key = "editor.project.category.project"},
+                 {.document_id = "core.camera",
+                  .path = "assets/data/camera.json",
+                  .label_key = "editor.document.camera",
+                  .category_key = "editor.project.category.camera"},
+                 {.document_id = "app.input_actions",
+                  .path = "assets/data/input.json",
+                  .label_key = "editor.document.input",
+                  .category_key = "editor.project.category.input"}}};
+    const auto filtered = jrpgmaker::editor::BuildProjectPanelProjection(documents, "CAMERA");
+    REQUIRE(filtered.rows.size() == 3);
+    REQUIRE(filtered.rows[0].kind == jrpgmaker::editor::ProjectPanelRowKind::kFilter);
+    REQUIRE(filtered.rows[1].kind == jrpgmaker::editor::ProjectPanelRowKind::kCategory);
+    REQUIRE(filtered.rows[2].kind == jrpgmaker::editor::ProjectPanelRowKind::kDocument);
+    REQUIRE(filtered.rows[2].document_index == 1);
+}
+
+TEST_CASE("editor navigation projection reflows and hits bounded cells",
+          "[editor][navigation][layout]") {
+    jrpgmaker::editor::NavigationProjection navigation;
+    navigation.width = 2;
+    navigation.height = 2;
+    navigation.cells = {{0, 0, true, false, {}},
+                        {1, 0, false, false, {}},
+                        {0, 1, true, true, {}},
+                        {1, 1, true, false, {}}};
+    jrpgmaker::editor::LayoutNavigation(navigation, {100, 40, 200, 160});
+    REQUIRE(navigation.cells[0].bounds.width > 0.0f);
+    REQUIRE(jrpgmaker::editor::HitNavigationCell(navigation, navigation.cells[2].bounds.x + 1,
+                                                 navigation.cells[2].bounds.y + 1) == 2);
+    REQUIRE_FALSE(jrpgmaker::editor::HitNavigationCell(navigation, 99, 39).has_value());
+    REQUIRE(jrpgmaker::editor::BuildNavigationDrawList(navigation).size() == 4);
+}
+
+TEST_CASE("editor shell reflows regions with actual window size", "[editor][layout]") {
+    jrpgmaker::ui::EditorLayout layout;
+    layout.id = "editor.workspace";
+    const auto node = [](std::string type, std::string id) {
+        jrpgmaker::ui::EditorLayoutNode result;
+        result.type = std::move(type);
+        result.id = std::move(id);
+        return result;
+    };
+    layout.root.type = "SplitPane";
+    layout.root.id = "workspace.root";
+    layout.root.children = {node("Toolbar", "workspace.toolbar"),
+                            node("WorkspaceTree", "workspace.tree"),
+                            node("SceneView", "workspace.scene"),
+                            node("Inspector", "workspace.form"),
+                            node("DiagnosticPanel", "workspace.diagnostics"),
+                            node("StatusBar", "workspace.status")};
+    auto shell = jrpgmaker::editor::BuildShellProjection(layout);
+    REQUIRE(shell);
+    jrpgmaker::editor::ReflowShellProjection(*shell, 900, 600);
+    const auto find = [&shell](std::string_view id) -> const jrpgmaker::editor::ShellNode& {
+        return *std::find_if(shell->nodes.begin(), shell->nodes.end(),
+                             [id](const auto& node) { return node.id == id; });
+    };
+    REQUIRE(find("workspace.root").bounds.width == 900);
+    REQUIRE(find("workspace.scene").bounds.width > 0);
+    REQUIRE(find("workspace.scene").bounds.x < find("workspace.form").bounds.x);
+}
+
 TEST_CASE("editor status bar projects localized state and revision", "[ui][editor]") {
     const auto draw_list = jrpgmaker::editor::BuildStatusBarDrawList(
         {.open = true, .dirty = true, .revision = 7}, {0, 0, 100, 20}, "panel");
@@ -110,6 +241,20 @@ TEST_CASE("form draw projection emits focused theme states from adapter metadata
     REQUIRE(draw_list.size() == 6);
     const auto& focused = std::get<jrpgmaker::ui::DrawRect>(draw_list.primitives()[3]);
     REQUIRE(focused.state == "focused");
+}
+
+TEST_CASE("form field roles use the committed input recipe", "[ui][editor]") {
+    const jrpgmaker::editor::FormProjection form{.document_id = "project.manifest",
+                                                 .fields = {{.path = "/id",
+                                                             .label_key = "editor.project.id",
+                                                             .recipe = "text",
+                                                             .value_type = "string",
+                                                             .value = "demo",
+                                                             .choices = {}}}};
+    const auto draw_list = jrpgmaker::editor::BuildFormDrawList(form, {0, 0, 100, 20}, 20, 0);
+
+    REQUIRE(draw_list.size() == 3);
+    REQUIRE(std::get<jrpgmaker::ui::DrawRect>(draw_list.primitives()[0]).recipe == "input");
 }
 
 TEST_CASE("preview draw projection preserves structured metric and diagnostic keys",
@@ -162,7 +307,7 @@ TEST_CASE("document tabs preserve manifest order and dirty active state", "[ui][
 
     const auto draw_list = jrpgmaker::editor::BuildDocumentTabsDrawList(tabs, {0, 0, 300, 30});
     REQUIRE(draw_list.size() == 6);
-    REQUIRE(std::get<jrpgmaker::ui::DrawRect>(draw_list.primitives()[2]).state == "active_dirty");
+    REQUIRE(std::get<jrpgmaker::ui::DrawRect>(draw_list.primitives()[2]).state == "pressed");
 }
 
 TEST_CASE("document tabs mark every document with pending changes", "[ui][editor]") {
@@ -239,4 +384,31 @@ TEST_CASE("preview draw projection exposes bounded process logs", "[ui][editor]"
             "editor.preview.stdout");
     REQUIRE(std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[5]).text_key ==
             "editor.preview.stderr");
+}
+
+TEST_CASE("workspace preview metrics resolve through committed locale and text draw",
+          "[ui][editor]") {
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(resources);
+
+    const jrpgmaker::project::DiagnosticSet diagnosis{.diagnostics = {},
+                                                      .event_count = 2,
+                                                      .interaction_count = 3,
+                                                      .collision_count = 4,
+                                                      .navigation_width = 16,
+                                                      .navigation_height = 12,
+                                                      .camera_region_count = 5};
+    const auto preview = jrpgmaker::editor::BuildWorkspacePreview(diagnosis);
+    const auto source = jrpgmaker::editor::BuildPreviewDrawList(preview, {0, 0, 320, 180}, 30);
+
+    jrpgmaker::ui::Font font;
+    REQUIRE(font.Load(
+        (std::filesystem::path(JRPGMAKER_ASSET_DIR) / "fonts/NotoSansCJK-Regular.ttc").string()));
+    jrpgmaker::ui::GlyphAtlas atlas(512, 512, 256);
+    const auto text =
+        jrpgmaker::ui::BuildTextDrawList(source, resources.bundle->locale, font, atlas, 20);
+
+    REQUIRE(text.ok());
+    REQUIRE(text.diagnostics.empty());
 }

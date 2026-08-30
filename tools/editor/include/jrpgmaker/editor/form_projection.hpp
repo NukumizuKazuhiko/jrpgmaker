@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,6 +35,21 @@ struct DocumentTabProjection {
     bool dirty = false;
     bool editable = false;
     std::size_t diagnostic_count = 0;
+    std::string category_key;
+    std::string type_id;
+};
+
+enum class ProjectPanelRowKind : std::uint8_t { kFilter, kCategory, kDocument };
+
+struct ProjectPanelRow {
+    ProjectPanelRowKind kind = ProjectPanelRowKind::kDocument;
+    std::string category_key;
+    std::size_t document_index = 0;
+};
+
+struct ProjectPanelProjection {
+    std::string filter;
+    std::vector<ProjectPanelRow> rows;
 };
 
 struct DocumentTabsProjection {
@@ -72,19 +88,27 @@ struct PreviewProjection {
 };
 
 [[nodiscard]] FormProjection BuildFormProjection(const project::DocumentAdapter& adapter,
-                                                  const nlohmann::json& document);
+                                                 const nlohmann::json& document);
 
-[[nodiscard]] DocumentTabsProjection BuildDocumentTabsProjection(
-    const std::vector<project::DocumentDescriptor>& documents, std::string_view active_document_id,
-    bool dirty, const std::vector<project::Diagnostic>& diagnostics);
+[[nodiscard]] DocumentTabsProjection
+BuildDocumentTabsProjection(const std::vector<project::DocumentDescriptor>& documents,
+                            std::string_view active_document_id, bool dirty,
+                            const std::vector<project::Diagnostic>& diagnostics);
 
-[[nodiscard]] DocumentTabsProjection BuildDocumentTabsProjection(
-    const std::vector<project::DocumentDescriptor>& documents, std::string_view active_document_id,
-    const std::vector<project::Change>& changes, const std::vector<project::Diagnostic>& diagnostics);
+[[nodiscard]] DocumentTabsProjection
+BuildDocumentTabsProjection(const std::vector<project::DocumentDescriptor>& documents,
+                            std::string_view active_document_id,
+                            const std::vector<project::Change>& changes,
+                            const std::vector<project::Diagnostic>& diagnostics);
 
-[[nodiscard]] DiagnosticPanelProjection BuildDiagnosticPanelProjection(
-    const std::vector<project::DocumentDescriptor>& documents,
-    const std::vector<project::Diagnostic>& diagnostics, std::string_view filter = {});
+[[nodiscard]] ProjectPanelProjection
+BuildProjectPanelProjection(const DocumentTabsProjection& documents, std::string_view filter,
+                            std::size_t max_rows = 256);
+
+[[nodiscard]] DiagnosticPanelProjection
+BuildDiagnosticPanelProjection(const std::vector<project::DocumentDescriptor>& documents,
+                               const std::vector<project::Diagnostic>& diagnostics,
+                               std::string_view filter = {});
 
 [[nodiscard]] DiffProjection BuildDiffProjection(const std::vector<project::Change>& changes);
 

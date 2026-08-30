@@ -1,15 +1,16 @@
 {
   "schema": 1,
-  "locale": "en",
+  "locale": "zh-CN",
   "strings": {
-    "intro.welcome": "Welcome.",
-    "alice.greeting.first": "Hello.",
-    "alice.ask.help": "Will you help?",
-    "alice.opt.yes": "Yes",
-    "alice.opt.no": "No",
-    "alice.help.reply": "Thank you.",
-    "chest.opened": "The chest is open.",
-    "alice.reward.line": "You did well.",
-    "chest.west.echo": "An echo answers."
+    "intro.welcome": "欢迎来到星辉镇。",
+    "alice.greeting.first": "你好，旅行者。",
+    "alice.ask.help": "你愿意帮助我吗？",
+    "alice.opt.yes": "当然愿意",
+    "alice.opt.no": "现在不行",
+    "alice.help.reply": "谢谢你！",
+    "chest.opened": "宝箱打开了。",
+    "alice.reward.line": "你做得很好。",
+    "chest.west.echo": "远处传来回声。",
+    "prompt.talk.alice": "按 E 与爱丽丝对话"
   }
 }

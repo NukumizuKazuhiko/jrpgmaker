@@ -1,11 +1,12 @@
 find_package(SDL3 CONFIG REQUIRED)
 
-add_library(jrpgmaker_editor_host STATIC src/editor_shell.cpp src/form_projection.cpp src/editor_session.cpp src/preview_process.cpp)
+add_library(jrpgmaker_editor_host STATIC src/editor_shell.cpp src/form_projection.cpp src/editor_session.cpp src/editor_workspace_controller.cpp src/preview_process.cpp)
 add_library(jrpgmaker::editor_host ALIAS jrpgmaker_editor_host)
 target_sources(
   jrpgmaker_editor_host
   PUBLIC FILE_SET HEADERS BASE_DIRS include FILES include/jrpgmaker/editor/editor_shell.hpp
          include/jrpgmaker/editor/form_projection.hpp include/jrpgmaker/editor/editor_session.hpp
+         include/jrpgmaker/editor/editor_workspace_controller.hpp
          include/jrpgmaker/editor/preview_process.hpp)
 target_include_directories(jrpgmaker_editor_host PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(jrpgmaker_editor_host PUBLIC jrpgmaker::ui jrpgmaker::project)

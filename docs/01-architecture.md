@@ -2,50 +2,56 @@
 
 > 状态：当前有效（登记于 [README.md](README.md)）。本文是模块边界的唯一真源；新增第三方库必须先在此登记选型理由并获用户确认。
 
-## 分层图与依赖规则
+## 模块依赖图与规则
 
-依赖方向严格单向向下，禁止反向依赖与跨层跳跃：
+当前模块关系是由 CMake target 明确表达的有向无环图，不是可以按页面纵向位置推断的单列分层。以下只记录当前源码实际依赖；新增或删除依赖边时必须同轮更新 CMake、本文 owner 表和对应合同测试，禁止通过私有头、仓库相对路径或 executable stdout 建立隐式依赖：
 
-```
-adapter   tools/(CLI) · platform/(SDL3) · (远期)editor
-             ↓ 只做协议映射
-shell     app/ 项目清单装配 · 主循环 · demo 宿主
-             ↓ 注册
-plugins   plugins/* 战斗规则、渲染风格及其 schema/presentation adapter
-             ↓ 只依赖公开 seam，禁止反向进入 engine 私有实现
-host      engine/plugin 通用插件清单 · 注册表 · 生命周期 · validator
-             ↓
-domain    engine/domain 事件 · 对话 · 日期/日程 · 地图触发 · 项目流程
-             ↓ 经事件总线发结构化命令/状态 projection
-ui        engine/ui        render     engine/render     audio    engine/audio
-(控件树·CJK排版)           (场景提交·风格 seam)       (BGM/SFX·混音总线)
-             ↓                      ↓                        ↓
-rhi       engine/rhi 图形 API 合同层（d3d12 / vulkan 为 adapter 后端）
-             ↓
-core      engine/core 数学 · ECS · 资产句柄 · 事件总线 · 时间 · 日志
+```text
+app executable ───────────────► core · domain · assetimport · plugin · audio · ui · render
+        │                       plugins · rhi · platform backend · SDL3
+        │
+editor executable ────────────► editor_host · tools/project · ui · render · rhi
+                                platform backend · SDL3
+
+editor_host ──────────────────► tools/project · ui
+tools/project ────────────────► core · domain · plugin
+assetimport ──────────────────► core
+
+sample battle plugins ────────► plugin
+sample render-style plugins ──► render
+
+render ───────────────────────► ui · rhi · plugin
+ui ───────────────────────────► domain · core
+domain ───────────────────────► core
+
+core      plugin      rhi      audio    # 当前无彼此之间的 CMake target 依赖
+rhi backends ─────────────────► rhi      # Vulkan backend 另有 private SDL3/volk 依赖
 ```
 
 ## Owner 边界合同表
 
-| 层 | 目录 | 唯一 owner 职责 | 允许依赖 | 禁止事项 |
+| 层 | 目录 | 唯一 owner 职责 | 当前 CMake 依赖 | 禁止事项 |
 |---|---|---|---|---|
-| core | `engine/core` | 数学类型(GLM 封装)、EnTT registry 封装（`Scene`：实体/变换层级/世界矩阵，ADR-001 执行）、句柄式资产管理（`AssetRegistry`：注册/查询/卸载/泄漏计数 + `MeshData` 等 CPU 侧资产数据结构）、事件总线、时钟/时间步、日志、诊断 | 仅标准库 + GLM/EnTT | 任何图形 API、平台 API、JRPG 语义 |
-| plugin host | `engine/plugin` | 版本化插件清单、稳定插件 ID、类型化注册表、构建期工厂、生命周期、能力声明、插件 validator 调度 | core、nlohmann/json | 理解战斗数值、材质字段或任何插件私有 payload；直接加载后端 API |
-| rhi 合同 | `engine/rhi` | 图形 API 语义：设备、swapchain、pipeline、buffer/texture/sampler、command list、同步原语 | core | 出现任何游戏概念；暴露后端类型 |
-| rhi 后端 | `engine/rhi/backends/{d3d12,vulkan}` | 实现 RHI 合同 | rhi 合同 + core | 相互引用；后端头文件泄漏出 `backends/` |
-| render | `engine/render` | 场景提交、相机投影、通用 draw/pass 数据、渲染风格插件 seam；把风格插件输出翻译到 RHI | rhi、core、plugin host | 私造游戏状态；拥有固定画风、固定材质 schema、项目 shader 或战斗语义 |
-| ui | `engine/ui` | 保留式控件树、布局、九宫格、通用 draw list、FreeType+HarfBuzz CJK 文本排版 | render, core | 决定游戏流程；私造文案、战斗菜单语义或固定视觉主题 |
-| audio | `engine/audio` | BGM/SFX 播放、混音总线、音频解码(miniaudio) | core | 判断游戏状态 |
-| domain | `engine/domain` | **项目流程真相**：事件指令集+解释器、flag、对话、可配置日期/日程、地图触发、扩展会话调度、cutscene 时间轴语义、存档 schema、Lua(sol2) 绑定 | core、plugin host（对 ui/render/audio 仅经事件总线发结构化命令） | 内置战斗规则/数值 schema；解释插件私有 payload；直接绘制；硬编码剧情/数值 |
-| extensions | `plugins/*` | 插件私有规则、schema、validator、资源和 presentation adapter；战斗插件拥有 actor/skill/buff/AI/QTE/结算，渲染风格插件拥有 shader/材质 schema/光照/后处理 | 对应公开 seam；不得依赖 `engine/*/src` | 修改 RHI 后端；要求 app 为具体插件增加分支；把插件私有语义提升为引擎真相 |
-| platform(adapter) | `engine/platform` | SDL3 窗口/输入接线、文件系统抽象、剪贴板 | core | 游戏语义 |
-| shell(app) | `app/` | 主循环装配、各层初始化顺序、demo/游戏宿主 | 全部下层 | 成为第二业务逻辑 owner |
-| tools(adapter) | `tools/` | CLI、编辑器 GUI、schema lint、资产导入、golden image 对比；`tools/project` 提供 CLI/GUI 共用的结构化项目工作区深模块 | core, domain(schema), plugin, ui | 运行时行为；复制 parser/validator；以终端文本作为模块间协议 |
+| core | `engine/core` | 数学类型、EnTT registry 封装（`Scene`：实体/变换层级/世界矩阵，ADR-001 执行）、句柄式资产管理（`AssetRegistry`：注册/查询/卸载/泄漏计数 + `MeshData` 等 CPU 侧资产数据结构）、事件总线、时钟/时间步、日志、诊断 | EnTT、GLM、nlohmann/json；无其他 engine target | 任何图形 API、平台 API、JRPG 流程语义 |
+| plugin host | `engine/plugin` | 版本化插件清单、稳定插件 ID、类型化注册表、构建期工厂、生命周期、能力声明、插件 validator 调度 | nlohmann/json；无其他 engine target | 理解战斗数值、材质字段或任何插件私有 payload；直接加载后端 API |
+| rhi 合同 | `engine/rhi` | 图形 API 语义：设备、swapchain、pipeline、buffer/texture/sampler、command list、同步原语 | 无其他 engine target | 出现任何游戏概念；暴露后端类型 |
+| rhi 后端 | `engine/rhi/backends/{d3d12,vulkan}` | 实现 RHI 合同 | rhi 合同；D3D12 私有依赖系统图形库，Vulkan 私有依赖 volk/SDL3 | 相互引用；后端头文件泄漏出 `backends/` |
+| domain | `engine/domain` | **项目流程真相**：事件指令集+解释器、flag、对话、可配置日期/日程、地图触发、扩展会话调度、cutscene 时间轴语义、存档 schema、Lua(sol2) 绑定 | core、nlohmann/json、sol2/Lua | 内置战斗规则/数值 schema；解释插件私有 payload；直接绘制；硬编码剧情/数值 |
+| ui | `engine/ui` | 保留式控件树、布局、九宫格、通用 draw list、FreeType+HarfBuzz CJK 文本排版，以及对 domain 对话/本地化 projection 的 presentation 状态 | core、domain、FreeType、HarfBuzz、nlohmann/json | 决定游戏流程；反向依赖 render/RHI；私造战斗菜单语义、固定主题或项目文案 |
+| render | `engine/render` | 场景提交、相机投影、通用 draw/pass 数据、渲染风格插件 seam；把 UI draw data 与风格插件输出翻译到 RHI | ui、rhi、plugin host、GLM | 私造游戏状态；反向依赖 domain；拥有固定画风、固定材质 schema、项目 shader 或战斗语义 |
+| audio | `engine/audio` | 有界 voice 与混音总线的 CPU 侧状态 | 无其他 engine target；设备输出目前由 app 的 SDL adapter 接线 | 判断游戏状态；直接依赖 domain、ui、render 或 RHI |
+| extensions | `plugins/*` | 插件私有规则、schema、validator、资源和 presentation adapter；战斗插件拥有 actor/skill/buff/AI/QTE/结算，渲染风格插件拥有 shader/材质 schema/光照/后处理 | 战斗样例依赖 plugin；渲染风格样例依赖 render；均不得依赖 `engine/*/src` | 修改 RHI 后端；要求 app 为具体插件增加分支；把插件私有语义提升为引擎真相 |
+| asset import | `tools/assetimport` | glTF/纹理兼容输入解析并投影到 core 的场景与 CPU 资产合同 | core、GLM | 成为运行时资产 owner；触碰 RHI 或插件材质语义 |
+| project workspace | `tools/project` | CLI/GUI 共用的结构化项目工作区深模块：安全路径、文档 adapter、诊断、revision、diff 与原子写回 | core、domain、plugin | 复制运行时语义；以终端文本作为协议；绕过 owner validator |
+| editor host | `tools/editor` 的 `jrpgmaker_editor_host` | 编辑会话、工作区 projection、选择、命令路由与预览进程状态 | ui、tools/project | 直接拥有项目 schema、parser、validator 或文件写回语义 |
+| platform skeleton | `engine/platform` | 目标职责原定为 SDL3 窗口/输入与剪贴板 adapter | 当前无 CMake target；仅有目录骨架。实际 SDL 接线位于 app、editor executable 与 Vulkan backend（DEBT-023） | 把尚未落地的目标模块描述成当前 owner |
+| shell(app) | `app/` | 主循环装配、各层初始化顺序、demo/游戏宿主 | core、domain、assetimport、plugin、audio、ui、render、plugins、rhi、一个平台 backend、SDL3 | 成为第二业务逻辑 owner；依赖 tools/project 或 editor host |
+| executable adapters | `tools/{projecttool,eventlint,editorlint,goldenimage,editor}` | argv/stdout、窗口、平台后端选择、离屏验收与薄接线 | 按用途依赖上述公开 targets；editor/goldenimage 选择一个平台 RHI backend | 通过 executable 文本绕过结构化 seam；成为第二语义 owner |
 
 ## 数据流合同（单向）
 
 ```
-输入(SDL3) → platform/shell 映射为项目 action id → domain 或活动插件消费
+输入(SDL3) → 当前 app/editor adapter 映射为项目 action id → domain 或活动插件消费
 项目数据 → domain；插件私有数据 → 对应插件 validator/会话
 domain/插件 → 结构化命令或 projection → ui / render / audio 执行呈现
 插件完成 → 稳定 result_key + opaque payload → 项目事件决定后续流程
@@ -63,6 +69,7 @@ presentation 层禁止反推业务结论；宿主禁止解释插件私有 payloa
 | ADR-005 | P5/P6 插件采用源码级、构建期注册；不在当前里程碑承诺跨编译器稳定的 DLL 热加载 ABI | 已决（用户确认 2026-08-26） | C++ ABI、异常、分配器与依赖版本跨工具链不稳定；先用真实双实现证明 seam，再单独评估二进制分发 |
 | ADR-006 | 引擎不绑定固定渲染画风或材质 schema；渲染风格插件拥有 shader、材质 schema、光照和后处理，项目拥有材质实例 | 已决（用户确认 2026-08-26） | [00-product.md](00-product.md) §已否定方向 |
 | ADR-007 | P13 编辑器的组件外观、布局配方和全部自然语言来自版本化主题/布局/i18n 文件；C++ 只拥有控件行为、类型安全状态与资源上界 | 已决（用户确认 2026-08-28） | [10-editor-ui-system.md](10-editor-ui-system.md) |
+| ADR-008 | 当前支持平台为 Windows/D3D12 与 Linux/Vulkan；macOS 不进入当前完成门禁，未来仅经现有 Vulkan RHI/MoltenVK 独立适配且不得引入平行业务语义 | 已决（用户确认 2026-08-29） | [ADR-008](adr/0008-current-platform-support.md) |
 
 ### P13 编辑器数据流
 
@@ -83,13 +90,13 @@ SDL3 事件 → editor host → UI 控件命令
 - `engine/ui` 拥有通用控件行为与渲染无关状态；组件外观由主题 recipe 决定，用户可见文本只接受 i18n key/参数。
 - 编辑器主题和语言包是编辑器资源，不得复用或污染游戏项目的 `theme_demo.json` 与 `localization_*.json` 语义。
 
-从外部架构模式采纳的合同增强（A1–A6 清单及拒绝项理由见调研文档）：rhi/render/audio 保持 server 式无状态服务形状，三段间接映射为 render(高层渲染语义)→rhi(图形合同)→backend(d3d12/vulkan, driver 角色)（Godot）；显式 Stage 序列与变更检测投影同步（Bevy）；单向 hybrid 红线（Unity/V Rising）；Public/Private 可见性纪律（Unreal）。
+从外部架构模式采纳的合同增强（A1–A6 清单及拒绝项理由见调研文档）：rhi/render/audio 保持独立服务边界，三段间接映射为 render(高层渲染语义)→rhi(图形合同)→backend(d3d12/vulkan, driver 角色)（Godot）；audio 的 `MixerBus` 明确持有有界 voice 状态，因此不能称为无状态服务。另采纳显式 Stage 序列与变更检测投影同步（Bevy）、单向 hybrid 红线（Unity/V Rising）及 Public/Private 可见性纪律（Unreal）。
 
 ## 关键合同设计
 
 ### 主循环与 Stage 合同（Bevy 式显式阶段）
 
-固定步长 tick 内的阶段序列是稳定合同，系统注册必须声明所属 Stage，跨 Stage 依赖必须显式声明 before/after，禁止隐式顺序：
+固定步长 tick 内的五阶段枚举序列是当前稳定合同。系统注册必须声明所属 Stage，并用唯一数字 `order` 表达同阶段内的升序执行顺序；当前没有 before/after 依赖图或拓扑排序：
 
 ```
 Input → Domain Sim → Animation → Presentation Sync → Render Submit
@@ -106,8 +113,8 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 
 - 合同测试套件：同一组渲染行为用例参数化跑 D3D12 与 Vulkan 两后端，输出 golden image 比对（容差阈值）。
 - 改动合同必须同一提交内同步两个后端并通过合同测试，否则不得声称完成（AGENTS.md 纪律 1）。
-- macOS 经 MoltenVK 走 Vulkan 后端，不单独维护 Metal 后端。
-- Shader 编译（ADR-003）：HLSL 单一源，用 DXC 编出 DXIL 与 SPIR-V 两种字节码（开发/CI 经 `tools/ci/compile_shaders.ps1`）；RHI pipeline 接口只消费预编译字节码，后端各自选择消费格式；运行时无 shader 编译器依赖。**字节码提交入库**（`shaders/generated/`，只读生成物，变更走 `compile_shaders.ps1` 重新生成后提交）；CI 的 shader-sync job（Linux）重新生成后 `git diff` 为空作为门禁；macOS 无 dxc 分发（官方 release 无 mac 二进制、无 brew formula、vcpkg `directx-dxc` port 仅 win/linux-x64），故**三平台构建均不调用 dxc**，直接消费已提交字节码。
+- 当前支持 Windows/D3D12 与 Linux/Vulkan。macOS 若在后续具备真实环境，经 MoltenVK 复用 Vulkan 后端，不单独维护 Metal 后端，也不进入当前完成门禁。
+- Shader 编译（ADR-003）：HLSL 单一源，用 DXC 编出 DXIL 与 SPIR-V 两种字节码（开发/CI 经 `tools/ci/compile_shaders.ps1`）；RHI pipeline 接口只消费预编译字节码，后端各自选择消费格式；运行时无 shader 编译器依赖。**字节码提交入库**（`shaders/generated/`，只读生成物，变更走 `compile_shaders.ps1` 重新生成后提交）；CI 的 shader-sync job（Linux）重新生成后 `git diff` 为空作为门禁。Windows/Linux 构建直接消费已提交字节码；未来 macOS 适配同样只能消费该单源产物，不引入第二套 shader 语言或运行时编译路径。
 
 ### RHI v0 合同语义（P1 落地版）
 
@@ -144,7 +151,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 
 - 显式阶段序列：`kInput → kDomainSim → kAnimation → kPresentationSync → kRenderSubmit`（`engine/core` 的 `stage.hpp`）。主循环每个 tick 依序推进全部阶段。
 - 系统注册声明：任何系统通过 `StageRunner::RegisterSystem(stage, {stage, order}, callback)` 声明所属 Stage 与 within-stage 顺序（升序）。跨 Stage 顺序即枚举顺序，禁止越级依赖。
-- v0 语义：阶段为**空占位**（空回调合法）；before/after 依赖图、系统对象模型随 P3 领域核心落地。delta 秒由主循环传入，固定时间步在 app 主循环实现（60Hz，accumulator 上限 0.25s 防螺旋死亡）。**P1 实机接线**：`kRenderSubmit` 阶段已挂真实渲染提交（app 的 swapchain Acquire→Draw→Submit→Present 回调），其余阶段空占位；渲染路径不再硬编码在主循环。
+- 当前语义：空 Stage 合法；同一 Stage 的重复 `order` 在注册时拒绝，`Tick` 每帧按 `order` 排序后调用。before/after 依赖图和系统对象模型尚未实现，不得把外部 Bevy 调研中的能力写成当前合同；是否引入由 DEBT-024/026 的 Stage 成熟化入口统一决定。delta 秒由主循环传入，固定时间步在 app 主循环实现（60Hz，accumulator 上限 0.25s 防螺旋死亡）。`kRenderSubmit` 已挂真实渲染提交，其他阶段也已有部分 domain/animation/presentation 回调，不能再描述为全部空占位。
 
 ### 通用插件宿主合同
 
@@ -201,9 +208,9 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 - **事件总线**：`jrpgmaker::core::EventBus`（类型擦除订阅/发布，docs/01 owner map 规定 domain 只发布、presentation 只消费）。订阅无退订（v0 消费者存活于进程期）。
 - **事件触发器（P3 子任务 5 落地）**：`jrpgmaker::domain::FlagTriggerSystem` + `ParseFlagTriggers`（`flag_trigger.hpp`）。触发器表为纯数据（`assets/data/triggers_demo.json`，schema v1：`{schema, triggers:[{flag, target_event_id}]}`，重复 flag 绑定/空字段解析期抛错）。`FlagTriggerSystem` 订阅 `FlagChanged`，**边沿触发**（false→true 只触发一次；重复 set true 不重触发，flag 回 false 后重新 true 再触发；false 不触发；未绑定 flag 忽略）。**接线约束**：回调在 `EventRunner::Tick` 内同步触发（`FlagChanged` 广播时源事件仍在完成中），宿主**禁止在回调内直接 `Start`**（会抛 "Start while an event is already active"），应排队到下一事件边界启动（标准游戏循环模式，见 flag_trigger_test 端到端用例）。区域/交互触发器依赖 P4 世界交互（玩家位置/碰撞），不在 P3 范围。
 - **lint CLI v1（P3 子任务 3）**：`tools/eventlint`（可执行 `jrpgmaker_eventlint`）+ domain `jrpgmaker::domain::LintEventScript`（`event_lint.hpp`）。职责为**单文件解析器无法表达的跨事件一致性检查**：重复事件 id（error）、空 event id/flag 名/speaker/text_key（error）、branch/choice 子序列内静态检出阻塞指令 dialog/choice/wait（error，与解释器运行时 `std::logic_error` 同源合同，作者期提前暴露）、branch 读取的 flag 在脚本内从未被写入（warning——flag 可由宿主注入，但未写入常是拼写/死分支症状）。**跨文件触发器引用检查（2026-08-25 审计补，`--check-triggers <events.json> <triggers.json>`）**：每个触发器 `target_event_id` 必须在事件脚本存在，否则触发后 `Start` 静默返回 false（error）。退出码 0=干净/1=有 error/2=用法错误；CI `data-lint` job 对 `assets/data/events_demo.json`（单文件 lint）与 `events_demo.json + triggers_demo.json`（交叉检查）要求干净。**text_key→i18n 文本表的跨文件引用检查属 v1 范围外**，随 i18n 子任务（文本表 schema 落地）扩展。
-- **文本排版库层（P3 子任务 6，`engine/ui` 首次落地）**：`jrpgmaker::ui`（`text.hpp`）三件套：`Font`（FreeType 加载 ttf/ttc，face_index 选 TTC 内面，`units_per_em`/`ascender`/`descender`/`line_gap` 为字体单位，`LoadGlyph`+位图度量供后续栅格化）；`TextShaper`（HarfBuzz shape UTF-8 → `TextRun{ShapedGlyph{glyph_id, cluster, advance_x, offset_x/y}}`，advance/offset 为像素）；`LineBreaker`（**CJK 禁则换行**：行首禁则——行不以闭括号/悬挂标点（`。」』〉）］｝‰％`、小写假名等）开头，行尾禁则——行不以开括号（`（「『《〈【` 等）结尾；超宽单字强制成行防死循环）。**纯 CPU，无渲染**；栅格化/纹理化属 UI 渲染子任务（依赖 DEBT-029 纹理管线）。单位约定：glyph advance 为像素，font 度量（ascender 等）为字体单位（相对 units_per_em，调用方缩放）。测试字体策略：Windows 用 `msgothic.ttc`、macOS 用 STHeiti、Linux 用 fonts-noto-cjk（CI 已装），找不到时 font/shaper 测试 SKIP（明确原因），禁则换行测试**自包含**（手造 glyph，零字体依赖，双端必跑）。
-- **Lua 绑定逃生舱（P3 子任务 7，`engine/domain`）**：`jrpgmaker::domain::LuaScriptEngine`（`lua_binding.hpp`，vcpkg `lua 5.5` + `sol2 3.5.0`）。**受限 API 表面**（docs/01 line 120 合同"Lua 只是复杂逻辑逃生舱，禁止绕过指令集私造流程"）：Lua 仅可 `flags.get/set`（FlagStore 读写；`flags.set` **发布 `FlagChanged` 到事件总线，与 EventRunner 同源投影**，2026-08-25 审计接线——否则 Lua 置位的 flag 触发器/表现层静默不触发）、`events.run(event_id)`（经宿主回调请求启动 EventRunner 事件，宿主决定合法性）、`log(message)`。**不暴露**指令解析/执行/schema/EventRunner 内部——业务流程仍走数据文件 + EventRunner。`Run(source)`/`Call(name)` 错误经 try/catch 捕获 `sol::error` 存入 `last_error()` 返回 false（sol2 的 `script`/`safe_script` 对语法/运行错误均抛异常，不捕获会崩溃）。
-- **UI 控件框架最小集（P3 子任务 9，`engine/ui` 纯 CPU 层）**：`jrpgmaker::ui`（`widget.hpp`）。**保留式控件树**：`Widget` 基类（id/visible/parent/AddChild/children，owns children，`Layout(available)` 虚方法存储 widget-local rect 并递归布局子控件）；`Panel`（九宫格背景 + padding 内容区，子控件布局进 padding 后区域）、`TextBlock`（Font* 借用非拥有 + TextShaper/LineBreaker 排版，`SetText` 后 `Layout` 用可用宽度排版，尺寸=排版结果）、`List`（垂直堆叠，可见子项按自身自然高度 + spacing，占满可用宽度）。`SliceNine(outer, slice)` 纯几何函数：把矩形切为 3×3 九宫格（四角保留、边单向拉伸、中心填充），切片内缩超过目标尺寸时钳制中心归零且不重叠。**纯 CPU，无渲染**——render 层后续消费已布局 rect 绘制（ui→render 依赖合同，render 层落地时接线）。测试策略：九宫格几何/控件树/面板/列表为自包含单测（双端必跑）；TextBlock 用真字体（SKIP 策略同 font_shaper）。
+- **文本排版与绘制链**：`engine/ui` 的 `Font` 通过 FreeType 加载 ttf/ttc、输出度量和灰度 glyph bitmap，`TextShaper` 通过 HarfBuzz 把 UTF-8 整形为像素度量的 `TextRun`，`LineBreaker` 执行 CJK 行首/行尾禁则与超宽单字兜底。当前 `BuildTextDrawList`、有界 `GlyphAtlas` 和 `render::UiTextGpuBatch` 已把 glyph quad/atlas 上传到 RHI sampled-text pipeline，runtime overlay 与 editor 均消费该链；不能再描述为“纯 CPU、后续栅格化”。CPU 排版测试仍覆盖自包含禁则，GPU CJK 可复现边界见 DEBT-043。
+- **Lua 绑定逃生舱（P3 子任务 7，`engine/domain`）**：`jrpgmaker::domain::LuaScriptEngine`（`lua_binding.hpp`，vcpkg `lua 5.5.1` + `sol2 3.5.0`）。**受限 API 表面**（docs/01 line 120 合同"Lua 只是逃生舱，禁止绕过事件指令集私造流程"）：Lua 仅可 `flags.get/set`（FlagStore 读写；`flags.set` **发布 `FlagChanged` 到事件总线，与 EventRunner 同源投影**，2026-08-25 审计接线——否则 Lua 置位的 flag 触发器/表现层静默不触发）、`events.run(event_id)`（经宿主回调请求启动 EventRunner 事件，宿主决定合法性）、`log(message)`。**不暴露**指令解析/执行/schema/EventRunner 内部——业务流程仍走数据文件 + EventRunner。`Run(source)`/`Call(name)` 错误经 try/catch 捕获 `sol::error` 存入 `last_error()` 返回 false（sol2 的 `script`/`safe_script` 对语法/运行错误均抛异常，不捕获会崩溃）。
+- **UI 控件与 DrawList**：`engine/ui` 保留 `Widget`/`Panel`/`TextBlock`/`List` 的 CPU 布局合同和 `SliceNine` 几何，同时已提供有界 `UiTree`/`DrawList`、主题 recipe、文本参数和 glyph primitive。`engine/render` 将矩形与文本 DrawList 转为 RHI 上传包，runtime/editor host 负责实际提交；控件行为和布局仍后端无关，但整个 UI 子系统已经具备真实 GPU 消费链。编辑器具体组件状态以 [编辑器 UI 系统合同](10-editor-ui-system.md) 为准。
 
 ### 存档合同
 
@@ -214,20 +221,20 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 | 领域 | 选型 | 选型理由 |
 |---|---|---|
 | 语言 | C++20 | 用户决策；图形行业生态最全 |
-| 构建 | CMake ≥ 3.24 + CMakePresets.json | 三平台统一入口；preset 固化配置矩阵 |
-| 依赖 | vcpkg manifest (`vcpkg.json`) | 三平台一致版本锁定 |
+| 构建 | CMake ≥ 3.28 + CMakePresets.json + Ninja + vcpkg manifest | 根 `CMakeLists.txt` 与 presets 的最低版本均为 3.28；Windows/Linux 使用统一入口，保留 macOS 后续适配 preset |
+| 依赖 | vcpkg manifest (`vcpkg.json`) | 当前平台一致版本锁定；后续适配沿用同一 manifest |
 | ECS | EnTT | header-only、成熟、JRPG 规模下性能充裕（vcpkg 3.16.0，P2 已引入，core::Scene 落地） |
 | 数学 | GLM | 与 GLSL 语义对齐，减少 shader 侧转换错误（vcpkg 1.0.3，P2 已引入；`glm::glm` target） |
-| 窗口/输入 | SDL3 | 三平台窗口、输入、剪贴板一站式 |
-| 图形 | 自研 RHI + D3D12(Win) / Vulkan(Linux/macOS via MoltenVK) | 平台边界决定的双后端结构 |
-| Vulkan 加载 | volk（header-only 运行时加载，vcpkg `volk` port） | 免链接平台 loader 库；macOS CI 用 lavapipe 软件驱动时 loader 由预编译包提供 |
+| 窗口/输入 | SDL3 | 当前双平台窗口、输入、剪贴板入口；保留后续 macOS 适配能力 |
+| 图形 | 自研 RHI + D3D12(Win) / Vulkan(Linux)；macOS 后续经 MoltenVK 复用 Vulkan | 当前支持平台决定双后端结构；后续适配不得新增核心业务分支 |
+| Vulkan 加载 | volk（header-only 运行时加载，vcpkg `volk` port） | 免链接平台 loader 库；当前 Linux 与未来 macOS 适配共享同一加载边界 |
 | 着色语言/编译器 | HLSL 2021 + DXC（单源双目标，见 ADR-003） | 双后端 shader 语义同源是 golden image 一致性的前提 |
-| 脚本 | sol2 + Lua 5.4 | 逃生舱定位，见事件指令集合同（vcpkg sol2 3.5.0 + lua 5.5，P3 引入；`LuaScriptEngine` 受限 API，禁止绕过指令集） |
+| 脚本 | sol2 3.5.0 + Lua 5.5.1 | vcpkg baseline 锁定；逃生舱定位，`LuaScriptEngine` 仅暴露受限 API，禁止绕过事件指令集 |
 | 序列化 | nlohmann/json | 数据先行工作流基础设施（vcpkg 3.12.0，P3 引入；`nlohmann_json::nlohmann_json` target，事件脚本 schema v1 解析用） |
 | glTF 解析 | cgltf（vcpkg port 1.15） | 零依赖单文件 C99 库；glTF 2.0 全特性覆盖；仅作资产导入的兼容输入（ADR-004）。vcpkg port 无 CMake config，tools/assetimport 用 `find_path(CGLTF_INCLUDE_DIRS NAMES cgltf.h)` 解析 include；`CGLTF_IMPLEMENTATION` 仅在 asset_import.cpp 单 TU 实例化；MSVC 下该 TU 局部抑制 `_CRT_SECURE_NO_WARNINGS`（C 头合法使用 fopen/strcpy 会被仓库级 `/WX` 提升为错误，抑制范围限定在该 target） |
 | 纹理解码 | stb（stb_image，vcpkg port） | 与 cgltf 同属零依赖工具族；PBR 纹理/立绘导入兼容输入（ADR-004） |
 | 字体 | FreeType + HarfBuzz | CJK 整形与禁则处理必需（vcpkg freetype 2.14.3（`default-features:false` 裁剪 brotli/bzip2/png，仅 core）+ harfbuzz 14.3.1，P3 引入；`engine/ui` 排版库层落地） |
-| 音频 | miniaudio | 单文件起步够用；总线混音自研 |
+| 音频 | 自研 `engine/audio` 混音总线 + SDL3 设备输出 adapter | `MixerBus` 提供有界单声道 PCM voice、增益混音和完成回收；当前 app 使用 SDL3 `SDL_AudioStream` 以 48 kHz float 队列输出。`engine/audio` 不依赖 SDL3，设备接线仍位于 app；仓库没有 miniaudio 依赖 |
 | 测试 | Catch2 + golden image | 单测 + 渲染双后端一致性门禁 |
 
 ## 目录结构（目标形态，随里程碑生长）
@@ -238,7 +245,7 @@ Input → Domain Sim → Animation → Presentation Sync → Render Submit
 <repo-root>/
 ├── AGENTS.md                  # 项目宪法
 ├── docs/                      # 真源文档（见 README.md 索引）
-├── .github/workflows/ci.yml   # CI 三平台门禁
+├── .github/workflows/ci.yml   # Windows/Linux 产品门禁；macOS 虽非支持承诺但当前 matrix 仍会硬失败（DEBT-044）
 ├── CMakeLists.txt
 ├── CMakePresets.json
 ├── vcpkg.json

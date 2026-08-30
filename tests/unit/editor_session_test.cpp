@@ -6,7 +6,9 @@
 #include <string_view>
 
 #include "jrpgmaker/editor/editor_session.hpp"
+#include "jrpgmaker/editor/editor_workspace_controller.hpp"
 #include "jrpgmaker/editor/preview_process.hpp"
+#include "jrpgmaker/ui/editor_resources.hpp"
 
 namespace {
 
@@ -25,6 +27,174 @@ std::filesystem::path MakeFixture(std::string_view suffix = {}) {
 }
 
 } // namespace
+
+TEST_CASE("editor workspace controller routes toolbar clicks as structured host requests",
+          "[editor][ui context][layout]") {
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(resources);
+    jrpgmaker::editor::EditorWorkspaceController controller(
+        {.layout = resources.bundle->layout,
+         .form_row_height = resources.bundle->theme.dimensions.at("font.body") +
+                            resources.bundle->theme.dimensions.at("space.sm"),
+         .diagnostic_row_height = resources.bundle->theme.dimensions.at("font.caption") +
+                                  resources.bundle->theme.dimensions.at("space.xs"),
+         .runtime_executable = {}});
+    REQUIRE(controller.Resize(1280, 720));
+
+    const auto toolbar = controller.panel_bounds("workspace.toolbar");
+    REQUIRE(toolbar);
+    const auto open = controller.PointerDown(toolbar->x + 20, toolbar->y + toolbar->height * 0.5f);
+    REQUIRE(open.host_request == jrpgmaker::editor::EditorHostRequest::kOpenProjectDialog);
+    REQUIRE_FALSE(open.changed);
+}
+
+TEST_CASE("editor workspace controller routes nested project settings to real documents",
+          "[editor][menu][selection]") {
+    const auto root = MakeFixture("_menu_settings");
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(resources);
+    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout});
+    REQUIRE(controller.Resize(1280, 720));
+    REQUIRE(controller.OpenProject(root));
+
+    REQUIRE(controller.PointerDown(120, 14).changed);
+    REQUIRE(controller.menu_open());
+    REQUIRE(controller.PointerDown(120, 28 + 28 + 14).changed);
+    REQUIRE(controller.menu_open());
+    REQUIRE(controller.PointerDown(360, 56 + 28 + 14).changed);
+    REQUIRE_FALSE(controller.menu_open());
+    REQUIRE(controller.state() != nullptr);
+    REQUIRE(controller.state()->form.document_id == "core.material");
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor workspace controller filters project resources through the shared input seam",
+          "[editor][project][ui text]") {
+    const auto root = MakeFixture("_project_filter");
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(resources);
+    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout});
+    REQUIRE(controller.Resize(1280, 720));
+    REQUIRE(controller.OpenProject(root));
+    const auto project = controller.panel_bounds("workspace.project");
+    REQUIRE(project);
+
+    REQUIRE(controller.PointerDown(project->x + 20, project->y + 12).changed);
+    REQUIRE(controller.ApplyText("camera"));
+    const auto filtered = controller.BuildDrawList();
+    const auto search = std::find_if(
+        filtered.primitives().begin(), filtered.primitives().end(), [](const auto& primitive) {
+            const auto* text = std::get_if<jrpgmaker::ui::DrawText>(&primitive);
+            return text != nullptr && text->text_key == "editor.project.search";
+        });
+    REQUIRE(search != filtered.primitives().end());
+    REQUIRE(std::get<jrpgmaker::ui::DrawText>(*search).arguments.at("value") == "camera");
+    REQUIRE(controller.PointerDown(project->x + 20, project->y + 2 * 24.0f + 12).changed);
+    REQUIRE(controller.state()->form.document_id == "core.camera");
+
+    REQUIRE(controller.PointerDown(project->x + 20, project->y + 12).changed);
+    REQUIRE(controller.ApplyTextKey("Backspace"));
+    const auto restored = controller.BuildDrawList();
+    const auto restored_search = std::find_if(
+        restored.primitives().begin(), restored.primitives().end(), [](const auto& primitive) {
+            const auto* text = std::get_if<jrpgmaker::ui::DrawText>(&primitive);
+            return text != nullptr && text->text_key == "editor.project.search";
+        });
+    REQUIRE(restored_search != restored.primitives().end());
+    REQUIRE(std::get<jrpgmaker::ui::DrawText>(*restored_search).arguments.at("value").empty());
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE(
+    "editor workspace controller keeps project scene hierarchy and inspector selection shared",
+    "[editor][selection][navigation][ui context]") {
+    const auto root = MakeFixture("_workspace_controller");
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(resources);
+    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
+                                                             .form_row_height = 24,
+                                                             .diagnostic_row_height = 16,
+                                                             .runtime_executable = {}});
+    REQUIRE(controller.Resize(1280, 720));
+    REQUIRE(controller.OpenProject(root));
+
+    const auto project = controller.panel_bounds("workspace.project");
+    REQUIRE(project);
+    const auto navigation_document =
+        controller.PointerDown(project->x + 20, project->y + 24.0f * 5.0f + 12.0f);
+    REQUIRE(navigation_document.changed);
+    REQUIRE(controller.state() != nullptr);
+    REQUIRE(controller.state()->navigation);
+
+    const auto scene = controller.panel_bounds("workspace.scene");
+    REQUIRE(scene);
+    auto navigation = *controller.state()->navigation;
+    jrpgmaker::editor::LayoutNavigation(navigation, *scene);
+    const auto& first_cell = navigation.cells.front().bounds;
+    const auto selected = controller.PointerDown(first_cell.x + first_cell.width * 0.5f,
+                                                 first_cell.y + first_cell.height * 0.5f);
+    REQUIRE(selected.changed);
+    REQUIRE(controller.state()->selection == jrpgmaker::editor::SelectionTarget{"core.navigation",
+                                                                                "/walkable/0",
+                                                                                "navigation.cell"});
+
+    const bool before = controller.state()->navigation->cells[0].walkable;
+    const auto toggled = controller.Dispatch(jrpgmaker::editor::EditorAction::kToggle);
+    REQUIRE(toggled.changed);
+    REQUIRE(controller.state()->navigation->cells[0].walkable == !before);
+    REQUIRE(controller.state()->dirty);
+    REQUIRE_FALSE(controller.state()->diff.changes.empty());
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor workspace controller bounds large grids without dropping status",
+          "[editor][navigation][ui context]") {
+    const auto root = MakeFixture("_large_navigation");
+    {
+        std::ifstream input(root / "assets/data/navigation_demo.json");
+        nlohmann::json navigation;
+        input >> navigation;
+        navigation["width"] = 80;
+        navigation["height"] = 80;
+        navigation["walkable"] = std::vector<bool>(6400, true);
+        std::ofstream output(root / "assets/data/navigation_demo.json", std::ios::trunc);
+        output << navigation.dump(2);
+    }
+
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(resources);
+    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
+                                                             .form_row_height = 24,
+                                                             .diagnostic_row_height = 16,
+                                                             .runtime_executable = {}});
+    REQUIRE(controller.Resize(1280, 720));
+    REQUIRE(controller.OpenProject(root));
+    const auto project = controller.panel_bounds("workspace.project");
+    REQUIRE(project);
+    REQUIRE(controller.PointerDown(project->x + 20, project->y + 24.0f * 5.0f + 12.0f).changed);
+
+    const auto draw_list = controller.BuildDrawList();
+    REQUIRE(draw_list.size() < jrpgmaker::ui::DrawList::kMaxPrimitives);
+    const auto status = std::find_if(
+        draw_list.primitives().begin(), draw_list.primitives().end(), [](const auto& primitive) {
+            const auto* text = std::get_if<jrpgmaker::ui::DrawText>(&primitive);
+            return text != nullptr && text->text_key == "editor.status.clean";
+        });
+    REQUIRE(status != draw_list.primitives().end());
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
 
 TEST_CASE("editor session applies selected adapter field and commits through workspace",
           "[editor]") {
@@ -87,6 +257,94 @@ TEST_CASE("editor session switches to an adapter-backed document", "[editor]") {
     REQUIRE(navigation["walkable"][0] == false);
     std::error_code error;
     std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor navigation cell selection edits and survives atomic reopen",
+          "[editor][selection][navigation]") {
+    const auto root = MakeFixture("_navigation_selection");
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.SelectDocument("core.navigation"));
+    REQUIRE(session.state().navigation);
+    REQUIRE(session.SelectNavigationCell(0));
+    REQUIRE(session.state().selection == jrpgmaker::editor::SelectionTarget{
+                                             "core.navigation", "/walkable/0", "navigation.cell"});
+    const bool original = session.state().navigation->cells[0].walkable;
+    REQUIRE(session.ToggleSelectedNavigationWalkable());
+    REQUIRE(session.state().navigation->cells[0].walkable == !original);
+    REQUIRE(session.state().dirty);
+    REQUIRE_FALSE(session.state().diff.changes.empty());
+    REQUIRE(session.Save());
+    REQUIRE(session.state().diff.changes.empty());
+
+    jrpgmaker::editor::EditorSession reopened(root);
+    REQUIRE(reopened.Open());
+    REQUIRE(reopened.SelectDocument("core.navigation"));
+    REQUIRE(reopened.state().navigation->cells[0].walkable == !original);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor navigation selection ignores text input owned by form fields",
+          "[editor][selection][navigation][ui text]") {
+    const auto root = MakeFixture("_navigation_text_input");
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.SelectDocument("core.navigation"));
+    REQUIRE(session.SelectNavigationCell(0));
+    const auto selection = session.state().selection;
+    REQUIRE_FALSE(session.ApplySelectedText(" "));
+    REQUIRE(session.state().diagnostics.empty());
+    REQUIRE(session.state().selection == selection);
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor navigation selection has stable identity and clears on document switch",
+          "[editor][selection][navigation]") {
+    const auto root = MakeFixture("_selection_identity");
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.SelectDocument("core.navigation"));
+    REQUIRE(session.SelectNavigationCell(7));
+    const jrpgmaker::editor::SelectionTarget expected{"core.navigation", "/walkable/7",
+                                                      "navigation.cell"};
+    REQUIRE(session.state().selection == expected);
+    REQUIRE_FALSE(session.SelectNavigationCell(session.state().navigation->cells.size()));
+    REQUIRE(session.state().selection == expected);
+    REQUIRE(session.SelectDocument("project.manifest"));
+    REQUIRE(session.state().selection ==
+            jrpgmaker::editor::SelectionTarget{"project.manifest", "/", "document"});
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor workspace controller exposes project open failures as structured diagnostics",
+          "[editor][diagnostics]") {
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(resources);
+    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
+                                                             .form_row_height = 24,
+                                                             .diagnostic_row_height = 16,
+                                                             .runtime_executable = {}});
+    REQUIRE(controller.Resize(1280, 720));
+    const auto missing =
+        std::filesystem::temp_directory_path() / "jrpgmaker_editor_missing_project_for_diagnostics";
+    REQUIRE_FALSE(controller.OpenProject(missing));
+    REQUIRE(controller.state() != nullptr);
+    REQUIRE_FALSE(controller.state()->diagnostics.empty());
+
+    const auto draw_list = controller.BuildDrawList();
+    const auto diagnostic = std::find_if(
+        draw_list.primitives().begin(), draw_list.primitives().end(), [](const auto& primitive) {
+            const auto* text = std::get_if<jrpgmaker::ui::DrawText>(&primitive);
+            return text != nullptr && text->text_key == "editor.diagnostic.code" &&
+                   text->arguments.at("code") == "project.file.open";
+        });
+    REQUIRE(diagnostic != draw_list.primitives().end());
 }
 
 TEST_CASE("editor session discovers and edits a plugin sidecar document", "[editor][plugin][p13]") {
@@ -251,4 +509,19 @@ TEST_CASE("editor preview process rejects unsafe launch inputs", "[editor]") {
     REQUIRE_FALSE(process.Start({}, std::filesystem::temp_directory_path()));
     REQUIRE_FALSE(process.state().running);
     REQUIRE(process.state().error == "editor.preview.executable_or_project_invalid");
+}
+
+TEST_CASE("editor session stop preview synchronizes the projected process state",
+          "[editor][preview]") {
+    const auto root = MakeFixture("_preview_stop");
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(session.StartPreview(std::filesystem::path(JRPGMAKER_RUNTIME_EXECUTABLE)));
+    REQUIRE(session.state().preview.process_running);
+
+    session.StopPreview();
+
+    REQUIRE_FALSE(session.state().preview.process_running);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
 }

@@ -39,9 +39,11 @@ DXGI_FORMAT ToNativeFormat(Format format) {
 
 ComPtr<ID3D12Device> CreateNativeDevice() {
 #ifndef NDEBUG
-    ComPtr<ID3D12Debug> debug;
-    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(debug.GetAddressOf())))) {
-        debug->EnableDebugLayer();
+    if (IsDebuggerPresent() != FALSE) {
+        ComPtr<ID3D12Debug> debug;
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(debug.GetAddressOf())))) {
+            debug->EnableDebugLayer();
+        }
     }
 #endif
 
@@ -304,6 +306,16 @@ PipelineHandle D3D12Device::CreatePipeline(const GraphicsPipelineDesc& desc) {
     pso_desc.VS = D3D12_SHADER_BYTECODE{desc.vertex_shader.data, desc.vertex_shader.size};
     pso_desc.PS = D3D12_SHADER_BYTECODE{desc.pixel_shader.data, desc.pixel_shader.size};
     pso_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    if (desc.blend_mode == BlendMode::kAlpha) {
+        auto& blend = pso_desc.BlendState.RenderTarget[0];
+        blend.BlendEnable = TRUE;
+        blend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+        blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+        blend.BlendOp = D3D12_BLEND_OP_ADD;
+        blend.SrcBlendAlpha = D3D12_BLEND_ONE;
+        blend.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+        blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    }
     pso_desc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
     pso_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
     pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;

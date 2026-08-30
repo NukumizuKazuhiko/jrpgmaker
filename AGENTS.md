@@ -43,7 +43,7 @@
 - 数据驱动的 JRPG 运行框架：3D 探索、事件、对话、可配置日期/日程、地图触发和项目装配
 - 源码级插件宿主：战斗规则和渲染风格由开发者自主定义，参考插件不享有内置特权
 - 项目可通过版本化数据自定义日期、对话、触发点、地图、输入映射、材质实例及所选插件
-- 目标平台：Windows(D3D12) + Linux(Vulkan) + macOS(Vulkan/MoltenVK)
+- 当前支持平台：Windows(D3D12) + Linux(Vulkan)。macOS 不进入当前完成门禁；具备真实环境后可经 Vulkan/MoltenVK 作为后续适配平台接入，且不得污染或回退当前代码合同。
 - 数据驱动工作流：项目内容与插件私有数据均由版本化数据文件表达，并由 owner 对应的 validator 校验
 
 不做（禁止漂移方向；修订必须先改本文并经用户确认）：
@@ -51,7 +51,7 @@
 - 通用全类型引擎、网络多人、开放世界流式加载
 - 在引擎内绑定任何固定画风、固定材质 schema 或项目级 shader 组合
 - 主机、移动端首发
-- GUI 编辑器已作为 P13 独立立项，仅是可选开发工具；数据文件、parser、validator、迁移器和 CLI 仍是权威合同，GUI 不得成为运行时依赖或第二数据语义 owner
+- GUI 编辑器已作为 P13 独立立项，产品语义上是非运行时必需的开发工具；数据文件、parser、validator、迁移器和 CLI 仍是权威合同，GUI 不得成为运行时依赖或第二数据语义 owner。当前 CMake 仍无条件构建 editor host/executable，测试也链接 editor host，因此“可从构建中删除”尚未实现（DEBT-042）
 - 在 `engine/domain` 内实现或预设任何战斗规则、actor/skill/buff schema、QTE/ACT/回合制语义；这些只允许存在于战斗插件
 - P5/P6 承诺跨编译器稳定的 DLL 热加载 ABI；第一阶段只做源码级、构建期注册
 
@@ -60,15 +60,15 @@
 | 领域 | 选型 | 锁定理由摘要 |
 |---|---|---|
 | 语言 | C++20 | 用户决策；行业生态最全 |
-| 构建/依赖 | CMake ≥ 3.24 + CMakePresets + vcpkg manifest 模式 | 三平台一致构建 |
+| 构建/依赖 | CMake ≥ 3.28 + CMakePresets + Ninja + vcpkg manifest 模式 | 根 `CMakeLists.txt` 与 `CMakePresets.json` 均锁定最低 3.28；Windows/Linux 使用同一 preset 入口，macOS 后续复用该入口 |
 | ECS | EnTT | header-only、成熟、社区标准 |
 | 数学 | GLM | 与 GLSL 语义对齐 |
-| 窗口/输入 | SDL3 | 三平台窗口、输入、剪贴板一站式 |
-| 图形 | 自研 RHI 合同层 + D3D12 后端(Win) + Vulkan 后端(Linux/macOS, 经 MoltenVK) | 平台边界决定的双后端结构 |
-| 脚本 | sol2 + Lua 5.4 | 复杂逻辑逃生舱；主线仍是数据文件事件指令集 |
+| 窗口/输入 | SDL3 | 当前双平台窗口、输入、剪贴板入口；保留后续 macOS 适配能力 |
+| 图形 | 自研 RHI 合同层 + D3D12 后端(Win) + Vulkan 后端(Linux)；macOS 后续复用 Vulkan/MoltenVK | 当前平台边界决定双后端结构，后续适配不得另造业务语义 |
+| 脚本 | sol2 3.5.0 + Lua 5.5.1 | vcpkg baseline 锁定；复杂逻辑逃生舱，主线仍是数据文件事件指令集 |
 | 序列化 | nlohmann/json（文本）+ schema 校验 CLI | 数据先行工作流的基础设施 |
 | 字体排版 | FreeType + HarfBuzz | JRPG 必需的中日文禁则处理与整形 |
-| 音频 | miniaudio | 起步够用；混音总线自研 |
+| 音频 | 自研 `engine/audio` 混音总线 + SDL3 设备输出 adapter | `engine/audio` 拥有有界 PCM voice、增益混音与完成回收；当前 `app` 通过 SDL3 `SDL_AudioStream` 输出，仓库未引入 miniaudio |
 | 测试 | Catch2 + golden image 渲染比对 | 渲染行为双后端一致性门禁 |
 
 规则：引入上表之外的第三方库前，必须在 `docs/01-architecture.md` 登记选型理由并获用户确认。
@@ -77,17 +77,17 @@
 
 全局命令组（P0 起生效；各阶段补充项以 `docs/02-milestones.md` "验收命令与证据"为准）：
 
-- 配置：`cmake --preset <win|linux|mac>-<debug|release>`（前置：`VCPKG_ROOT` 指向 vcpkg 实例；Windows 需在 x64 MSVC 开发者环境中）
+- 配置：当前门禁使用 `cmake --preset <win|linux>-<debug|release>`（前置：`VCPKG_ROOT` 指向 vcpkg 实例；Windows 需在 x64 MSVC 开发者环境中）。仓库保留的 `mac-*` preset 仅供未来实际环境适配，不代表当前支持承诺。
 - 构建：`cmake --build --preset <同名>`
 - 测试：`ctest --preset <同名>`
 - 模块私有头审计：`pwsh ./tools/ci/check_private_headers.ps1`
-- CI 三平台门禁：`.github/workflows/ci.yml`（push/PR 触发；build-test 六矩阵 + clang-format + 私有头审计三 job）
+- CI 产品完成门禁以 Windows/Linux build-test 及 clang-format、私有头审计等专项 job 为准。macOS 不属于当前产品支持或完成定义；但 `.github/workflows/ci.yml` 当前仍把 mac-debug/mac-release 放在同一无豁免 matrix 中，失败会实际阻断整个 workflow。该 CI 硬失败语义与产品边界的治理差异由 DEBT-044 跟踪，不能把它简称为“非阻断历史检查”。
 
 本机（Windows）实况注记，供后续会话复用：MSVC 在 `F:\code`（经 `F:\code\Common7\Tools\VsDevCmd.bat -arch=x64` 进入环境）；CMake 4.4.2 经 winget 安装于 `C:\Program Files\CMake\bin`，Ninja 位于 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Ninja-build.Ninja_*`（两者均需显式注入 PATH）；vcpkg 于 `C:\Users\Vens_\vcpkg`（builtin-baseline 已锁 commit）；代理需设 `HTTP(S)_PROXY=http://127.0.0.1:7897`。
 
 本机 WSL2 Linux 验收路径（2026-08-23 建立，供后续会话复用）：WSL2 Ubuntu 26.04（默认用户 root）。工具链已装齐：build-essential (g++ 15)、ninja、libvulkan-dev、mesa-vulkan-drivers（lavapipe ICD，可本地跑 vulkan 后端测试）；apt 的 cmake 4.2 由 vcpkg 自动补下 4.4。WSL 内 vcpkg 实例位于 `/root/vcpkg`（与项目锁同一 baseline commit）。NAT 模式下 WSL 内不可用 `127.0.0.1` 代理，必须用 Windows 主机 IP（`ip route show default` 第三列，当前 `172.27.0.1`）拼 `http://<host-ip>:7897`；vcpkg 触发下载时同样需要该代理变量。标准验收命令：`wsl -e bash -c "bash <setup-or-build-script>"`，脚本内 `export VCPKG_ROOT=$HOME/vcpkg && cd /mnt/f/jrpgengine && cmake --preset linux-debug && cmake --build --preset linux-debug && ctest --preset linux-debug`。用途：Vulkan TU 的 GCC 编译错误与 Linux 运行时行为（如 volk 函数指针加载）在推送 CI 前本地秒级验证；临时脚本放 `C:\Users\Vens_\AppData\Local\Temp\opencode\` 经 `/mnt/c/...` 执行。**SDL3（P1 swapchain 起）**：vcpkg 的 sdl3 port 在 Linux 需系统依赖 `libx11-dev libxft-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev libegl1-mesa-dev libdbus-1-dev libudev-dev libasound2-dev libibus-1.0-dev`（含 sdl3 默认 feature 的 x11/wayland/ibus），vcpkg 编译 sdl3 时还会拉 autoconf/automake/libtool/autoconf-archive/python3-venv 构建依赖；SDL 相关包下载经代理易 502，重试或预装 apt 依赖可缓解。**WSL 无 WSLg display**（DISPLAY/WAYLAND_DISPLAY 为空），SDL_Vulkan_CreateSurface 建 surface 必然失败，故 Vulkan swapchain 实机验证不能在 WSL 跑，app 的 swapchain 路径仅 Windows D3D12 本机实机 + CI 离屏测试覆盖。
 
-全局门禁（P0 起生效）：CI 三平台 build+test 绿灯、编译 warning 清零（MSVC `/WX`、GCC/Clang `-Werror`）、`clang-format` diff 为空。本节为摘要；完整门禁清单（golden image、数据 lint、文档回写、模块私有头审计等分阶段项）以 `docs/02-milestones.md` §全局门禁为准。
+全局门禁（P0 起生效）：Windows/Linux build+test 绿灯、编译 warning 清零（MSVC `/WX`、GCC/Clang `-Werror`）、`clang-format` diff 为空。本节为摘要；完整门禁清单（golden image、数据 lint、文档回写、模块私有头审计等分阶段项）以 `docs/02-milestones.md` §全局门禁为准。macOS 属后续适配，不阻断当前里程碑。
 
 ## Owner 边界速记（详见 docs/01-architecture.md）
 

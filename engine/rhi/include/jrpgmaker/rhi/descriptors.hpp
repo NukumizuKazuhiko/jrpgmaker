@@ -54,6 +54,11 @@ struct VertexInputLayout {
     std::uint32_t stride_bytes;
 };
 
+enum class BlendMode : std::uint8_t {
+    kOpaque,
+    kAlpha,
+};
+
 struct TextureDesc {
     std::uint32_t width;
     std::uint32_t height;
@@ -95,6 +100,7 @@ struct GraphicsPipelineDesc {
     // pipeline has no vertex uniform buffer; a non-zero value makes
     // SetVertexUniformBuffer mandatory before the first draw.
     std::uint32_t vertex_uniform_size = 0;
+    BlendMode blend_mode = BlendMode::kOpaque;
 };
 
 } // namespace jrpgmaker::rhi

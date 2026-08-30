@@ -4,6 +4,10 @@
 
 ## 设计结论
 
+P13 重开工作区的编辑器应用 owner 是 `tools/editor::EditorWorkspaceController`；它只暴露窗口 resize、项目打开、结构化输入/命令、状态查询和 DrawList 构建。`EditorSession` 是其内部会话深模块：`SelectionTarget{document_id, object_path, kind}` 与导航、Project、Hierarchy、Scene、Inspector、Diagnostics、Toolbar、Status projection 均由同一会话状态派生。`ProjectWorkspace` 继续拥有 parser/validator/revision/diff/PrepareSave/Commit；当前保存门禁的实际能力与缺口以本文 DEBT-039 标注为准。
+
+工作区信息架构参考 Unity Editor 的 MenuBar/Toolbar、Project/Hierarchy/Scene/Inspector 分区和共享选中对象体验；通用菜单行为由 `engine/ui::MenuController` 拥有，编辑器只提供 layout 驱动的 `MenuItem.command` 并把结构化命令路由到 `EditorWorkspaceController`。这保持了 Unity UI Toolkit 所强调的视觉树/布局后命中/事件路由分工，但不复制 Unity 私有 API。
+
 GUI 不直接依赖 `projecttool` 可执行文件，也不解析 stdout/stderr。P13-0 新增 `tools/project` 深模块，以一个结构化工作区接口隐藏文件系统安全、JSON 读取、parser 调度、跨文件引用、插件 validator、稳定 diff、迁移和原子写回。`jrpgmaker_projecttool` 与 `jrpgmaker_editor` 是这个 seam 上的两个 Adapter。
 
 删除 `tools/project` 后，复杂度会重新散落到 CLI 和 GUI，因此该模块具备真实 depth；测试与调用方只穿过同一 interface，保持 locality。
@@ -24,7 +28,7 @@ engine/{core,domain,plugin,render,ui}/       # 既有语义 owner
 
 ## 公共工作区 interface
 
-以下为目标语义，不要求类名逐字照搬；实现前若调整必须先更新本文。
+以下以当前源码行为为事实；未闭合的目标必须显式标注，不能把目标接口写成已实现合同。
 
 | 类型/操作 | 输入 | 结构化输出 | 隐藏的实现复杂度 |
 |---|---|---|---|
@@ -32,7 +36,7 @@ engine/{core,domain,plugin,render,ui}/       # 既有语义 owner
 | `Snapshot` | 无 | `ProjectSnapshot` | 项目 id、schema、所选插件、排序后的 `DocumentDescriptor`、当前 revision |
 | `Diagnose` | 可选文档/严重度过滤 | `DiagnosticSet` | parser、lint、跨文件引用、插件私有 validator、资源依赖和预算聚合 |
 | `Apply` | `EditCommand{document_id, field_path, value}` | `EditResult{revision, changes, diagnostics}` | JSON pointer 安全、字段可编辑性、类型/范围验证、内存快照与撤销边界 |
-| `PrepareSave` | expected revision | `SavePlan{token, changes, diagnostics}` | 全项目重验、稳定 diff、冲突检测、目标文件排序；有 error 时无 token |
+| `PrepareSave` | expected revision | `SavePlan{token, changes, diagnostics}` | **当前**只检查工作区已打开和 revision 一致，然后复制 pending changes 并签发 token；不重新运行 parser、跨文件引用、资源预算或插件 validator。全项目重验与“有 error 时无 token”是 DEBT-039 的未闭合目标 |
 | `Commit` | `SaveToken` | `CommitResult` | 临时文件、备份、rename、失败恢复、禁止覆盖已有临时/备份、revision 更新 |
 | `Migrate` | 目标 schema 或 current | `MigrationPlan`/`CommitResult` | 迁移链、预览、验证与同一原子写回路径 |
 | `BuildPreview` | snapshot revision | `PreviewSnapshot` | 只读场景/事件/资源摘要；不持有 GPU 或启动 app |
@@ -41,6 +45,7 @@ interface 规则：
 
 - 所有输出是值对象，不向调用方借出可变 JSON 引用。
 - 所有操作都有 revision；旧 revision 的保存必须返回冲突诊断，不能覆盖新状态。
+- 当前 `SaveToken` 只证明 revision 未冲突，不证明 working copy 已通过完整项目校验。调用方不得把 token、原子写入成功或保存后可重开等同于项目 clean；该语义只有在 DEBT-039 关闭后才能升级。
 - `Diagnostic` 固定字段为 `code`、`severity`、`document_id`、`file_path`、`field_path`、`message_key`、命名参数和可选 source span。自然语言不进入工作区模块。
 - `Change` 固定字段为 document/field path、before/after JSON value 和稳定序号；排序规则为规范化相对路径，再按 JSON pointer。
 - 工作区内存、文件数、单文件大小、诊断数和变更数均有显式上界；达到上界返回 error，不截断后伪装为 clean。
@@ -69,6 +74,8 @@ interface 规则：
 | camera | `core::ParseCameraRigData` | 跟随参数与固定区域 |
 | cutscene | `core::ParseCutsceneTimeline` | cue 时间线 |
 | save | `domain::ParseSave`/`MigrateAndParseSave` | 仅诊断，不作为项目作者主表单 |
+
+角色编辑边界：`engine/core::CharacterController` 当前是运行时移动/碰撞组件，不是项目文档接口；目前没有对应的项目 schema、parser、validator、`DocumentAdapter` 或字段描述。因此本轮不注册“角色调整”菜单项，也不在 GUI 中猜测角色属性。待这些权威合同出现后，才能按同一 document projection seam 接入。
 
 ### Domain 数据与跨文件校验
 
@@ -113,8 +120,12 @@ interface 规则：
 - `editor::BuildFormProjection` 将 adapter 字段描述与 workspace 当前 JSON 合成为表单 projection；GUI 只消费 `path`、`value_type`、`label_key`、`recipe`、当前值和只读/必填状态，提交仍必须回到 `ProjectWorkspace::Apply`。
 - `editor::BuildWorkspacePreview` 将 `DiagnosticSet` 转为结构化预览指标；诊断失败时只返回诊断，不生成伪造指标，GUI 不得自行统计项目内容。
 - `editor::EditorSession` 持有 GUI 工作区状态，统一编排 `Open`/`Refresh`/字段选择/`Apply`/`Save`；它只把类型化字段值交给 `ProjectWorkspace`，不直接写文件或复制 validator 语义。
+- `editor::EditorWorkspaceController` 是各面板唯一装配与命令路由入口；panel 只发送命中/动作，`main.cpp` 不认识文档 id、JSON path、导航坐标或保存语义。
+- `NavigationProjection::kMaxProjectedCells` 统一限制 Scene 网格的 CPU/DrawList 投影；当前首闭环采用有界裁剪，不能由面板自行扩大或生成无界控件。
 - 字段焦点由 `ui::UiContext` 按布局注册顺序管理；editor session 只把焦点 widget 映射为当前 projection 索引，不复制焦点环或 tab 排序规则。
 - `editor::BuildShellDrawList` 消费布局节点的 bounds/recipe/label key，作为窗口绘制前的唯一 shell 几何投影入口。
+- `engine::ui::MenuController` 消费 layout 生成的有界 `MenuBarModel`，负责根菜单/子菜单 bounds、hover/open 状态、鼠标与键盘导航和 `UiCommand` 输出；它不检查项目文件、不解析 command 名称，也不直接调用 session。`EditorWorkspaceController` 负责菜单 command 的 enabled projection 与真实动作路由。
+- `editor::ProjectPanelProjection` 消费 `DocumentTabProjection` 的 `category_key`、`document_id`、path、label key 和诊断计数，生成有界 filter/category/document 行；过滤只影响投影，不改变 workspace 文档目录。Project、Hierarchy、Scene、Inspector 仍从同一 session selection 派生。
 - `editor::BuildFormDrawList` 消费 `FormProjection`、布局 bounds、theme 提供的行高和当前焦点索引，输出控件矩形与 label key；它不拥有字段约束或自然语言。
 - `editor::BuildPreviewDrawList` 消费 `PreviewProjection` 与诊断面板 bounds，将结构化指标或诊断 code 投影为有界状态行；它不重新统计项目数据。
 - `project::ProjectWorkspace::DescribeDocuments` 根据已打开的 `ProjectManifest` 引用和已注册 adapter 生成稳定文档目录；`editor::BuildDocumentTabsProjection`/`BuildDocumentTabsDrawList` 消费该目录，标签顺序、路径、可编辑性、dirty 和诊断数量均来自结构化状态。workspace 为每个文档保留 working copy，dirty 按 change 的 `document_id` 投影，编辑器可在文档间切换而不丢失未保存内容。
@@ -146,4 +157,5 @@ interface 规则：
 - 本目录中的每一类文档都有 owner、parser、validator 或明确只读策略。
 - `projecttool/main.cpp` 不再拥有项目语义，仅保留命令解析、格式化和退出码映射。
 - CLI/GUI 对同一 fixture 的 snapshot、diagnostic code/path、change set 与保存结果完全一致。
+- `PrepareSave` 对完整 working copy 执行与项目诊断同源的 parser、跨文件引用、资源预算和插件 validator；任何 error 不签发 token。该项当前未通过，由 DEBT-039 跟踪。
 - 未登记的新文档类型、面板私有 JSON 路径判断、stdout 解析和直接文件写入均作为阻断缺陷。

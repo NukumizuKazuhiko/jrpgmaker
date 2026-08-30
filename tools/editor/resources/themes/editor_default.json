@@ -43,7 +43,10 @@
     "font.code": 14,
     "motion.fast": 0.08,
     "motion.normal": 0.16,
-    "motion.slow": 0.28
+    "motion.slow": 0.28,
+    "menu.root_width": 92,
+    "menu.row_height": 28,
+    "menu.popup_width": 240
   },
   "semantic_tokens": {
     "surface.canvas": "canvas",
@@ -69,6 +72,7 @@
     "button": {"normal": "surface.panel", "hover": "surface.raised", "pressed": "surface.selection", "focused": "focus.ring", "disabled": "text.disabled"},
     "input": {"normal": "surface.input", "hover": "surface.raised", "pressed": "surface.input", "focused": "focus.ring", "disabled": "text.disabled"},
     "selection": {"normal": "surface.selection", "hover": "surface.selection", "pressed": "surface.selection", "focused": "surface.selection", "disabled": "surface.selection"},
+    "tab": {"normal": "surface.panel", "hover": "surface.raised", "pressed": "surface.selection", "focused": "focus.ring", "disabled": "surface.panel", "active": "surface.selection", "dirty": "surface.raised", "active_dirty": "surface.selection"},
     "caret": {"normal": "surface.selection", "hover": "surface.selection", "pressed": "surface.selection", "focused": "surface.selection", "disabled": "surface.selection"}
   }
 }

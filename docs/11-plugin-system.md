@@ -112,6 +112,8 @@ manifest parsed → registered → data validated → instance created
 
 插件私有内容只位于 manifest 声明的 `data_roots`。validator 通过 `PluginValidationContext::read_file(relative_path)` 读取，禁止自行打开项目路径、读取环境变量、跟随符号链接越界或访问其他插件目录。
 
+该运行时合同允许多个任意安全相对 root；发布装配不得擅自把它收窄为固定目录。当前 `package_release.ps1` 仍只复制 manifest 同目录的 `data/`，没有逐项消费 `data_roots`，因此发布链尚未满足本合同，见 DEBT-040。
+
 | 项目 | 当前上界 |
 |---|---:|
 | 插件注册数量 | 32 |
@@ -199,7 +201,7 @@ sidecar 路径相对插件安装根解析；`plugin_id` 必须精确匹配相邻
 - host semantic theme recipe id；插件不得提供私有 RGBA、字号或布局像素。
 - 受限的 visible/enabled 条件，只能引用同文档字段并使用声明式比较；第一版可完全不支持条件，不能嵌入脚本。
 
-字段描述不是 validator。任何编辑都先由 descriptor 做交互级约束，再调用插件运行时 `ValidateData`/`ValidateMaterial` 作权威校验；两者冲突时 validator 胜出并产生 error。
+字段描述不是 validator。权威目标仍是保存前调用插件运行时 `ValidateData`/`ValidateMaterial`，且两者冲突时 validator 胜出并产生 error；但当前编辑器把 descriptor 注册为文档 adapter 时使用空文档 validator，`ProjectWorkspace::PrepareSave` 也不会重跑插件 validator。因此当前 descriptor 约束只能证明字段形状满足编辑器交互规则，不能证明插件数据可安全保存；该阻断由 DEBT-039 跟踪。
 
 没有 sidecar 或 descriptor 无效时，编辑器仍可显示插件状态、文件和 validator 诊断，但私有文档只读。禁止自动退化为可保存的自由 JSON 编辑器。
 
@@ -213,7 +215,7 @@ sidecar 路径相对插件安装根解析；`plugin_id` 必须精确匹配相邻
 
 ### 安全与预算
 
-sidecar 清单与 descriptor 的基础合同校验已落地：当前实现覆盖 schema/editor_contract、插件 ID、文档 type id/根/descriptor 路径、locale 路径、图标路径、字段路径与类型/角色、选择项、重复项和数量上界，并验证 editor roots 不得超出运行时 data_roots。descriptor 可转换为 project `DocumentAdapter`；sidecar 资源存在性、路径 containment 和单文件/总字节上界由 `ValidateEditorExtensionResources` 校验，`ProjectWorkspace` 可注入 `PluginRegistry` 并在 Diagnose 阶段调用已有 `ValidateProjectPluginData`。实际编辑器进程的插件发现/sidecar 装载仍需完成。后续必须继续为 descriptor 文件的布局节点、locale 条目、图标尺寸和诊断数上界提供测试。未知 schema/contract、路径越界、重复 type id、namespace 冲突或引用缺失都使扩展不可加载，但不能阻止运行时项目在没有编辑器的环境中启动。
+sidecar 清单与 descriptor 的基础合同校验已落地：当前实现覆盖 schema/editor_contract、插件 ID、文档 type id/根/descriptor 路径、locale 路径、图标路径、字段路径与类型/角色、选择项、重复项和数量上界，并验证 editor roots 不得超出运行时 data_roots。descriptor 可转换为 project `DocumentAdapter`；sidecar 资源存在性、路径 containment 和单文件/总字节上界由 `ValidateEditorExtensionResources` 校验，`ProjectWorkspace` 可注入 `PluginRegistry` 并在 Diagnose 阶段调用已有 `ValidateProjectPluginData`。`EditorSession` 已按项目插件列表装载相邻 sidecar/descriptor，在每个声明 root 下递归枚举最多 128 个 JSON 文件，登记为插件类别的外部文档并进入 Project/标签页投影。当前未闭合的是保存前插件 validator（DEBT-039）以及无效 descriptor 时强制只读回退；后续还需为 descriptor 布局节点、locale 条目、图标尺寸和诊断数上界补齐测试。未知 schema/contract、路径越界、重复 type id、namespace 冲突或引用缺失都使扩展不可加载，但不能阻止运行时项目在没有编辑器的环境中启动。
 
 ## 版本与兼容性
 

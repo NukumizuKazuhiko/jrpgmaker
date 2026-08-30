@@ -27,7 +27,7 @@
     "focus_ring": "#00FFFF",
     "invalid": "#FF0000"
   },
-  "dimensions": {"space.sm": 8, "space.md": 12, "radius.md": 4, "stroke.sm": 2, "font.body": 16},
+  "dimensions": {"space.sm": 8, "space.md": 12, "radius.md": 4, "stroke.sm": 2, "font.body": 16, "menu.root_width": 92, "menu.row_height": 28, "menu.popup_width": 240},
   "semantic_tokens": {
     "surface.canvas": "canvas", "surface.panel": "panel", "surface.raised": "raised", "surface.input": "input",
     "surface.selection": "selection", "surface.overlay": "overlay", "text.primary": "text_primary",
@@ -40,6 +40,7 @@
     "button": {"normal": "surface.panel", "hover": "surface.raised", "pressed": "surface.selection", "focused": "focus.ring", "disabled": "text.disabled"},
     "input": {"normal": "surface.input", "hover": "surface.raised", "pressed": "surface.input", "focused": "focus.ring", "disabled": "text.disabled"},
     "selection": {"normal": "surface.selection", "hover": "surface.selection", "pressed": "surface.selection", "focused": "surface.selection", "disabled": "surface.selection"},
+    "tab": {"normal": "surface.panel", "hover": "surface.raised", "pressed": "surface.selection", "focused": "focus.ring", "disabled": "surface.panel", "active": "surface.selection", "dirty": "surface.raised", "active_dirty": "surface.selection"},
     "caret": {"normal": "surface.selection", "hover": "surface.selection", "pressed": "surface.selection", "focused": "surface.selection", "disabled": "surface.selection"}
   }
 }

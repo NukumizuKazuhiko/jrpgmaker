@@ -5,17 +5,58 @@
     "editor.window.title": "JRPGMaker Editor",
     "editor.action.open": "Open Project",
     "editor.action.save": "Save Project",
+    "editor.action.run_preview": "Run Preview",
+    "editor.action.stop_preview": "Stop Preview",
+    "editor.action.refresh": "Refresh Project",
+    "editor.menu.file": "File",
+    "editor.menu.project": "Project",
+    "editor.menu.project_overview": "Project Overview",
+    "editor.menu.project_settings": "Project Settings",
+    "editor.menu.general": "General",
+    "editor.menu.rendering": "Rendering",
+    "editor.menu.camera": "Camera",
+    "editor.menu.input": "Input",
+    "editor.menu.localization": "Localization",
+    "editor.menu.plugins": "Plugins",
+    "editor.menu.assets": "Assets",
+    "editor.menu.all_resources": "All Resources",
+    "editor.menu.rendering_resources": "Rendering Resources",
+    "editor.menu.plugin_data": "Plugin Data",
+    "editor.menu.run": "Run",
+    "editor.menu.window": "Window",
+    "editor.project.search": "Search assets: {value}",
+    "editor.project.resource_meta": "{type} · diagnostics {diagnostics}",
+    "editor.project.category.project": "Project Settings",
+    "editor.project.category.scene": "Scene Data",
+    "editor.project.category.camera": "Camera",
+    "editor.project.category.rendering": "Rendering",
+    "editor.project.category.input": "Input",
+    "editor.project.category.localization": "Localization",
+    "editor.project.category.assets": "Assets",
+    "editor.project.category.plugins": "Plugin Data",
+    "editor.project.category.other": "Other",
     "editor.project.id": "Project ID",
     "editor.project.render_style": "Render Style Plugin",
     "editor.diagnostic.count": "{count} diagnostics found",
     "editor.workspace.tree": "Project Resources",
+    "editor.workspace.project": "Project",
+    "editor.workspace.hierarchy": "Hierarchy",
+    "editor.hierarchy.navigation": "Navigation Map ({width} x {height})",
+    "editor.hierarchy.cell": "Cell ({x}, {y}) · walkable {walkable}",
+    "editor.diff.change": "{document}{path}: {before} -> {after}",
+    "editor.toolbar": "Open Project  ·  Save  ·  Run Preview  ·  Stop Preview",
     "editor.workspace.inspector": "Inspector",
     "editor.workspace.diagnostics": "Diagnostics",
+    "editor.workspace.scene": "Scene / Map",
+    "editor.navigation.selection": "Coordinates: ({x}, {y})",
+    "editor.navigation.walkable_state": "Walkable: {value}",
+    "editor.navigation.toggle_hint": "Press Space to toggle walkable",
     "editor.value": "{value}",
     "editor.diagnostic.code": "Diagnostic: {code} ({path})",
     "editor.status.closed": "Project closed",
     "editor.status.clean": "Project clean · revision {revision}",
     "editor.status.dirty": "Unsaved changes · revision {revision}"
+    ,"editor.status.focused": "Focus:"
     ,"editor.document.project": "Project"
     ,"editor.document.events": "Events"
     ,"editor.document.navigation": "Navigation"
@@ -29,6 +70,12 @@
     ,"editor.preview.process": "Preview: {value}"
     ,"editor.preview.stdout": "Preview output: {value}"
     ,"editor.preview.stderr": "Preview error: {value}"
+    ,"editor.preview.event_count": "Event count"
+    ,"editor.preview.interaction_count": "Interaction point count"
+    ,"editor.preview.collision_count": "Collision body count"
+    ,"editor.preview.navigation_width": "Navigation width"
+    ,"editor.preview.navigation_height": "Navigation height"
+    ,"editor.preview.camera_region_count": "Camera region count"
     ,"editor.project.battle_plugin": "Battle Plugin"
     ,"editor.project.plugins": "Plugins"
     ,"editor.project.data_roots": "Data Roots"

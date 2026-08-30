@@ -1,70 +1,130 @@
 # 技术债务登记处
 
-> 状态：当前有效（登记于 [README.md](README.md)）。本文件是唯一债务登记处。每条债务必须包含：不处理原因、后续入口、状态。宪法要求："可记录债务……必须说明不处理原因和后续入口"；禁止无主债务。
+> 状态：当前有效（登记于 [README.md](README.md)）。本文件是唯一债务登记处。每条未关闭债务必须包含不处理原因、后续入口、状态，并由下方 owner 表明确归属；禁止无主债务。
+
+## 登记规则与 owner
+
+- 主登记表按编号段保留历史顺序，不因状态变化搬动记录；判断当前债务时以“状态”列为准。
+- `开放`、`部分缓解`、`已缓解`、`部分关闭` 属未关闭；`已关闭` 不再进入当前工作队列；`已接受` 仅用于已确认无需行动的环境噪音。
+- 历史审计问题与短记录使用独立关闭表，避免与含“不处理原因/后续入口”的主表混用列结构。
+
+| Owner | 未关闭记录 |
+|---|---|
+| `engine/rhi` | DEBT-004–011、DEBT-013、DEBT-015、DEBT-020–022、DEBT-025、DEBT-027–028、DEBT-030 |
+| `tools/ci` | DEBT-003、DEBT-012、DEBT-018–019、DEBT-034 |
+| `engine/platform` + `app` | DEBT-023 |
+| `engine/core` | DEBT-024、DEBT-026、DEBT-031 |
+| `engine/render` | DEBT-035 |
+| `engine/plugin` | DEBT-036 |
+| `engine/ui` + `engine/render` + `app` | DEBT-037 |
+| `engine/ui` + `engine/render` + `tools/editor` | DEBT-038 |
+| `tools/project` + `tools/editor` | DEBT-039 |
+| `tools/ci` + `engine/plugin` | DEBT-040 |
+| 根构建/发布元数据 | DEBT-041 |
+| 根 CMake + `tools/editor` + tests | DEBT-042 |
+| `engine/ui` + tests + `tools/ci` | DEBT-043 |
+| `.github/workflows/ci.yml` + 平台文档 | DEBT-044 |
+| 文档索引 + git 边界 | DEBT-045 |
+| 文档/本机环境 | NOISE-001 |
+
+## 未解决问题摘要（2026-08-30）
+
+本节只提供当前处理顺序，不替代下方各债务行的证据、边界和关闭条件。状态为“开放”“部分缓解”“部分关闭”或“已缓解但仍有残余条件”的记录均视为未完全关闭。
+
+| 优先级 | 未解决编号 | 当前影响 | 进入下一状态前的停止条件 |
+|---|---|---|---|
+| P0：仓库可复现性 | DEBT-043、DEBT-045 | CJK 测试/字体/golden 及部分当前真源未被 git 跟踪；当前工作树通过不能代表干净 checkout 可复现 | 审核许可与内容后显式纳入所需文件；golden-sync 可生成 CJK 基准；干净 checkout 的索引、链接和双后端比对通过 |
+| P0：数据正确性 | DEBT-039 | 编辑器保存 token 只证明 revision 一致，非法跨文档或插件数据仍可能写盘 | `PrepareSave` 对完整 working copy 运行同源 parser、引用、预算和插件校验；error 时不签 token，文件保持不变 |
+| P0：发布正确性 | DEBT-040 | 合法的自定义或多个插件 `data_roots` 可能在成功打包后被静默漏装 | 发布脚本逐项校验并装配声明 root，覆盖自定义、多 root、缺失、越界和确定性测试 |
+| P1：产品与工具链治理 | DEBT-041、DEBT-042、DEBT-044 | 包元数据残留已否定画风；editor 不是构建可选项；macOS 非产品支持但 CI 仍硬阻断 | 分别清理中性描述、验证 editor-off 核心构建测试、明确 macOS CI 为非阻断信号或正式工程门禁并同步 ADR |
+| P1：图形后端正确性与可见性 | DEBT-004、DEBT-007、DEBT-010、DEBT-015、DEBT-020–022、DEBT-027–028 | allocator 串行前置条件、descriptor 容量、资源状态、Vulkan 验证与真实 swapchain/present 同步仍缺完整合同或实机证据 | 在引入多帧/多窗口/真实 Linux surface 前完成对应合同、验证层、同步与实机测试；不得用离屏结果代替呈现证据 |
+| P2：结构与维护性 | DEBT-005、DEBT-018–019、DEBT-023–026、DEBT-038 | 后端大文件、shader 工具约定、空 platform owner、Stage 冗余/排序和 editor z-order/字体预热增加维护风险 | 只在真实消费者或 profiling 触发时按各 owner 入口处理，并保持现有合同测试与文档同步 |
+| P2：受限能力与未来扩展 | DEBT-003、DEBT-006、DEBT-008、DEBT-011–013、DEBT-030–031、DEBT-034–036 | 依赖布局、诊断、格式假设、多对象动画/资源策略、CI 外部波动及源码级插件边界仍有明确限制 | 触发对应升级、格式、规模、发布或 ABI 需求时按详细债务行验收；当前不得把限制描述成已支持能力 |
+
+当前阻断问题共 4 项：DEBT-039、DEBT-040、DEBT-043、DEBT-045。它们关闭前，不得宣称 P11 发布链、P12 稳定版本、P13 保存链或干净 checkout 文档真源已经闭合。
+
+## 早期主登记表（DEBT-001–029）
 
 | 编号 | 发现日 | 描述 | 分级 | 不处理原因 | 后续入口 | 状态 |
 |---|---|---|---|---|---|---|
-| DEBT-001 | 2026-08-23 | CI 日志出现 Node.js 20 deprecation warning：`actions/checkout@v4` 等以 Node20 为 target 的 action 被 runner 强制运行于 Node24 | 2026-08-24 升级 `actions/checkout` v4→v5（node24）、`actions/upload-artifact` v4→v6（node24）；lukka actions 核对其 major tag 指向最新（get-cmake@latest、run-vcpkg@v11 含 v11.6、run-cmake@v10 含 v10.9）。CI 全绿后确认 Node20 deprecation warning 消失 | 已关闭 |
-| DEBT-002 | 2026-08-23 | `tools/ci/check_private_headers.ps1` 缺自动化自测 fixture：本轮修复后用手工构造的正反例 probe 验证，回归无保障；且存在 `Write-Error`+`$ErrorActionPreference='Stop'` 组合缺陷（ForEach 首条 Write-Error 即抛终止错误，多泄漏只报第一条、`exit 1` 永不执行） | 2026-08-24 落地 `tools/ci/selftest_private_headers.ps1`：临时 fixture 树覆盖五用例（同模块私有头允许、跨模块私有头拒绝、`<suspicious-src-path>` 拒绝、engine 外消费拒绝、公共头允许），子进程（`pwsh -NoProfile -File`）调用隔离终止错误并断言 exit 1 + 诊断行内容；check 脚本修 `$ErrorActionPreference='Continue'` 后逐条 `Write-Error` 并显式 `exit 1`；CI private-headers job 增加 selftest step。本机验证：selftest 3 诊断行断言通过，真实仓库回归 OK（26 文件 exit 0） | 已关闭 |
+| DEBT-001 | 2026-08-23 | CI 日志出现 Node.js 20 deprecation warning：`actions/checkout@v4` 等以 Node20 为 target 的 action 被 runner 强制运行于 Node24 | 已关闭 | — | 2026-08-24 升级 `actions/checkout` v4→v5（node24）、`actions/upload-artifact` v4→v6（node24）；lukka actions 核对其 major tag 指向最新（get-cmake@latest、run-vcpkg@v11 含 v11.6、run-cmake@v10 含 v10.9）。CI 全绿后确认 warning 消失 | 已关闭 |
+| DEBT-002 | 2026-08-23 | `tools/ci/check_private_headers.ps1` 缺自动化自测 fixture：本轮修复后用手工构造的正反例 probe 验证，回归无保障；且存在 `Write-Error`+`$ErrorActionPreference='Stop'` 组合缺陷（ForEach 首条 Write-Error 即抛终止错误，多泄漏只报第一条、`exit 1` 永不执行） | 已关闭 | — | 2026-08-24 落地 `tools/ci/selftest_private_headers.ps1`：临时 fixture 树覆盖五用例（同模块私有头允许、跨模块私有头拒绝、`<suspicious-src-path>` 拒绝、engine 外消费拒绝、公共头允许），子进程调用隔离终止错误并断言 exit 1 + 诊断行内容；check 脚本改为聚合诊断并显式 `exit 1`；CI private-headers job 纳入 selftest | 已关闭 |
 | DEBT-003 | 2026-08-23 | `tests/unit/CMakeLists.txt` 以 `list(APPEND CMAKE_MODULE_PATH "${Catch2_DIR}")` + `include(Catch)` 接入 Catch2 脚本模块，依赖上游安装目录布局 | 可记录债务 | 当前 vcpkg 锁定的 Catch2 版本下工作正常（win-debug/release 双配置 ctest 通过） | 下次升级 vcpkg builtin-baseline 时复核该路径假设是否仍成立 | 开放 |
 | NOISE-001 | 2026-08-23 | 本机 `git add` 时出现 "LF will be replaced by CRLF" 提示 | 已接受噪音 | `.gitattributes` 已定义仓库内统一 LF 存储，提示仅为本机 autocrlf 工作区行为说明，仓库内容与 CI 不受影响 | 无需行动；避免后续会话误判为缺陷 | 已接受 |
-| DEBT-004 | 2026-08-23 | D3D12 后端 v0 命令列表共享单一 command allocator：两个列表同时 recording 或 Submit 后未等 GPU 即 Begin 均属误用且仅有 HRESULT 级报错（合同已声明串行约束，代码无防护） | 设计风险 | 主渲染列表仍共享 allocator；`MapReadBack` 的 copy 列表已改独立 allocator（三角形轮次缓解 readback 竞态）；per-frame allocator 演进是主循环轮次的必然工作 | P1 主循环接线前演进 allocator 模型；01 §RHI v0 语义补充 "Begin 前须 GPU idle" 条款 | 部分缓解 |
-| DEBT-005 | 2026-08-23 | `D3D12CommandList` 与 `D3D12Device` 同住 d3d12_device.{h,cpp}；后续轮次加入资源管理后将膨胀失控 | 可记录债务 | 骨架期两文件共约 270 行尚可控；拆分动作本身零风险但单独成 commit 无收益 | 下一次 D3D12 功能轮次开工时先拆出 d3d12_command_list.{h,cpp} | 开放 |
+| DEBT-004 | 2026-08-23 | D3D12 主渲染命令列表仍共享 device 级 command allocator：两个列表同时 recording，或 Submit 后未等 GPU 即 Begin，均属调用误用且没有结构化防护 | 设计风险 | readback/upload copy 列表已使用独立 allocator，主路径也在资源销毁前等待 GPU；但共享 allocator 的串行前置条件仍由调用方维护 | 引入多帧 in-flight、并行录制或多个主列表前，改为 per-frame/per-list allocator 并增加误用测试；当前文档继续明确串行约束 | 部分缓解 |
+| DEBT-005 | 2026-08-23 | `D3D12CommandList` 与 `D3D12Device` 仍同住 `d3d12_device.{h,cpp}`；资源、descriptor、pipeline、上传和 readback 增长后，当前 cpp 已约 1180 行 | 设计风险 | swapchain 已拆为独立文件，但 command list/device 仍耦合；机械拆文件不改变行为，却会影响高风险后端的审阅定位 | 下一次实际修改 D3D12 command-list 生命周期或绑定状态时，沿现有 private header 边界拆出 command-list 实现，并以全量 D3D12 合同/golden 阻断行为漂移 | 开放 |
 | DEBT-006 | 2026-08-23 | D3D12 后端开了 debug layer 但未挂 ID3D12InfoQueue 错误回调与退出时 ReportLiveObjects，GPU 侧错误与对象泄漏不可见 | 可记录债务 | 本轮已在 `WaitForGpuIdle` 后轮询 InfoQueue 并把 ERROR/CORRUPTION 提升为 `std::runtime_error`，并在 `Create` 后查 `GetDeviceRemovedReason`；GPU 错误已对测试可见 | ReportLiveObjects 常驻报告 + live-object 断言仍待资源轮次；InfoQueue 错误回调（异步）可后续替换轮询 | 部分关闭 |
-| DEBT-007 | 2026-08-23 | D3D12 `kRtvHeapCapacity=64` 硬编码上限，溢出即抛异常、调用方无从感知预算 | 设计风险 | 清屏用例每纹理 1 RTV 远低于上限；动态 RTV 池是资源轮次的自然工作 | P1 资源轮次引入动态 descriptor 池 + 预算上报 | 开放 |
+| DEBT-007 | 2026-08-23 | D3D12 `kRtvHeapCapacity=64` 仍是硬编码上限，溢出只在创建纹理时抛异常，调用方无法查询剩余 descriptor 预算 | 设计风险 | 当前 app/editor 和离屏测试规模未达到上限，固定容量尚未造成实际失败 | 引入多 viewport、大量 render target 或资源预算诊断时，提供可查询容量或动态 descriptor 池，并覆盖耗尽/回收测试 | 开放 |
 | DEBT-008 | 2026-08-23 | Vulkan `MapReadBack` 行距硬编码 `width*4`（假定每像素 4 字节），D3D12 用 footprint.RowPitch | 可记录债务 | 当前仅 R8G8B8A8 单格式，BPP=4 恒成立；多格式引入前无需泛化 | 多格式支持轮次改为从 format 查 BPP 或经 vkGetImageSubresourceLayout | 开放 |
-| DEBT-009 | 2026-08-23 | `ToNativeFormat` 双后端均映射 `kB8G8R8A8Unorm`，但当前无任何用例消费 B8G8R8A8 | 可记录债务 | swapchain 轮次才需要 B8G8R8A8；当前映射无成本且属合同格式集 | swapchain+SDL3 轮次用 B8G8R8A8 真实路径验收后关闭 | 开放 |
+| DEBT-009 | 2026-08-23 | `ToNativeFormat` 双后端映射 `kB8G8R8A8Unorm` 曾无真实消费者 | 已关闭 | app 与 editor 的 swapchain、场景/UI/文本 pipeline 现均使用 B8G8R8A8；Windows/D3D12 已有实机窗口证据，Vulkan 后端保留相同格式映射 | 后续 Vulkan 真实桌面 swapchain 风险由 DEBT-020/022 跟踪，不再把格式“无人消费”保持为开放债务 | 已关闭 |
 | DEBT-010 | 2026-08-23 | D3D12 与 Vulkan 的 EndRendering 后布局/状态语义不同（D3D12 回 COMMON、Vulkan 转 TRANSFER_SRC），合同层未声明"渲染后资源状态" | 设计风险 | 两后端各自内部自洽，合同语义"EndRendering 后资源可读回"成立；但未来统一状态 API 时需对齐 | 资源状态 API（显式 layout/state 合同化）轮次统一 | 开放 |
-| DEBT-011 | 2026-08-23 | D3D12 `MapReadBack` 要求目标纹理带 `kRenderTarget`（检查 has_rtv），Vulkan 仅要求存在且 image 有 TRANSFER_SRC；纯 readback 纹理（无 RT）在 D3D12 下不可读回 | 可记录债务 | 当前用例恒为 RT|ReadBack，无纯 readback 消费者 | 引入纯 readback 纹理用例时移除 D3D12 has_rtv 限制并对齐两后端 | 开放 |
+| DEBT-011 | 2026-08-23 | D3D12 `MapReadBack` 要求目标纹理带 `kRenderTarget`（检查 has_rtv），Vulkan 仅要求存在且 image 有 TRANSFER_SRC；纯 readback 纹理（无 RT）在 D3D12 下不可读回 | 可记录债务 | 当前用例恒为 `RT\|ReadBack`，无纯 readback 消费者 | 引入纯 readback 纹理用例时移除 D3D12 has_rtv 限制并对齐两后端 | 开放 |
 | DEBT-012 | 2026-08-24 | shader 字节码提交入库（`shaders/generated/`）：字节码由 dxc 版本决定，跨 CI/开发机 dxc 版本漂移会改变字节码导致 shader-sync 门禁误报 | 设计风险 | vcpkg builtin-baseline 锁定 `directx-dxc` port 版本，CI 与开发机同 baseline 时字节码稳定；但手动安装其他 dxc 会漂移 | **2026-08-25 实锤并收口**：同一 vcpkg baseline 下 Windows/Linux port 的 dxc 二进制版本不同（win `1.9.2602.24` vs linux `1.9.0.5191`），Windows dxc 生成的 DXIL 在 CI Linux dxc 重编译必漂移（+16 字节版本戳，语义不变）。**修复**：字节码改为 **Linux dxc 权威生成**（shader-sync 是 Linux job），提交后与 CI 自洽；Windows 用新字节码渲染 golden 双端 delta=0 证明语义不变。**残余**：未来升级 vcpkg baseline 改 dxc 版本时须用 Linux dxc 重生成字节码 | 已缓解 |
-| DEBT-013 | 2026-08-24 | Vulkan 负高度 viewport 依赖 Vulkan 1.1+ 核心特性（翻转 NDC Y 以统一双后端方向） | 可记录债务 | 目标平台 Vulkan 1.3（MoltenVK/lavapipe 均满足 1.1）；Vulkan 1.3 必支持负高度 viewport | 若未来支持更老 Vulkan 平台，需改用 `VK_KHR_maintenance1` 检查或 shader 层面翻转 | 开放 |
-| DEBT-015 | 2026-08-24 | Vulkan 后端无 GPU 错误可见性：D3D12 已把 InfoQueue ERROR/CORRUPTION 提升为 `std::runtime_error`，Vulkan 无验证层或等价机制，GPU 侧错误静默吞掉 | 设计风险 | 当前 Vulkan 用例稳定（lavapipe/MoltenVK 下三角形/清屏测试通过），尚未暴露真实 GPU 错误；接入验证层属工具链增量 | P1 后续或 P2 接入 VK_LAYER_KHRONOS_validation（三平台 CI 可选启），错误回调/日志与 D3D12 对齐 | 开放 |
+| DEBT-013 | 2026-08-24 | Vulkan 负高度 viewport 依赖 Vulkan 1.1+ 核心特性（翻转 NDC Y 以统一双后端方向） | 可记录债务 | 当前 Linux/Vulkan 1.3 满足要求；未来 macOS/MoltenVK 适配也必须满足相同合同 | 若未来支持更老 Vulkan 平台，需改用 `VK_KHR_maintenance1` 检查或 shader 层面翻转 | 开放 |
+| DEBT-015 | 2026-08-24 | Vulkan 后端无 GPU 错误可见性：D3D12 已把 InfoQueue ERROR/CORRUPTION 提升为 `std::runtime_error`，Vulkan 无验证层或等价机制，GPU 侧错误静默吞掉 | 设计风险 | 当前 Linux Vulkan 用例稳定，尚未暴露真实 GPU 错误；接入验证层属工具链增量 | 在 Windows/Linux 门禁接入 `VK_LAYER_KHRONOS_validation` 可选启用；未来 macOS 适配复用同一结构化错误合同 | 开放 |
 | DEBT-018 | 2026-08-24 | `compile_shaders.ps1` dxc 查找含 20+ 候选路径（含未验证的 `x64-windows\x64-windows` 双 triplet 猜测），维护负担与误判面大 | 可记录债务 | CI shader-sync 与本地开发实际命中已验证路径（VCPKG_INSTALLED_DIR/BUILD_DIR）；候选列表兜底但臃肿 | golden 流水线轮次收敛 dxc 查找为单一受控路径（CMake 导出 `DIRECTX_DXC_TOOL` 或统一脚本） | 开放 |
-| DEBT-019 | 2026-08-24 | shader entry 名（`vs_main`/`ps_main`）与 profile 表在 `triangle.hlsl`、`vulkan_device.cpp`、`compile_shaders.ps1` 三处重复，改名需改三处 | 可记录债务 | 当前单 shader 用例；entry 名是 ADR-003 约定的一部分 | 多 shader 引入时抽公共约定（如固定 `<name>_vs/_ps` 命名规则）至 docs/01 | 开放 |
+| DEBT-019 | 2026-08-24 | shader entry 名 `vs_main`/`ps_main` 同时固化在全部 HLSL、Vulkan pipeline 创建和 `compile_shaders.ps1` profile 表中，改名必须跨三处合同同步 | 可记录债务 | 当前七个 shader 均遵循统一固定入口，重复尚未导致漂移；入口名也是 ADR-003 单源双目标约定的一部分 | 若需要每文件自定义 entry，先建立结构化 shader manifest 供生成器与 runtime 共同消费；否则维持固定入口并在文档中明确，不做字符串级抽象 | 开放 |
 | DEBT-020 | 2026-08-24 | Vulkan swapchain surface 路径无 CI/本机可复现实机验证：SDL_Vulkan_CreateSurface 需真实窗口（WSL 无 WSLg、CI 无显示均不可建），仅离屏+错误路径（CreateSwapchain(nullptr) 抛异常）被测试覆盖 | 可记录债务 | swapchain 本属 app 主循环专有（docs 已注明不进 CI）；Linux 实机验证需带显示环境 | 接入真实 Linux 桌面（或有显示 CI runner）时补 swapchain 实机验收证据；P1 剩余 golden 流水线维持离屏 | 开放 |
-| DEBT-021 | 2026-08-24 | Vulkan swapchain 复用 graphics 队列族进行 present（`vkGetPhysicalDeviceSurfaceSupportKHR` 仅运行时校验 graphics 队列可 present），未独立选择 present 专用队列族 | 可记录债务 | 目标平台（MoltenVK/lavapipe/主流桌面驱动）graphics 队列族恒可 present；独立 present 队列是异质平台（如部分移动 SoC）才需要 | 引入独立 present 队列支持的平台时，device 创建改为按 surface 支持选择队列族并创建第二队列 | 开放 |
+| DEBT-021 | 2026-08-24 | Vulkan swapchain 复用 graphics 队列族进行 present（`vkGetPhysicalDeviceSurfaceSupportKHR` 仅运行时校验 graphics 队列可 present），未独立选择 present 专用队列族 | 可记录债务 | 当前 Linux 桌面 Vulkan 路径以 graphics 队列 present；未来 macOS/MoltenVK 适配必须实机复核该假设 | 引入独立 present 队列支持的平台时，device 创建改为按 surface 支持选择队列族并创建第二队列 | 开放 |
 | DEBT-022 | 2026-08-24 | swapchain back buffer 图像布局状态语义未合同化：D3D12 EndRendering 回 COMMON、Vulkan EndRendering 转 TRANSFER_SRC；Present 前 swapchain image 应处 PRESENT_SRC/COMMON，当前 Vulkan 无呈现前显式布局转换 | 设计风险 | 当前 app 实机（D3D12）工作正常；Vulkan surface 未实机验证故布局问题未暴露；真机若校验报错会暴露 | Vulkan 实机验收轮次：EndRendering 对 swapchain image 增加 COMMON/PRESENT 转换或合同层约定"present 目标渲染后回可呈现状态" | 开放 |
-| DEBT-023 | 2026-08-24 | app 主循环把 SDL3 接线直接放 app（未建 `engine/platform` 模块），与 docs/01 目录结构"platform(adapter) 负责 SDL3 窗口/输入接线"不一致 | 可记录债务 | P1 为最小装配验证，SDL 直接接线可跑通；platform 模块空置 | P2 起把窗口/输入/文件抽象迁移到 `engine/platform`，app 只做装配 | 开放 |
-| DEBT-024 | 2026-08-24 | `SystemRegistration.stage` 是死字段：`RegisterSystem(stage, {stage, order}, cb)` 强制调用方重复传 stage，实现只按参数索引、只读 order，不校验 `registration.stage == stage` | 可记录债务 | 冗余字段 + 调用冗余；v0 阶段语义简单未暴露问题 | Stage 合同成熟（before/after 图落地）时删除字段或改为仅 order 参数 | 开放 |
+| DEBT-023 | 2026-08-24 | `engine/platform` 仍为空目录骨架；SDL3 窗口、输入和音频输出直接位于 app/editor executable，Vulkan surface 接线位于 backend | 设计风险 | 当前 owner 已在 docs/01 按实际依赖标明，运行行为可用；但 app/editor 重复平台 adapter，目标目录长期空置会误导维护者 | 出现第三个 SDL host 或需要共享窗口/输入生命周期时，建立窄 platform adapter；否则删除空骨架并继续让 executable 拥有接线，禁止维持虚假 owner | 开放 |
+| DEBT-024 | 2026-08-24 | `SystemRegistration.stage` 是死字段：`RegisterSystem(stage, {stage, order}, cb)` 强制调用方重复传 stage，实现只按参数索引、只读 order，不校验 `registration.stage == stage`；当前也没有文档曾承诺的 before/after 依赖图 | 可记录债务 | 固定五阶段枚举与同阶段唯一数字 order 已足以支撑当前单线程主循环，但调用冗余且复杂依赖只能靠人工分配数字表达 | Stage 合同需要表达真实复杂依赖时，先决定删除冗余 stage 字段并保留简单 order，还是引入有环检测的 before/after 图；未实现前文档只承诺枚举顺序和数字 order | 开放 |
 | DEBT-025 | 2026-08-24 | D3D12 `RegisterSwapchainBuffer` 的 width/height/format 参数全部 `(void)` 未使用，调用方硬编码 `kB8G8R8A8Unorm` | 可记录债务 | swapchain 创建路径当前固定 B8G8R8A8；参数预留但未消费 | swapchain 支持多格式时消费参数，或移除参数 | 开放 |
-| DEBT-026 | 2026-08-24 | `StageRunner::Tick` 每帧对全表 `std::sort`；注册时即可维护有序性 | 可记录债务 | 系统数小（v0 空占位），每帧排序成本可忽略 | Stage 成熟时改为注册期排序或按序插入 | 开放 |
+| DEBT-026 | 2026-08-24 | `StageRunner::Tick` 每帧对各 Stage 的注册表执行 `std::sort`，即使注册集合未变化 | 可记录债务 | 当前系统数量小且单线程固定步长，尚无性能证据表明排序是瓶颈 | 若 profiling 显示调度开销，或 Stage 注册转为启动期冻结，改为注册期有序插入/冻结排序；不得在无数据时引入复杂 scheduler | 开放 |
 | DEBT-027 | 2026-08-24 | `EnabledInstanceExtensions` 对必需扩展（`VK_KHR_surface` 等）不支持时静默跳过而非硬失败，问题推迟到 CreateSwapchain 才暴露 | 可记录债务 | 离屏测试环境（lavapipe）可能缺 surface 扩展但无需 swapchain；静默跳过让离屏可用 | CreateSwapchain 已对 swapchain_supported_ 检查；若需更早失败可在 instance 创建时校验 surface 必需扩展 | 开放 |
 | DEBT-028 | 2026-08-24 | `vkAcquireNextImageKHR` 用 `VK_NULL_HANDLE` semaphore/fence：单线程+FIFO present 可用但非规范用法，无帧内同步信号量 | 可记录债务 | 当前单命令列表顺序执行、Present 前有 WaitForGpuIdle 间接同步；未暴露竞争 | 多帧 in-flight 或双缓冲流水线落地时引入 acquire semaphore + present wait semaphore | 开放 |
 | DEBT-029 | 2026-08-24 | 材质/纹理兼容输入曾未完整落地：cgltf 材质元数据、纹理解码及向渲染风格插件的交接需要独立 owner，不能由 engine/domain 解释 | 可记录债务 | P2 聚焦网格/变换/相机；RHI 采样能力先独立落地，避免引擎提前绑定固定材质模型 | P8-1 已完成 `stb_image` 解码、`SceneLoad` 保留 glTF material/texture 引用、独立 `TextureResourceService`、插件拥有的材质 schema/validator 及 sampled draw；后续仅保留异步流式加载、压缩格式和多材质批处理 | 已关闭（Windows/D3D12 与 Linux/Vulkan 本地全量 CTest 各 213/213；CI run `33070203706` 的三平台 Debug/Release、golden-sync、shader-sync、data-lint、私有头审计和 format 全部通过） |
 
-## 已关闭
+## 历史审计关闭记录
 
 | 编号 | 描述 | 关闭方式 |
 |---|---|---|
-| （P0 审计轮）审计脚本正则脆弱/GetFullPath 无保护 | 2026-08-23 commit `98cff8b` 重写加固并以双反例验收 |
-| （P0 审计轮）ci.yml format job 空列表挂起风险 | 同上，加 `xargs -r` |
-| （P0 审计轮）smoke_test 弱断言（仅比长度） | 同上，改为 semver 格式校验，ctest 2/2 通过 |
+| AUDIT-P0-01 | （P0 审计轮）审计脚本正则脆弱/GetFullPath 无保护 | 2026-08-23 commit `98cff8b` 重写加固并以双反例验收 |
+| AUDIT-P0-02 | （P0 审计轮）ci.yml format job 空列表挂起风险 | 同上，加 `xargs -r` |
+| AUDIT-P0-03 | （P0 审计轮）smoke_test 弱断言（仅比长度） | 同上，改为 semver 格式校验，ctest 2/2 通过 |
 | DEBT-014 | 2026-08-24 显式设 `D3D12_COLOR_WRITE_ENABLE_ALL`（D3D12_BLEND_DESC 零初始化使 RenderTargetWriteMask=0 导致三角形颜色不写） | 已设 write mask 修复；未来引入混合时扩展完整 BlendState |
 | DEBT-016 | 2026-08-24 NDC Y 翻转约定零验证：triangle 采样点关于中线对称，去掉 Vulkan 翻转测试仍通过 | 2026-08-24 CI golden 流水线落地：triangle_test 改为全帧比对 `tests/golden/triangle_64x64.ppm`（lavapipe 权威生成），三角形顶点非对称，Y 翻转必然全帧差异 → 约定被锁定 |
 | DEBT-017 | 2026-08-24 triangle golden 未达 P1 验收字面：无 golden 参考图、无全帧比对、无截图产物，仅 9 采样点断言蓝通道 | 2026-08-24 CI golden 流水线落地：基准图提交入库、triangle_test 全帧逐像素比对、CI golden-sync job 上传基准图截图 artifact；P1 验收达成 |
-| （审计轮 R1）2026-08-24 Vulkan `SelectPhysicalDevice` 用 `deviceType > best_type` 选最大枚举值，而 `VK_PHYSICAL_DEVICE_TYPE_CPU=4` 是最大 → 真机同时装 lavapipe 与硬件 GPU 时必选软件光栅，与 D3D12 硬件优先策略不一致 | 2026-08-24 `vulkan_device.cpp` 引入 `DeviceTypePriority`：离散>集成>虚拟>other>CPU，硬件优先、CPU 兜底（离屏/CI 仍选 lavapipe）；WSL linux-debug 构建 + ctest 15/15 通过 |
-| （审计轮 D1）2026-08-24 CI format job 只对 `git ls-files '*.cpp' '*.hpp'` 跑 clang-format，后端私有头（`d3d12_device.h` 等 4 个 `.h`）不在格式门禁内，与全局门禁"clang-format diff 为空"字面不符 | 2026-08-24 `ci.yml` format job 改为 `git ls-files '*.cpp' '*.hpp' '*.h'`；4 个 `.h` 文件本机 clang-format dry-run 全通过 |
-| （P2 轮）2026-08-24 `tools/ci/compile_shaders.ps1` 输出文件名用 `$base.$suffix.$ext`（`triangle.vs.dxil`，点号），与 `shaders/CMakeLists.txt` 与已提交生成物期望的 `$base_$suffix.$ext`（`triangle_vs.dxil`，下划线）不一致。P1 提交后从未重编译故未暴露；本轮 P2 修改 shader 触发重编译时生成新命名文件、旧字节码未被覆盖，导致构建消费旧 shader（DXIL 仍为 `SV_VertexID`） | 2026-08-24 修复 `compile_shaders.ps1` 文件名拼接为下划线分隔；删除误生成的 `triangle.vs/ps.dxil/spv` 点号文件后重编译，`triangle_vs.dxil` 正确更新（DXIL 输入签名变为 `POSITION`）。D3D12 侧同步修复：root signature 需 `D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT` 才能绑定顶点输入（P1 纯 shader 几何从未需要，PSO 创建报 E_INVALIDARG）。双端构建零警告、ctest 15/15、golden 比对通过、Windows 实机冒烟通过 |
-| （审计轮 R2）2026-08-24 RHI 合同头声明了未实现的接口：`IDevice::CreateBuffer/DestroyBuffer`（双后端返回 `kInvalid`/no-op）、`ICommandList::CopyTexture`（双后端 throw not-implemented）——docs/01 明文"合同层不暴露 copy 命令"且 v0 裁剪"无顶点缓冲"，接口与文档矛盾且误导调用方 | 2026-08-24 从合同头删除未实现接口与 `BufferHandle`/`BufferDesc`，连带删除后端实现与测试中把半成品当特性的断言（`CreateBuffer==kInvalid`）；docs/01 对象模型段改为"v0 无 buffer/顶点输入，随 P2 glTF 导入按真实需求引入"；后端内部 `CopyTextureToReadBack`（MapReadBack 实现细节）保留。WSL + win 双后端构建零警告、ctest 15/15 通过 |
-| （审计轮 R3）2026-08-24 app 退出路径违反生命周期合同：主循环退出后未 `WaitForGpuIdle` 直接销毁 command list；且 `SDL_DestroyWindow` 早于 swapchain 析构（Vulkan surface 须先于窗口销毁）。另发现主循环只处理 `SDL_EVENT_QUIT`，SDL3 关闭按钮实际发送 `SDL_EVENT_WINDOW_CLOSE_REQUESTED`，导致点 X 关窗永不退出 | 2026-08-24 `main.cpp` 修复：主循环退出后先 `WaitForGpuIdle` 再销毁 command list；teardown 顺序改为 `WaitForGpuIdle → DestroyPipeline → swapchain.reset() → SDL_DestroyWindow`（surface 先于窗口销毁）；事件循环同时接受 `SDL_EVENT_QUIT` 与 `SDL_EVENT_WINDOW_CLOSE_REQUESTED` 作为退出条件。Windows 实机冒烟：点 X 关窗进程正常自行退出。WSL + win 构建零警告、ctest 15/15 |
-| （审计轮 R4）2026-08-24 `CreateTexture` 对 `TextureUsage::kNone`（无 usage 位）双后端行为分叉：D3D12 接受并建普通 DEFAULT 纹理，Vulkan 拒绝 throw | 2026-08-24 D3D12 补上 usage=0 校验（与 Vulkan 对齐 throw），合同头 `TextureDesc` 注释明确"至少一个 usage bit，kNone 双后端均拒绝"。WSL + win 构建零警告、ctest 15/15、clang-format 合规 |
-| （审计轮 R5）2026-08-24 Stage 框架与渲染路径脱节：docs/01 承诺"RenderSubmit 阶段驱动渲染提交"，但 `app/main.cpp` 只注册空回调，实际渲染（Acquire→Begin→Draw→Submit→Present）硬编码在主循环 | 2026-08-24 `main.cpp` 将渲染提交移入 `kRenderSubmit` 阶段回调（lambda 捕获 device/swapchain/command_list/pipeline），command list 生命周期移交 main 统一管理（创建→`WaitForGpuIdle`→销毁）；主循环只做输入 + 固定步进 + 阶段推进。Windows 实机冒烟：窗口渲染正常、关窗干净退出。WSL + win 构建零警告、ctest 15/15、clang-format 合规 |
-| （P4 审计轮 A1）2026-08-26 CUBICSPLINE 合同实现与文档声明不一致：导入器重复计算三元组数量而拒绝合法 glTF，采样器在首尾关键帧按非 cubic stride 读取 tangent | 导入器按 glTF accessor 元素语义校验 `output.count = input.count × 3` 并按 VEC3/VEC4 分量数解包；core 统一 value offset，首尾读取 tangent/value/tangent 中间段且 quaternion 归一化。测试资产加入合法 cubic clip；`[cubic-spline]` 2 例 44 断言，Windows/D3D12、Linux/Vulkan 全量 ctest 各 140/140 通过 |
-| （P4 审计轮 A2）2026-08-26 `BoneMatrices` 假定 parent 索引小于 child，但 glTF `skin.joints` 数组没有该顺序合同；合法资产可在 Debug 触发 assert，Release 则使用尚未合成的 parent 矩阵 | 保留 glTF joint 原始索引（JOINTS/动画/inverse-bind 同源），`Skeleton` 构造期验证 parent 范围与无环，`BoneMatrices` 按 parent 依赖记忆化求值；`[joint-order]` 2 例 5 断言，Windows/D3D12、Linux/Vulkan 全量 ctest 各 142/142 通过 |
-| （P4 审计轮 A3）2026-08-26 双后端 `Draw`/`DrawIndexed` 直接发出原生命令，未验证 pipeline、rendering、vertex/index 与 pipeline 声明资源是否已绑定；`Begin()` 也未清理镜像状态，Vulkan 复用 command buffer 时未显式 reset | pipeline 保存 vertex-input/push-constant/sample/uniform 要求，command list 统一追踪并在 Draw 前拒绝缺失绑定；`SetPipeline` 使 pipeline 专属绑定失效；双后端 `Begin()` 清空状态，Vulkan 增 `vkResetCommandBuffer`。缺失绑定回归断言覆盖 vertex/index/constants/texture/uniform，重复提交复用同一 command list；双端全量 ctest 各 143/143 通过 |
-| （P4 审计轮 A4）2026-08-26 `BufferEntry` 丢弃 `BufferDesc.usage`，vertex/index/uniform 绑定可接受用途不匹配的 buffer，无法兑现 RHI 资源用途合同 | 双后端保存 usage 位并在三个绑定入口校验对应 `kVertex`/`kIndex`/`kUniform`；组合 usage 仍可用于多个入口；新增 `[buffer-contract]` 双端回归测试，Windows/D3D12、Linux/Vulkan 全量 ctest 各 144/144 通过 |
-| DEBT-030 | 2026-08-25 | RHI per-object uniform 为单 buffer 绑定单对象（无 ring buffer/多对象 dynamic offset）：每对象独立 buffer + 每帧 MapWrite，多角色同帧渲染时 buffer 数量随角色数线性增长 | 可记录债务 | P4 骨骼动画 v0 仅单蒙皮对象 golden 闭环，CharacterController/NPC 多对象渲染在后续轮次才需要 | P4 相机/动态场景子任务引入多对象渲染时评估 ring buffer（帧内偏移对齐 256B）或 per-frame 大 buffer + dynamic offset | 开 |
-| DEBT-031 | 2026-08-25 | 动画状态机未落地：BlendPose 仅支持双 clip 标量权重混合（v0 混合树），clip 图、过渡时间线、动画事件轨缺失 | 可记录债务 | P4 子任务 1 范围是导入/采样/混合最小闭环；状态机属 CharacterController 及演出时间轴（P6）的消费语义，提前落地无消费者 | P4 CharacterController 移动驱动动画时按需扩展（idle-walk-run 一维混合已可表达）；事件轨随 P6 cutscene 时间轴 | 开 |
+| AUDIT-R1 | （审计轮 R1）2026-08-24 Vulkan `SelectPhysicalDevice` 用 `deviceType > best_type` 选最大枚举值，而 `VK_PHYSICAL_DEVICE_TYPE_CPU=4` 是最大，真机同时装 lavapipe 与硬件 GPU 时会优先选择软件光栅 | `vulkan_device.cpp` 引入 `DeviceTypePriority`：离散 > 集成 > 虚拟 > other > CPU，硬件优先、CPU 兜底；WSL linux-debug 构建与 ctest 15/15 通过 |
+| AUDIT-D1 | （审计轮 D1）2026-08-24 CI format job 只对 `*.cpp`/`*.hpp` 跑 clang-format，后端私有 `.h` 文件不在门禁内 | `ci.yml` format job 纳入 `*.h`；4 个相关文件本机 clang-format dry-run 通过 |
+| AUDIT-P2-01 | （P2 轮）2026-08-24 `compile_shaders.ps1` 输出点号分隔文件名，与构建和已提交生成物期望的下划线命名不一致，导致继续消费旧 shader | 生成脚本统一为下划线命名；清理误生成文件后重编译，D3D12 root signature 同步允许 input assembler；双端构建零警告、ctest 15/15、golden 与 Windows 冒烟通过 |
+| AUDIT-R2 | （审计轮 R2）2026-08-24 RHI 合同头声明未实现的 `CreateBuffer/DestroyBuffer` 与 `CopyTexture`，接口与文档矛盾并误导调用方 | 删除未实现接口、相关句柄/描述和把半成品当特性的测试；后端私有 readback 实现保留；WSL 与 Windows 双端构建、ctest 15/15 通过 |
+| AUDIT-R3 | （审计轮 R3）2026-08-24 app 退出未等待 GPU idle，窗口早于 Vulkan surface 销毁，且未处理 SDL3 窗口关闭请求 | 修正为 `WaitForGpuIdle → DestroyPipeline → swapchain.reset() → SDL_DestroyWindow`，并处理 `SDL_EVENT_WINDOW_CLOSE_REQUESTED`；Windows 实机点 X 正常退出 |
+| AUDIT-R4 | （审计轮 R4）2026-08-24 双后端对 `TextureUsage::kNone` 行为分叉 | D3D12 增加 usage=0 校验并与 Vulkan 对齐，合同注明至少一个 usage bit；双端构建与 ctest 15/15 通过 |
+| AUDIT-R5 | （审计轮 R5）2026-08-24 Stage 框架与渲染路径脱节，实际 Acquire/Draw/Submit/Present 硬编码在主循环 | 渲染提交移入 `kRenderSubmit` 阶段，主循环只做输入、固定步进和阶段推进；Windows 实机渲染及退出正常 |
+| AUDIT-P4-A1 | （P4 审计轮 A1）2026-08-26 CUBICSPLINE 导入重复计算三元组数量，首尾采样按错误 stride 读取 tangent | 按 glTF accessor 元素语义校验并统一 value offset；加入合法 cubic clip，双平台 `[cubic-spline]` 与全量 ctest 140/140 通过 |
+| AUDIT-P4-A2 | （P4 审计轮 A2）2026-08-26 `BoneMatrices` 假定 parent 索引小于 child，合法 glTF joint 顺序可触发错误 | 保留原始 joint 索引，构造期验证 parent 范围与无环，按 parent 依赖记忆化求值；双平台 ctest 142/142 通过 |
+| AUDIT-P4-A3 | （P4 审计轮 A3）2026-08-26 双后端 Draw 前未统一校验 pipeline/rendering/resource 绑定，Begin 未完全清理状态 | pipeline 保存资源要求，Draw 前统一拒绝缺失绑定，Begin 清空状态且 Vulkan reset command buffer；双平台 ctest 143/143 通过 |
+| AUDIT-P4-A4 | （P4 审计轮 A4）2026-08-26 `BufferEntry` 丢弃 `BufferDesc.usage`，绑定入口可接受用途不匹配的 buffer | 双后端保存 usage 并在 vertex/index/uniform 入口校验；组合 usage 仍可复用；双平台 ctest 144/144 通过 |
+
+## 后续主登记表（DEBT-030–045）
+
+| 编号 | 发现日 | 描述 | 分级 | 不处理原因 | 后续入口 | 状态 |
+|---|---|---|---|---|---|---|
+| DEBT-030 | 2026-08-25 | RHI per-object uniform 为单 buffer 绑定单对象（无 ring buffer/多对象 dynamic offset）：每对象独立 buffer + 每帧 MapWrite，多角色同帧渲染时 buffer 数量随角色数线性增长 | 可记录债务 | P4 骨骼动画 v0 仅单蒙皮对象 golden 闭环，CharacterController/NPC 多对象渲染在后续轮次才需要 | P4 相机/动态场景子任务引入多对象渲染时评估 ring buffer（帧内偏移对齐 256B）或 per-frame 大 buffer + dynamic offset | 开放 |
+| DEBT-031 | 2026-08-25 | 动画状态机未落地：BlendPose 仅支持双 clip 标量权重混合（v0 混合树），clip 图、过渡时间线、动画事件轨缺失 | 可记录债务 | P4 子任务 1 范围是导入/采样/混合最小闭环；状态机属 CharacterController 及演出时间轴（P6）的消费语义，提前落地无消费者 | P4 CharacterController 移动驱动动画时按需扩展（idle-walk-run 一维混合已可表达）；事件轨随 P6 cutscene 时间轴 | 开放 |
 | DEBT-032 | 2026-08-27 | 统一项目 lint 曾未调度插件私有 validator | 设计风险 | P9 已提供 `IPlugin::ValidateData`、有界读取、样例插件私有 schema 校验、资源依赖、i18n/CJK、输入合同和确定性资源打包清单；`eventlint --check-project` 与 `--build-resource-package` 均已接入 CI | 二进制压缩归档和远端缓存服务另行迭代，不回退到 app 运行时兜底 | 已关闭 |
 | DEBT-033 | 2026-08-27 | P5/P6 的 macOS CI 门禁尚未在本轮复验 | 可记录债务 | Windows/D3D12 与 Linux/Vulkan/lavapipe 当前源码已各 209/209；137 个 C++ 源文件已用 clang-format 22.1.3 dry-run 通过；WSL 无 WSLg 不能做 SDL Vulkan surface 实机验收，但不影响离屏 Vulkan 回归 | 2026-08-27 CI run `33052747956` 的 macOS Debug/Release build+test、format、私有头审计和 data-lint 均通过；golden/shader 专项 job 未进入比对，因 vcpkg `libmount` 依赖下载遭遇 502/SSL/timeout，专项门禁转由该外部阻断记录跟踪 | 已关闭（macOS build/test 证据） |
 | DEBT-034 | 2026-08-27 | CI golden-sync、shader-sync 和 Linux Debug 依赖全新 runner 的 vcpkg 安装，易受 GNU/kernel 镜像瞬时 502、SSL 或 timeout 影响，导致未进入项目编译/比对 | 环境风险 | CI run `33052747956` 首轮三个失败 job 均在安装 `libmount` 时失败；随后加入按平台/manifest 的 vcpkg 下载缓存，CI run `33058546267` attempt 2 的 Linux Release、data-lint、golden-sync、shader-sync 均通过 | 保留缓存并在 vcpkg baseline 或 manifest 变化时复核；不得以跳过 golden/shader 比对代替门禁 | 已缓解 |
 | DEBT-035 | 2026-08-27 | 纹理资源服务尚未提供取消 token、优先级调度、压缩纹理格式和按访问热度淘汰 | 可记录债务 | P8-3 已补齐有界 CPU 文件解码、错误诊断、RGBA8 upload packet、app 阶段接线及 Acquire/Release/Unload；明确保留上述能力为后续资源系统迭代，避免把插件材质语义或后台线程 RHI 操作混入核心 | 后续增加取消/优先级/格式策略/可观测淘汰；不得绕过 `TextureResourceService` 直接在 app 创建 GPU 纹理 | 部分关闭 |
 | DEBT-036 | 2026-08-28 | P11 当前插件是源码级、构建期注册；`eventlint` 和 app 的样例宿主仍由编译期 registrar 提供工厂，不支持从 manifest 动态加载第三方二进制 | 设计风险 | 这是已确认的 P11 边界：避免跨编译器 DLL ABI、热加载和隐式任意代码执行；公开 SDK 已要求第三方宿主显式注册自己的工厂 | 若未来需要无源码插件分发，另立 ABI/签名/沙箱设计，不在 P11 偷渡动态加载 | 开放 |
-| DEBT-037 | 2026-08-29 | runtime 已能以 i18n 文本展示对话/选项到诊断输出并完成 choice 选择，但窗口内仍只有静态色块，尚无 FreeType glyph atlas 到 RHI 的可见字形绘制 | 阻断问题 | 本轮先修复 choice 永久阻塞和 presentation owner 缺失；GPU 字形涉及 glyph atlas、透明混合、双后端合同与 CJK golden，必须作为独立问题完整验收，不能用硬编码位图或 SDL 文本绕过 | 下一修复轮实现 UI glyph atlas、双后端 alpha blend、窗口内 dialog/prompt 绘制及中日文 golden | 开放 |
-| DEBT-038 | 2026-08-29 | P13-0 已完成 CLI/GUI 共用 workspace seam、adapter 驱动表单/预览和窗口 UI pass；当前 DrawList 仍只覆盖矩形与文本 key，尚无裁剪、glyph run、z-order 和 CJK GPU 字形 | 可记录债务 | editor host 已接入 SDL + D3D12/Vulkan、主题驱动 UI pipeline、RHI buffer/indexed draw；Windows 全量 CTest 266/266、editor smoke 和资源 lint 通过。字形 atlas 与 CJK golden 保留为后续 UI 渲染增强，不阻断当前 P13 工作区闭环 | 后续实现字体 atlas、透明混合、裁剪和 CJK golden | 已缓解 |
+| DEBT-037 | 2026-08-29 | runtime 曾只能以 i18n 文本生成诊断投影，窗口内没有 FreeType glyph atlas 到 RHI 的可见字形绘制 | 阻断问题 | 功能实现已关闭：`DialogPresentationSnapshot` 经 runtime overlay、FreeType glyph atlas、`UiTextDrawPacket`/有界 `UiTextGpuBatch` 和 sampled texture pipeline 绘制；D3D12/Vulkan 使用统一 alpha blend 合同。当前工作树另有 CJK GPU golden，但其可复现 git/CI 边界独立由 DEBT-043 跟踪 | 2026-08-30 本地证据包含 Windows/D3D12 实机中文对话/提示、Windows/Linux 构建测试及 sampled-text RHI 比对；这些证明功能链存在，不替代 DEBT-043 的干净 checkout 门禁 | 已关闭（功能实现） |
+| DEBT-038 | 2026-08-29 | P13 编辑器已落地 glyph atlas、fallback 字体、sampled-text batch 与矩形裁剪；仍缺显式 z-order 与字体预热策略 | 设计风险 | 当前代码与单测已覆盖 glyph quad、fallback、caret/selection 和裁剪，编辑器 host 已接入 D3D12/Vulkan 文本 pipeline；这两项属于可见层级与首帧体验增强，不是当前导航编辑闭环的直接阻断，但 P13 仍受 DEBT-039 保存门禁约束 | 后续编辑器体验迭代通过共享 draw-order 合同补显式 z-order，并按实际字库与项目语言设计有界字体预热；中日文 GPU golden 的可复现门禁由 DEBT-043 跟踪 | 部分缓解 |
+| DEBT-039 | 2026-08-30 | 编辑器保存链把 `PrepareSave` token 当作可安全提交证明，但当前实现只检查工作区已打开和 revision 一致；它不对内存工作副本重新执行 parser、跨文件引用、资源预算或插件 validator，插件 descriptor 注册还使用空文档 validator，因此跨文档或插件非法数据可能进入 `Commit` | 阻断问题 | 现有 `Commit` 已具备多文件临时写入、备份、替换和失败回滚，不能用绕过该 owner 的 GUI 前置检查替代；保存正确性必须统一收口到 `tools/project`，避免 CLI/GUI 形成两套 clean 语义 | 在 `ProjectWorkspace::PrepareSave` 对完整 working copy 运行与 `Diagnose` 同源的 parser、跨文件与插件校验；任何 error 不签发 token。补充非法跨文档引用、非法插件私有数据、validator 异常、文件保持不变及 CLI/GUI 同结果测试 | 开放 |
+| DEBT-040 | 2026-08-30 | 插件运行时 manifest 允许多个任意安全相对 `data_roots`，但 `tools/ci/package_release.ps1` 仅校验这些声明，装配时固定复制 manifest 同目录下的 `data/`，既不逐项复制声明 root，也不拒绝未被装配的合法 root；第三方插件可得到成功但缺少私有数据的发布包 | 阻断问题 | 当前四个样例插件的唯一 root 都恰好是各自 manifest 同目录的 `data/`，只能证明样例布局可打包，不能把该实现推广为 SDK 合同 | 由发布装配逐项解析、containment 校验并复制所有 manifest `data_roots`，拒绝缺失、重复目标、越界和无法保持包内相对路径的 root；增加自定义 root、多 root、缺失 root 与确定性清单测试后刷新 Windows/Linux 发布证据 | 开放 |
+| DEBT-041 | 2026-08-30 | 根 `vcpkg.json` 的 description 仍称项目为 `Persona-style JRPGs` 引擎，与产品真源已否定固定 Persona 式视觉目标、渲染风格由插件和项目资产拥有的边界冲突 | 设计风险 | 该字段不影响构建和运行，但可能进入包元数据、工具展示或后续文档，造成已否定方向回潮；本轮用户限定只修改文档，因此不改构建元数据 | 独立元数据清理轮将 description 改为与 `docs/00-product.md` 一致的中性 JRPG 运行框架定位，并搜索当前非历史文件确认 `Persona-style` 零残留；不得同时改变依赖或版本 | 开放 |
+| DEBT-042 | 2026-08-30 | 文档把 P13 editor 描述为可删除工具，但根 CMake 无条件 `add_subdirectory(tools/editor)`，单元测试目标直接链接 `jrpgmaker::editor_host`；editor 虽不是 app 的运行时依赖，却不是当前构建图中的可选组件 | 设计风险 | 运行包不包含 editor，运行时边界未被破坏；但干净核心构建仍会解析 SDL/editor 目标，测试也无法在排除 editor host 后原样构建 | 增加明确的 editor build option，按目标职责拆分 editor 专属测试或受同一 option 控制；关闭该 option 时配置、核心 build/test、app 和发布装配必须通过，再恢复“可删除”表述 | 开放 |
+| DEBT-043 | 2026-08-30 | 当前工作树已有 `runtime_overlay_test.cpp`、`NotoSansCJK-Regular.ttc` 和 `runtime_overlay_cjk_256x160.ppm`，测试内容同时覆盖中文、日文与标点并走 sampled-text/RHI readback；但三者均未被 git 跟踪，CI `golden-sync` 也只重生成旧的七张基准图，不会生成 runtime CJK golden | 阻断问题 | 本地当前树可运行不等于干净 checkout 可复现；未跟踪字体/测试/基准和缺失生成门禁会让 P12 的 CJK 成功标准在提交边界消失或静默漂移 | 明确审核字体许可与仓库体积后，将字体、测试和基准纳入 git，或改用可合法稳定获取的固定字体 fixture；为 golden 工具/专项命令增加 runtime overlay CJK 生成入口并纳入 golden-sync 与 artifact 列表，双后端比对通过后关闭 | 开放 |
+| DEBT-044 | 2026-08-30 | 产品与 ADR 将 macOS 定义为后续适配、非当前完成门禁，但 `.github/workflows/ci.yml` 的 `build-test` matrix 仍包含 mac-debug/mac-release，且没有 `continue-on-error` 或条件豁免；任何 macOS 失败都会使整个 CI workflow 失败 | 设计风险 | 多平台兼容性检查本身有价值，但“产品不承诺”与“PR 被硬阻断”是两个不同合同；当前文档若只称其历史检查会掩盖实际合并影响 | 独立 CI 治理轮明确二选一：将 macOS job 调整为非阻断兼容性信号，或正式提升为工程合并门禁并同步 ADR/产品边界；在决策前文档必须同时陈述产品非支持与 CI 实际硬失败语义 | 开放 |
+| DEBT-045 | 2026-08-30 | `docs/README.md` 把 `CONTEXT.md`、`docs/12-editor-ui-framework-sdd.md` 和 `docs/adr/0008-current-platform-support.md` 登记为当前真源，并登记 archive 历史入口，但这些路径当前均未被 git 跟踪；它们只存在于本机工作树，干净 checkout 会丢失索引目标和决策上下文 | 阻断问题 | 当前任务限定只修改文档且未授权 stage/commit；不能用本机文件存在性冒充仓库可复现性，也不能用 `git add .` 吸入其他用户改动 | 提交前逐路径审核内容、许可证与归档边界，使用显式 pathspec 纳入需要的真源/历史文件；随后从干净 checkout 运行链接检查并确认 `git ls-files` 覆盖所有索引为“当前”的目标 | 开放 |
+
+## 补充关闭记录
+
+| 编号 | 描述 | 关闭方式 | 关闭日 |
+|---|---|---|---|
 | A5 | Vulkan descriptor set 在 draw 间复用并更新，可能污染已录制 draw | 已修复：按绑定快照分配独立 set，设备销毁时统一回收 pool | 2026-08-26 |
 | P3-9 | `TextBlock` 对未加载字体或零像素高度缺少输入保护，可能产生除零/无效布局 | 已修复：无效字体度量或零高度返回零尺寸，并有 widget 回归测试 | 2026-08-26 |
 | P3-10 | `FlagTriggerSystem` 每次 `FlagChanged` 都线性扫描全部 trigger | 已修复：构造期建立不可变 flag→event 索引，查询降为均摊 O(1) | 2026-08-26 |
 | P3-11 | Lua `log()` 空操作导致脚本诊断消息被吞掉 | 已修复：接入 domain 的 `std::clog` 诊断出口 | 2026-08-26 |
-| （P12 全仓审计）Vulkan 设备兜底析构先释放仍绑定于 buffer/image 的内存，再销毁对象，违反 Vulkan 生命周期要求 | 2026-08-28 调整为 readback/buffer 的 `destroy buffer → free memory`、texture 的 `destroy view → destroy image → free memory`；新增设备析构接管未显式释放 buffer、texture 和 readback 的 Vulkan 回归测试 | 已关闭 |
-| （P12 全仓审计）app 对 choice 只允许无选项对话确认，任何选项事件进入后永久阻塞；`DialogRequested` 仅保存 text key，未消费项目 i18n | 2026-08-29 新增 `ui::DialogPresentation`，以项目 localization 解析正文与选项、稳定维护高亮索引并支持循环选择；输入数据新增可配置 `dialog.previous` / `dialog.next`，app 确认时把选中索引提交给 `EventRunner::AdvanceDialog(index)`；缺本地化键在启动/投影边界阻断 | 已关闭 |
+| AUDIT-P12-01 | Vulkan 设备兜底析构先释放仍绑定于 buffer/image 的内存，再销毁对象，违反 Vulkan 生命周期要求 | 调整为 readback/buffer 的 `destroy buffer → free memory`、texture 的 `destroy view → destroy image → free memory`；新增设备析构接管未显式释放 buffer、texture 和 readback 的 Vulkan 回归测试 | 2026-08-28 |
+| AUDIT-P12-02 | app 对 choice 只允许无选项对话确认，任何选项事件进入后永久阻塞；`DialogRequested` 仅保存 text key，未消费项目 i18n | 新增 `ui::DialogPresentation`，以 localization 解析正文与选项、维护高亮索引并循环选择；增加可配置 previous/next 输入，确认时向 `AdvanceDialog(index)` 提交选中索引，缺本地化键在边界阻断 | 2026-08-29 |

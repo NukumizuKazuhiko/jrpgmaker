@@ -5,17 +5,58 @@
     "editor.window.title": "JRPGMaker 编辑器",
     "editor.action.open": "打开项目",
     "editor.action.save": "保存项目",
+    "editor.action.run_preview": "运行预览",
+    "editor.action.stop_preview": "停止预览",
+    "editor.action.refresh": "刷新项目",
+    "editor.menu.file": "文件",
+    "editor.menu.project": "项目",
+    "editor.menu.project_overview": "项目概览",
+    "editor.menu.project_settings": "项目设置",
+    "editor.menu.general": "常规",
+    "editor.menu.rendering": "渲染",
+    "editor.menu.camera": "相机",
+    "editor.menu.input": "输入",
+    "editor.menu.localization": "本地化",
+    "editor.menu.plugins": "插件",
+    "editor.menu.assets": "资产",
+    "editor.menu.all_resources": "全部资源",
+    "editor.menu.rendering_resources": "渲染资源",
+    "editor.menu.plugin_data": "插件数据",
+    "editor.menu.run": "运行",
+    "editor.menu.window": "窗口",
+    "editor.project.search": "搜索资源：{value}",
+    "editor.project.resource_meta": "{type} · 诊断 {diagnostics}",
+    "editor.project.category.project": "项目设置",
+    "editor.project.category.scene": "场景数据",
+    "editor.project.category.camera": "相机",
+    "editor.project.category.rendering": "渲染",
+    "editor.project.category.input": "输入",
+    "editor.project.category.localization": "本地化",
+    "editor.project.category.assets": "资产",
+    "editor.project.category.plugins": "插件数据",
+    "editor.project.category.other": "其他",
     "editor.project.id": "项目 ID",
     "editor.project.render_style": "渲染风格插件",
     "editor.diagnostic.count": "发现 {count} 项诊断",
     "editor.workspace.tree": "项目资源",
+    "editor.workspace.project": "项目",
+    "editor.workspace.hierarchy": "层级",
+    "editor.hierarchy.navigation": "导航地图（{width} × {height}）",
+    "editor.hierarchy.cell": "单元格（{x}, {y}）· 可行走 {walkable}",
+    "editor.diff.change": "{document}{path}：{before} -> {after}",
+    "editor.toolbar": "打开项目  ·  保存  ·  运行预览  ·  停止预览",
     "editor.workspace.inspector": "属性",
     "editor.workspace.diagnostics": "诊断",
+    "editor.workspace.scene": "场景 / 地图",
+    "editor.navigation.selection": "坐标：({x}, {y})",
+    "editor.navigation.walkable_state": "可行走：{value}",
+    "editor.navigation.toggle_hint": "空格键切换可行走状态",
     "editor.value": "{value}",
     "editor.diagnostic.code": "诊断：{code}（{path}）",
     "editor.status.closed": "项目未打开",
     "editor.status.clean": "项目已保存 · 修订 {revision}",
     "editor.status.dirty": "有未保存更改 · 修订 {revision}"
+    ,"editor.status.focused": "焦点面板："
     ,"editor.document.project": "项目"
     ,"editor.document.events": "事件"
     ,"editor.document.navigation": "导航"
@@ -29,6 +70,12 @@
     ,"editor.preview.process": "预览：{value}"
     ,"editor.preview.stdout": "预览输出：{value}"
     ,"editor.preview.stderr": "预览错误：{value}"
+    ,"editor.preview.event_count": "事件数"
+    ,"editor.preview.interaction_count": "交互点数"
+    ,"editor.preview.collision_count": "碰撞体数"
+    ,"editor.preview.navigation_width": "导航宽度"
+    ,"editor.preview.navigation_height": "导航高度"
+    ,"editor.preview.camera_region_count": "相机区域数"
     ,"editor.project.battle_plugin": "战斗插件"
     ,"editor.project.plugins": "插件"
     ,"editor.project.data_roots": "数据根目录"

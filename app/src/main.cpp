@@ -45,13 +45,19 @@
 #include "jrpgmaker/plugins/register.hpp"
 #include "jrpgmaker/render/style.hpp"
 #include "jrpgmaker/render/texture_resource.hpp"
+#include "jrpgmaker/render/ui_draw_adapter.hpp"
 #include "jrpgmaker/rhi/command_list.hpp"
 #include "jrpgmaker/rhi/device.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
 #include "jrpgmaker/rhi/swapchain.hpp"
 #include "jrpgmaker/ui/dialog.hpp"
+#include "jrpgmaker/ui/glyph_atlas.hpp"
+#include "jrpgmaker/ui/runtime_overlay.hpp"
+#include "jrpgmaker/ui/text.hpp"
+#include "jrpgmaker/ui/text_draw.hpp"
 #include "jrpgmaker/ui/theme.hpp"
 #include "shaders_generated.hpp"
+#include "ui_text_generated.hpp"
 
 namespace {
 
@@ -137,6 +143,16 @@ void* NativeWindowHandle(SDL_Window* window) {
 #else
     return window;
 #endif
+}
+
+jrpgmaker::render::UiViewport WindowViewport(SDL_Window* window) {
+    int width = 0;
+    int height = 0;
+    if (window == nullptr || !SDL_GetWindowSizeInPixels(window, &width, &height) || width <= 0 ||
+        height <= 0) {
+        throw std::runtime_error("runtime UI window viewport is unavailable");
+    }
+    return {static_cast<float>(width), static_cast<float>(height)};
 }
 
 struct InputState {
@@ -277,9 +293,9 @@ InputBindings BuildInputBindings(const jrpgmaker::core::InputActionMap& action_m
     return bindings;
 }
 
-void RunMainLoop(jrpgmaker::rhi::ISwapchain* swapchain, jrpgmaker::core::StageRunner& stages,
-                 InputState& input, SdlAudioOutput& audio_output,
-                 const InputBindings& input_bindings) {
+void RunMainLoop(SDL_Window* window, jrpgmaker::rhi::ISwapchain* swapchain,
+                 jrpgmaker::core::StageRunner& stages, InputState& input,
+                 SdlAudioOutput& audio_output, const InputBindings& input_bindings) {
     constexpr double kFixedDelta = 1.0 / 60.0;
     double accumulator = 0.0;
     std::uint64_t last_counter = SDL_GetPerformanceCounter();
@@ -302,7 +318,13 @@ void RunMainLoop(jrpgmaker::rhi::ISwapchain* swapchain, jrpgmaker::core::StageRu
                     }
                 }
             } else if (event.type == SDL_EVENT_WINDOW_RESIZED) {
-                swapchain->Resize(event.window.data1, event.window.data2);
+                int width = 0;
+                int height = 0;
+                if (!SDL_GetWindowSizeInPixels(window, &width, &height) || width <= 0 ||
+                    height <= 0) {
+                    throw std::runtime_error("runtime window resize produced an invalid viewport");
+                }
+                swapchain->Resize(width, height);
             }
         }
         if (!running) {
@@ -503,6 +525,20 @@ auto main(int argc, char** argv) -> int {
         if (!theme) {
             throw std::runtime_error("invalid project UI theme: " + theme.error);
         }
+        std::vector<jrpgmaker::ui::Font> runtime_fonts;
+        runtime_fonts.reserve(theme.theme->font_paths.size());
+        for (const auto& relative_path : theme.theme->font_paths) {
+            runtime_fonts.emplace_back();
+            if (!runtime_fonts.back().Load((project_root / relative_path).string())) {
+                throw std::runtime_error("failed to load runtime UI font: " + relative_path);
+            }
+        }
+        std::vector<jrpgmaker::ui::Font*> runtime_fallback_fonts;
+        for (std::size_t index = 1; index < runtime_fonts.size(); ++index) {
+            runtime_fallback_fonts.push_back(&runtime_fonts[index]);
+        }
+        jrpgmaker::ui::GlyphAtlas runtime_glyph_atlas(1024, 1024, 4096);
+        const std::uint32_t runtime_text_pixel_height = theme.theme->text_pixel_height;
         const auto resource_catalog = jrpgmaker::render::ParseRenderResourceCatalog(
             ReadJsonFile(data_path("render_resources_demo.json")));
         if (!resource_catalog) {
@@ -644,6 +680,42 @@ auto main(int argc, char** argv) -> int {
                                          jrpgmaker::shaders::kUiPsSpv_size};
 #endif
         const jrpgmaker::rhi::PipelineHandle ui_pipeline = device->CreatePipeline(ui_pipeline_desc);
+        const jrpgmaker::rhi::VertexAttribute ui_text_attributes[] = {
+            {.location = 0,
+             .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat3,
+             .offset_bytes = 0,
+             .semantic_name = "POSITION"},
+            {.location = 1,
+             .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat2,
+             .offset_bytes = 12,
+             .semantic_name = "TEXCOORD"},
+            {.location = 2,
+             .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat4,
+             .offset_bytes = 20,
+             .semantic_name = "COLOR"},
+        };
+        jrpgmaker::rhi::GraphicsPipelineDesc ui_text_pipeline_desc{};
+        ui_text_pipeline_desc.color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm;
+        ui_text_pipeline_desc.vertex_input = {
+            .attributes = ui_text_attributes,
+            .attribute_count = static_cast<std::uint32_t>(std::size(ui_text_attributes)),
+            .stride_bytes = sizeof(jrpgmaker::render::UiTextVertex)};
+        ui_text_pipeline_desc.sample_slot = 1;
+        ui_text_pipeline_desc.blend_mode = jrpgmaker::rhi::BlendMode::kAlpha;
+#if defined(_WIN32)
+        ui_text_pipeline_desc.vertex_shader = {jrpgmaker::shaders::kUiTextVsDxil,
+                                               jrpgmaker::shaders::kUiTextVsDxil_size};
+        ui_text_pipeline_desc.pixel_shader = {jrpgmaker::shaders::kUiTextPsDxil,
+                                              jrpgmaker::shaders::kUiTextPsDxil_size};
+#else
+        ui_text_pipeline_desc.vertex_shader = {jrpgmaker::shaders::kUiTextVsSpv,
+                                               jrpgmaker::shaders::kUiTextVsSpv_size};
+        ui_text_pipeline_desc.pixel_shader = {jrpgmaker::shaders::kUiTextPsSpv,
+                                              jrpgmaker::shaders::kUiTextPsSpv_size};
+#endif
+        const jrpgmaker::rhi::PipelineHandle ui_text_pipeline =
+            device->CreatePipeline(ui_text_pipeline_desc);
+        jrpgmaker::render::UiTextGpuBatch runtime_text_batch;
         const auto& ui_theme = *theme.theme;
         const std::array<UiVertex, 4> ui_vertices = {{
             {{-0.95f, -0.88f, 0.0f},
@@ -780,13 +852,24 @@ auto main(int argc, char** argv) -> int {
         std::unique_ptr<jrpgmaker::plugin::IBattleSession> battle_session;
         std::map<std::string, std::string> battle_result_events;
         std::string prompt_projection;
+        jrpgmaker::ui::InteractionPromptPresentation prompt_presentation;
         jrpgmaker::ui::DialogPresentation dialog_presentation;
         event_bus.Subscribe<jrpgmaker::domain::InteractionPromptShown>(
-            [&prompt_projection](const auto& prompt) {
-                prompt_projection = prompt.prompt_text_key;
+            [&prompt_projection, &prompt_presentation, &localization](const auto& prompt) {
+                const auto result = prompt_presentation.Show(prompt.prompt_text_key, localization);
+                if (!result) {
+                    std::cerr << result.error << '\n';
+                    prompt_presentation.Hide();
+                    prompt_projection.clear();
+                    return;
+                }
+                prompt_projection = prompt_presentation.text();
             });
         event_bus.Subscribe<jrpgmaker::domain::InteractionPromptHidden>(
-            [&prompt_projection](const auto&) { prompt_projection.clear(); });
+            [&prompt_projection, &prompt_presentation](const auto&) {
+                prompt_presentation.Hide();
+                prompt_projection.clear();
+            });
         event_bus.Subscribe<jrpgmaker::domain::DialogRequested>(
             [&dialog_presentation, &localization](const auto& dialog) {
                 const auto result = dialog_presentation.Show(dialog, localization);
@@ -998,12 +1081,14 @@ auto main(int argc, char** argv) -> int {
         // contract: RenderSubmit drives the render submit).
         stages.RegisterSystem(
             jrpgmaker::core::Stage::kRenderSubmit, {jrpgmaker::core::Stage::kRenderSubmit, 0},
-            [device = device.get(), swapchain = swapchain.get(), command_list, vertex_buffer,
-             index_buffer, uniform_buffer, pipeline, textured_pipeline, accent_pipeline,
-             ui_pipeline, ui_vertex_buffer, ui_index_buffer, &character, character_entity,
-             character_skin_ref, character_mesh, &camera_rig, &animation_time, &locomotion,
-             style = style_adapter, material_document, material_parameters, resource_catalog,
-             &texture_resources, &character_texture_ids,
+            [device = device.get(), swapchain = swapchain.get(), window, command_list,
+             vertex_buffer, index_buffer, uniform_buffer, pipeline, textured_pipeline,
+             accent_pipeline, ui_pipeline, ui_text_pipeline, ui_vertex_buffer, ui_index_buffer,
+             &character, &runtime_fonts, &runtime_fallback_fonts, &runtime_glyph_atlas,
+             &runtime_text_batch, &prompt_projection, &dialog_presentation,
+             runtime_text_pixel_height, character_entity, character_skin_ref, character_mesh,
+             &camera_rig, &animation_time, &locomotion, style = style_adapter, material_document,
+             material_parameters, resource_catalog, &texture_resources, &character_texture_ids,
              &character_texture_acquired](double) mutable {
                 texture_resources.PumpUploads(2);
                 for (std::size_t i = 0; i < character_texture_ids.size(); ++i) {
@@ -1041,6 +1126,29 @@ auto main(int argc, char** argv) -> int {
                 std::vector<glm::mat4> render_bones(32u, glm::mat4(1.0f));
                 const glm::mat4 world = character.scene.WorldMatrix(character_entity);
                 const glm::mat4 view_projection = camera_rig.camera().ViewProjection();
+                if (runtime_fonts.empty()) {
+                    throw std::runtime_error("runtime UI has no loaded font");
+                }
+                const auto viewport = WindowViewport(window);
+                const auto overlay = jrpgmaker::ui::BuildRuntimeOverlayDrawList(
+                    prompt_projection, dialog_presentation.snapshot(),
+                    {0.0f, 0.0f, viewport.width, viewport.height},
+                    static_cast<float>(runtime_text_pixel_height));
+                if (!overlay.ok()) {
+                    throw std::runtime_error("runtime UI overlay layout failed: " +
+                                             overlay.diagnostics.front().code);
+                }
+                const auto text_draw = jrpgmaker::ui::BuildTextDrawList(
+                    overlay.draw_list, runtime_fonts.front(), runtime_fallback_fonts,
+                    runtime_glyph_atlas, runtime_text_pixel_height);
+                if (!text_draw.ok()) {
+                    throw std::runtime_error("runtime UI text rasterization failed: " +
+                                             text_draw.diagnostics.front().code);
+                }
+                const auto text_packet =
+                    jrpgmaker::render::BuildUiTextDrawPacket(text_draw.draw_list, viewport);
+                jrpgmaker::render::UpdateUiTextGpuBatch(*device, runtime_text_batch, text_packet,
+                                                        runtime_glyph_atlas);
                 jrpgmaker::render::SceneSnapshot snapshot{
                     .view_projection = view_projection,
                     .renderables = {{.mesh = "character",
@@ -1181,13 +1289,17 @@ auto main(int argc, char** argv) -> int {
                 if (!recorded.ok) {
                     throw std::runtime_error("failed to record render plan: " + recorded.error);
                 }
+                command_list->BeginRendering(back_buffer, {0.0f, 0.0f, 0.0f, 0.0f}, false);
+                jrpgmaker::render::RecordUiTextDrawPacket(*command_list, ui_text_pipeline,
+                                                          runtime_text_batch);
+                command_list->EndRendering();
                 command_list->End();
                 device->Submit(*command_list);
                 swapchain->Present();
             });
 
         std::cout << "jrpgmaker " << jrpgmaker::core::version() << " running\n";
-        RunMainLoop(swapchain.get(), stages, input, audio_output, input_bindings);
+        RunMainLoop(window, swapchain.get(), stages, input, audio_output, input_bindings);
 
         // DestroyXxx requires the GPU to be idle (docs/01 lifecycle contract):
         // the last submitted command list and the shared allocator must not be
@@ -1210,6 +1322,8 @@ auto main(int argc, char** argv) -> int {
         device->DestroyPipeline(textured_pipeline);
         device->DestroyPipeline(accent_pipeline);
         device->DestroyPipeline(ui_pipeline);
+        jrpgmaker::render::DestroyUiTextGpuBatch(*device, runtime_text_batch);
+        device->DestroyPipeline(ui_text_pipeline);
         device->DestroyBuffer(ui_vertex_buffer);
         device->DestroyBuffer(ui_index_buffer);
 

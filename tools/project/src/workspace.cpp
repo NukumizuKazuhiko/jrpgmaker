@@ -398,31 +398,36 @@ ProjectWorkspace::DescribeDocuments(const ProjectSnapshot& snapshot) const {
         const char* id;
         const char* path;
         const char* label_key;
+        const char* category_key;
     };
     const std::array entries = {
-        Entry{"project.manifest", "project.json", "editor.document.project"},
+        Entry{"project.manifest", "project.json", "editor.document.project",
+              "editor.project.category.project"},
         Entry{"domain.event_script", snapshot.manifest.event_script.c_str(),
-              "editor.document.events"},
-        Entry{"core.navigation", snapshot.manifest.navigation.c_str(),
-              "editor.document.navigation"},
-        Entry{"core.collision", snapshot.manifest.collision.c_str(), "editor.document.collision"},
-        Entry{"core.camera", snapshot.manifest.camera.c_str(), "editor.document.camera"},
+              "editor.document.events", "editor.project.category.scene"},
+        Entry{"core.navigation", snapshot.manifest.navigation.c_str(), "editor.document.navigation",
+              "editor.project.category.scene"},
+        Entry{"core.collision", snapshot.manifest.collision.c_str(), "editor.document.collision",
+              "editor.project.category.scene"},
+        Entry{"core.camera", snapshot.manifest.camera.c_str(), "editor.document.camera",
+              "editor.project.category.camera"},
         Entry{"domain.interaction", snapshot.manifest.interaction.c_str(),
-              "editor.document.interaction"},
+              "editor.document.interaction", "editor.project.category.scene"},
         Entry{"core.material", snapshot.manifest.material_document.c_str(),
-              "editor.document.material"},
-        Entry{"app.input_actions", snapshot.manifest.input_actions.c_str(),
-              "editor.document.input"},
+              "editor.document.material", "editor.project.category.rendering"},
+        Entry{"app.input_actions", snapshot.manifest.input_actions.c_str(), "editor.document.input",
+              "editor.project.category.input"},
         Entry{"domain.localization", snapshot.manifest.localization.c_str(),
-              "editor.document.localization"},
+              "editor.document.localization", "editor.project.category.localization"},
         Entry{"project.resources", snapshot.manifest.resource_manifest.c_str(),
-              "editor.document.resources"},
+              "editor.document.resources", "editor.project.category.assets"},
     };
     std::vector<DocumentDescriptor> result;
     result.reserve(entries.size());
     for (const auto& entry : entries) {
         result.push_back(DocumentDescriptor{entry.id, entry.path, entry.label_key,
-                                            adapters_.Find(entry.id) != nullptr, entry.id});
+                                            adapters_.Find(entry.id) != nullptr, entry.id,
+                                            entry.category_key});
     }
     result.insert(result.end(), external_documents_.begin(), external_documents_.end());
     return result;
@@ -606,9 +611,13 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
         Add(result.diagnostics, "project.adapter.unknown_type", current_document_id_);
         return result;
     }
-    const auto field_it =
+    auto field_it =
         std::find_if(adapter->fields.begin(), adapter->fields.end(),
                      [&command](const auto& field) { return field.path == command.field_path; });
+    if (field_it == adapter->fields.end() && current_document_id_ == "core.navigation" &&
+        command.field_path.rfind("/walkable/", 0) == 0)
+        field_it = std::find_if(adapter->fields.begin(), adapter->fields.end(),
+                                [](const auto& field) { return field.path == "/walkable"; });
     if (field_it == adapter->fields.end()) {
         Add(result.diagnostics, "project.edit.field_not_editable", command.field_path);
         return result;
@@ -623,6 +632,21 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
     }
     nlohmann::json candidate = working_document_;
     const auto pointer = nlohmann::json::json_pointer(command.field_path);
+    if (current_document_id_ == "core.navigation" &&
+        command.field_path.rfind("/walkable/", 0) == 0) {
+        std::size_t index = 0;
+        try {
+            index = std::stoull(command.field_path.substr(10));
+        } catch (...) {
+            Add(result.diagnostics, "project.navigation.cell_invalid", command.field_path);
+            return result;
+        }
+        if (index >= working_document_.value("walkable", nlohmann::json::array()).size() ||
+            !command.value.is_boolean()) {
+            Add(result.diagnostics, "project.navigation.cell_invalid", command.field_path);
+            return result;
+        }
+    }
     const nlohmann::json original_document = candidate;
     candidate[pointer] = command.value;
     if (adapter->normalize_edit) {

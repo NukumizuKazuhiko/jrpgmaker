@@ -6,12 +6,20 @@
 #include <optional>
 #include <string_view>
 
+#include "jrpgmaker/editor/editor_shell.hpp"
 #include "jrpgmaker/editor/form_projection.hpp"
 #include "jrpgmaker/editor/preview_process.hpp"
 #include "jrpgmaker/project/workspace.hpp"
 #include "jrpgmaker/ui/interaction.hpp"
 
 namespace jrpgmaker::editor {
+
+struct SelectionTarget {
+    std::string document_id;
+    std::string object_path;
+    std::string kind;
+    friend bool operator==(const SelectionTarget&, const SelectionTarget&) = default;
+};
 
 struct EditorSessionState {
     bool open = false;
@@ -28,6 +36,8 @@ struct EditorSessionState {
     std::size_t text_selection_end = 0;
     std::size_t text_caret = 0;
     bool text_composing = false;
+    std::optional<NavigationProjection> navigation;
+    std::optional<SelectionTarget> selection;
 };
 
 class EditorSession final {
@@ -55,6 +65,9 @@ public:
     [[nodiscard]] bool Save();
     [[nodiscard]] bool StartPreview(const std::filesystem::path& executable);
     [[nodiscard]] bool PollPreview();
+    [[nodiscard]] bool SelectNavigationCell(std::size_t index);
+    [[nodiscard]] bool ToggleSelectedNavigationWalkable();
+    void StopPreview();
 
     [[nodiscard]] const EditorSessionState& state() const { return state_; }
 

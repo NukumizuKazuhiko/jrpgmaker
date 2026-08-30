@@ -47,14 +47,34 @@ TEST_CASE("ui animation remains presentation-local", "[ui][p6]") {
     jrpgmaker::ui::AdvanceAnimation(animation, 1.0f, 1.0f / 60.0f);
     REQUIRE(animation.value > 0.0f);
     REQUIRE(animation.value < 1.0f);
-    const auto theme = jrpgmaker::ui::ParseTheme(nlohmann::json{{"schema", 1},
-                                                                {"id", "demo"},
-                                                                {"accent", {0.1, 0.2, 0.3, 1.0}},
-                                                                {"text_pixel_height", 24}});
+    const auto theme = jrpgmaker::ui::ParseTheme(
+        nlohmann::json{{"schema", 1},
+                       {"id", "demo"},
+                       {"accent", {0.1, 0.2, 0.3, 1.0}},
+                       {"text_pixel_height", 24},
+                       {"font_paths", {"assets/fonts/NotoSansCJK-Regular.ttc"}}});
     REQUIRE(theme);
     REQUIRE(theme.theme->text_pixel_height == 24);
     REQUIRE_FALSE(jrpgmaker::ui::ParseTheme(nlohmann::json{{"schema", 1},
                                                            {"id", "bad"},
                                                            {"accent", {2.0, 0.0, 0.0, 1.0}},
                                                            {"text_pixel_height", 24}}));
+}
+
+TEST_CASE("runtime theme owns bounded project font paths", "[ui][runtime][font]") {
+    const auto theme = jrpgmaker::ui::ParseTheme(
+        nlohmann::json{{"schema", 1},
+                       {"id", "runtime"},
+                       {"accent", {0.1, 0.2, 0.3, 1.0}},
+                       {"text_pixel_height", 24},
+                       {"font_paths", {"assets/fonts/NotoSansCJK-Regular.ttc"}}});
+    REQUIRE(theme);
+    REQUIRE(theme.theme->font_paths ==
+            std::vector<std::string>{"assets/fonts/NotoSansCJK-Regular.ttc"});
+
+    REQUIRE_FALSE(jrpgmaker::ui::ParseTheme(nlohmann::json{{"schema", 1},
+                                                           {"id", "unsafe"},
+                                                           {"accent", {0.1, 0.2, 0.3, 1.0}},
+                                                           {"text_pixel_height", 24},
+                                                           {"font_paths", {"../outside.ttf"}}}));
 }

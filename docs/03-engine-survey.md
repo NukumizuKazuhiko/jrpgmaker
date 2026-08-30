@@ -4,7 +4,7 @@
 
 ## 调研目的
 
-在锁定 EnTT ECS 主线前，重评四种运行时对象模型对本项目（数据驱动 JRPG、可插拔规则与画风、三平台）的适配度，并吸收四个成熟引擎中经过验证的架构模式。
+在锁定 EnTT ECS 主线前，重评四种运行时对象模型对本项目（数据驱动 JRPG、可插拔规则与画风、Windows/Linux 当前支持及 macOS 后续适配）的适配度，并吸收四个成熟引擎中经过验证的架构模式。
 
 ## 四引擎速写（证据核验过的事实）
 
@@ -65,8 +65,8 @@
 
 | # | 来源 | 采纳内容 |
 |---|---|---|
-| A1 | Godot | **server 式子系统**：rhi/render/audio 保持无状态服务形状，上层只持 RID 式句柄；scene→server→driver 三段间接映射为本项目 render(高层渲染语义)→rhi(图形合同)→backend(d3d12/vulkan, driver 角色) |
-| A2 | Bevy | **Stage 合同**：固定步长 tick 内建立显式阶段序列（Input → Domain Sim → Animation → Presentation Sync → Render Submit），跨阶段系统必须声明 before/after，禁止隐式顺序 |
+| A1 | Godot | **独立子系统边界**：scene→server→driver 的间接关系映射为本项目 render(高层渲染语义)→rhi(图形合同)→backend(d3d12/vulkan, driver 角色)；只采纳边界与间接层，不宣称实现 Godot RID 模型或“全部无状态”，因为当前 `audio::MixerBus` 明确持有有界 voice 状态 |
+| A2 | Bevy | **Stage 合同（部分采纳）**：固定步长 tick 内建立显式阶段序列（Input → Domain Sim → Animation → Presentation Sync → Render Submit）；当前实现仅以枚举确定跨阶段顺序、以数字 `order` 确定阶段内顺序，未采纳 Bevy 的 before/after 依赖图与并行 executor |
 | A3 | Bevy | **变更检测驱动投影同步**：presentation 只消费带脏标记的 domain 状态变更，不做每帧全量轮询 |
 | A4 | Unity/V Rising | **单向 hybrid 红线**：模拟(ECS/domain)只向表现推数据，禁止表现层写回业务真相（强化既有 owner 合同） |
 | A5 | Unreal | **Public/Private 目录可见性纪律**：每个 engine 模块分 `include/`(对外合同) 与 `src/`(私有实现)，外部禁止 include 私有头 |

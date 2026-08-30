@@ -68,6 +68,7 @@ struct EditorLayoutNode {
     std::string type;
     std::string id;
     std::string label_key;
+    std::string command;
     std::string recipe;
     Rect bounds;
     std::vector<EditorLayoutNode> children;
@@ -98,8 +99,7 @@ struct EditorStartupResult {
     explicit operator bool() const { return bundle.has_value() && diagnostics.empty(); }
 };
 
-template <typename T>
-struct EditorResourceParseResult {
+template <typename T> struct EditorResourceParseResult {
     T value{};
     std::vector<EditorResourceError> errors;
     explicit operator bool() const { return errors.empty(); }

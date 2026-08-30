@@ -127,13 +127,14 @@ status: StatusBar
 | `TextField` | UTF-8 文本、selection、caret、IME composition、commit/cancel | P13-1（core 状态、键盘/IME host、字段命中、真实 glyph 与 theme 驱动 caret/selection 装饰已落地） |
 | `NumberField` | 文本编辑态、类型化 commit、范围诊断 | P13-3（integer 已接入 adapter 校验与复合归一化；浮点/范围控件仍待补） |
 | `CheckBox`/`Select` | value、focus、change command | P13-3 |
-| `ScrollView` | offset、viewport、wheel/keyboard scroll、clamp | P13-1 |
-| `TreeView` | expanded/selected ids、activate/rename command | P13-1 |
+| `ScrollView` | offset、viewport、wheel/keyboard scroll、clamp | 不进入本轮；导航网格采用 2048 单元有界裁剪 |
+| `TreeView` | expanded/selected ids、activate/rename command | 本轮只投影真实 Project/Hierarchy 行与稳定 selection，不实现通用重命名 |
 | `Table`/`ListView` | rows、selection、排序 projection、虚拟化上界 | P13-2 |
 | `Tabs` | active id、close/select command、dirty marker | P13-2 |
 | `SplitPane` | ratio、min sizes、drag command | P13-1 |
 | `Dialog`/`Menu`/`Toast` | modal/focus trap/command、受限队列 | P13-2 |
 | `Toolbar`/`StatusBar` | command items、structured status | P13-1 |
+| `MenuBar`/`PopupMenu` | 有界根菜单/子菜单、hover/open、键盘导航、结构化 command | P13-1（`MenuController` 已落地） |
 
 控件 interface 统一为输入 `UiEvent`、输出零到多个 `UiCommand`、查询 `UiState` 和生成 `DrawList`；调用方不直接改控件私有状态。所有 widget id 是稳定非零 id，焦点、捕获和可见性由一个 `UiContext` 管理。
 
@@ -149,6 +150,10 @@ status: StatusBar
 | `PreviewPanel` | `PreviewSnapshot` | refresh/run-project command |
 | `PluginPanelHost` | [插件系统规范](11-plugin-system.md) 定义的 editor extension descriptors | namespaced plugin command |
 
+本轮菜单与工作区组合规则：layout 资源声明菜单层级和 `command`，locale 提供菜单文本，theme 提供 `menu.root_width`、`menu.row_height`、`menu.popup_width` 及各状态 recipe；`MenuController` 在布局后的 bounds 上处理鼠标/键盘输入并输出 `UiCommand`。菜单 DrawList 在 shell/panel 后绘制，保证弹出层可见且不改变面板 owner。项目菜单只启用当前 workspace 中确实存在的 document/category，禁用项仍可见并提供明确 disabled 视觉状态。
+
+Project 面板采用有界的 filter row、category header 和 document row，不为每个资源创建无界控件。搜索仅过滤 `DocumentDescriptor` projection；资源路径、类型、dirty 标记和诊断计数仍来自结构化 session 状态。
+
 这些模块只做 projection 和命令映射，不直接打开文件、解析 JSON、调用 plugin 私有类型或生成自然语言。
 
 ## 输入、焦点与文本
@@ -161,10 +166,10 @@ status: StatusBar
 
 ## 渲染与字体 seam
 
-- `engine/ui` 输出后端无关 `DrawList`：矩形、localized text 参数和 glyph quad；当前已落地有界矩形/`recipe`/状态、占位符参数、glyph atlas UV、有序 primitive 合同和 CPU 文本/矩形视口裁剪，纹理/图标统一资源与显式 z-order仍待补齐；`tools/editor` 不直接录制 D3D12/Vulkan 命令。
+- `engine/ui` 输出后端无关 `DrawList`：矩形、localized text 参数和 glyph quad；当前已落地有界矩形/`recipe`/状态、占位符参数、glyph atlas UV、有序 primitive 合同和 CPU 文本/矩形视口裁剪。纹理/图标统一资源与通用显式 z-order 不进入本轮；`tools/editor` 不直接录制 D3D12/Vulkan 命令。
 - 布局节点可声明受校验的像素 `bounds`；`editor::BuildShellDrawList` 仅把布局 bounds、recipe 和 label key 投影到 DrawList，不在 host 中写面板坐标或文案。
 - `render::BuildUiDrawPacket` 将 DrawList 按原始顺序解析为有界 NDC 顶点/索引上传包，并把 recipe/state、semantic token 和颜色错误作为结构化诊断返回；`UploadUiDrawPacket`/`RecordUiDrawPacket` 负责 RHI buffer 上传、绑定与 indexed draw，主题只提供资源 id/token，不持有 GPU handle。
-- 字体资源由 theme 声明候选文件列表和像素规格；启动时验证候选文件并按声明顺序加载可用字体，`ui::Font` 提供 FreeType 灰度 bitmap 与 pitch 输出，`GlyphAtlas` 以有界容量生成 UV，RHI text batch 已完成纹理上传/采样绘制，文本投影已支持按字符的有序 fallback，并由真实 glyph advance 生成 theme 驱动的 selection/caret 装饰。字体预热策略仍待补齐。
+- 字体资源由 theme 声明候选文件列表和像素规格；启动时验证候选文件并按声明顺序加载可用字体，`ui::Font` 提供 FreeType 灰度 bitmap 与 pitch 输出，`GlyphAtlas` 以有界容量生成 UV，RHI text batch 已完成纹理上传/采样绘制，文本投影已支持按字符的有序 fallback，并由真实 glyph advance 生成 theme 驱动的 selection/caret 装饰。额外字体预热优化不进入本轮。
 - Windows/Linux 首批都至少验证拉丁、简体中文和日文标点；不能把“字体加载成功”当作 CJK 真实渲染通过。
 
 ## 可访问性与可测试性
@@ -174,6 +179,7 @@ status: StatusBar
 - 组件测试不读取真实颜色或中文字符串，断言 recipe/key、状态迁移、命令和 draw primitive。
 - 资源合同测试覆盖坏 schema、缺 token、循环引用、缺 key、placeholder 漂移、语言热切换、主题热切换和布局节点上界。
 - Windows 真实窗口验收覆盖鼠标、键盘、IME、缩放和错误态；WSL 无显示环境只跑 loader、布局、组件状态与 draw list 测试，不伪造窗口通过。
+- Windows 真实窗口还必须检查：顶层菜单展开/关闭、二级菜单切换、菜单外点击关闭、工具栏 hover/pressed/focused、Project 搜索以及窗口缩放后的命中区域；弹出菜单不能被 toolbar 或 panel DrawList 覆盖。
 
 ## P13-0 交付顺序
 

@@ -55,13 +55,15 @@ cmake -S tests/fixtures/sdk_consumer -B <consumer-build> -DCMAKE_PREFIX_PATH=<sd
 cmake --build <consumer-build>
 ```
 
-最小插件的 manifest 解析、注册、创建、合同拒绝和 validator 边界必须在宿主测试中覆盖。发布包必须来自干净构建目录，并保留宿主二进制、插件 manifest、插件私有数据和构建合同版本。
+最小插件的 manifest 解析、注册、创建、合同拒绝和 validator 边界必须在宿主测试中覆盖。发布包必须来自干净构建目录，并保留宿主二进制、插件 manifest、manifest 声明的全部插件私有数据和构建合同版本。
 
 发布装配命令按平台选择构建目录（当前插件是源码级静态链接，包内交付宿主二进制、插件 manifest 和插件私有数据）：
 
 ```powershell
 pwsh ./tools/ci/package_release.ps1 -BuildRoot ./build/win-release -ProjectRoot . -OutputRoot ./build/release/win
-# Linux/macOS 分别使用 ./build/linux-release 或 ./build/mac-release
+# 当前支持的 Linux 使用 ./build/linux-release；macOS preset 仅供未来适配环境使用
 ```
+
+当前脚本尚未完整实现上述 `data_roots` 合同：它会校验声明是安全相对路径，却只复制每个 `plugin.json` 同目录下固定名称的 `data/`。因此在 DEBT-040 关闭前，只有全部运行时私有数据都放在该目录的插件可使用此命令生成完整发布包；其他合法 root 即使通过 manifest 校验也可能被静默漏装，不能据此发布。
 
 脚本拒绝覆盖已有输出目录，并对文件数（4096）和总大小（512 MiB）设上界；`release-manifest.json` 按相对路径排序记录每个文件的大小与 SHA-256。发布前应在两个空输出目录运行两次并比较 manifest，确保装配确定性。

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "jrpgmaker/domain/event_runner.hpp"
@@ -40,6 +41,17 @@ public:
 
 private:
     DialogPresentationSnapshot snapshot_;
+};
+
+class InteractionPromptPresentation final {
+public:
+    [[nodiscard]] DialogPresentationResult Show(std::string_view text_key,
+                                                const domain::LocalizationTable& localization);
+    void Hide() { text_.clear(); }
+    [[nodiscard]] const std::string& text() const { return text_; }
+
+private:
+    std::string text_;
 };
 
 } // namespace jrpgmaker::ui
