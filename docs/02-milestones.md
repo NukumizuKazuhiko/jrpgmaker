@@ -22,7 +22,7 @@
 | P0 奠基 | 已闭合 | 构建、测试、CI、格式与私有头门禁骨架已建立。 |
 | P1 RHI 垂直切片 | 已闭合 | RHI 合同、D3D12/Vulkan 后端、离屏 golden 与 SDL 主循环已建立。 |
 | P2 资源与场景 | 已闭合 | glTF、资产句柄、场景层级、相机和泄漏检测闭环。 |
-| P3 事件与对话 | 已闭合阶段范围 | domain 事件/对话、CJK 文本合同与数据 lint 已落地；当前工作树已有中日文 runtime overlay GPU golden 用例，但其测试、字体和基准图尚未纳入 git，golden-sync 也未重生成该基准（DEBT-043）。 |
+| P3 事件与对话 | 已闭合阶段范围 | domain 事件/对话、CJK 文本合同与数据 lint 已落地；runtime overlay GPU golden 的测试、固定字体、许可文本和基准图均已纳入 git，并由 golden-sync 专项命令重生成和检查。 |
 | P4 角色与世界 | 已闭合 | 角色控制、碰撞、寻路、交互、动画与镜头闭环。 |
 | P5 插件与战斗 seam | 已闭合 | 源码级构建期注册、插件数据/validator 与两类战斗插件验证完成。 |
 | P6 渲染风格与演出 | 已闭合 | 渲染风格插件、表现计划、后处理和双风格替换验证完成。 |
@@ -30,8 +30,8 @@
 | P8 渲染资源消费 | 已闭合 | 材质、纹理、动画、蒙皮、粒子及后处理资源消费闭环。 |
 | P9 内容生产管线 | 已闭合 | 资源构建、增量缓存、产物清单与错误报告闭环。 |
 | P10 项目装配工具 | 已闭合 | 创建、校验、构建、运行、迁移和稳定 diff 的 CLI 闭环。 |
-| P11 插件 SDK 与发布硬化 | 未闭合 | SDK consumer、运行时合同和样例布局的发布装配已有验证；发布脚本尚未按 manifest 的任意安全 `data_roots` 收集数据，第三方自定义根可能被静默漏装（DEBT-040）。 |
-| P12 首个稳定版本 | 未闭合 | 缺真实连续 30 分钟可玩证据；中日文 runtime overlay GPU golden 已在当前工作树实现并可比对，但相关源文件/字体/基准图未跟踪且 golden-sync 未覆盖，尚不是可复现门禁（DEBT-043）。 |
+| P11 插件 SDK 与发布硬化 | 未闭合 | SDK consumer、运行时合同和样例布局的发布装配已有验证；DEBT-040 的任意安全 `data_roots` 逐项装配已实现并有行为自测，仍需随 P11 其他发布门禁刷新最终 runner 证据。 |
+| P12 首个稳定版本 | 未闭合 | 缺真实连续 30 分钟可玩证据；中日文 runtime overlay GPU golden 已由固定字体、专项生成命令和 golden-sync 纳入可复现门禁。 |
 | P13 开发者项目编辑器 | 重新打开/进行中 | 以 Unity 式游戏引擎编辑器为目标重建第一条导航地图编辑纵向闭环；GUI 仍不得成为第二语义 owner。 |
 
 ## 阶段合同
@@ -64,14 +64,14 @@
 
 - **目的**：让第三方开发者只依赖公开合同即可构建、注册、校验、运行和卸载插件，并获得可复现的 Windows/Linux 发布包。
 - **范围外**：跨编译器 DLL ABI、二进制热加载、通用插件市场和沙箱脚本平台。
-- **当前阻断**：`package_release.ps1` 校验 `data_roots`，但实际只复制 manifest 同目录下固定名称的 `data/`；在 DEBT-040 关闭前，只有全部运行时数据都位于该目录的插件可按当前脚本正确装配，不能把任意合法 `data_roots` 记为已支持。
+- **当前状态**：`package_release.ps1` 已逐项解析并装配每个 manifest 声明的安全相对 `data_roots`，保留 root 的包内相对路径；缺失、越界、重复、嵌套冲突、输出目录冲突和无法保持包内路径的 root 均会拒绝。独立 `selftest_package_release.ps1` 覆盖自定义/多 root、拒绝场景和确定性清单。
 - **停止条件**：SDK consumer、兼容矩阵、迁移策略、发布包、长时间运行与资源预算均可从干净环境复现；发布装配必须逐项消费 manifest 声明并拒绝缺失、越界或无法装配的 root，随后刷新 runner 证据。
 
 ### P12：项目完成与首个稳定版本
 
 - **目的**：以一个可交付参考项目证明“项目数据 + 源码级插件 + 可替换画风”的完整产品承诺。
 - **完成定义**：从创建/校验项目开始，完成资源构建、启动、移动/碰撞/寻路、日期/日程/触发、对话或可选战斗、渲染风格、存读档和发布包运行闭环。
-- **当前阻断**：真实连续 30 分钟可玩证据；将当前工作树的中日文 runtime overlay GPU golden、字体与测试纳入明确 git 边界，并让 golden-sync 可重生成/检查该基准（DEBT-043）；随后按当前代码完成两轮干净 checkout 重现。
+- **当前阻断**：真实连续 30 分钟可玩证据；发布包和完整试玩仍需按当前代码在干净 checkout 重现。
 - **停止条件**：[`00-product.md`](00-product.md) 的成功标准全部有真实证据，未关闭阻断问题为零，开放债务均有 owner、风险级别和后续入口。
 
 ### P13：开发者项目编辑器 GUI
@@ -79,18 +79,18 @@
 - **目的**：在 P10 CLI 合同之上提供运行时非必需的本地 GUI，降低直接编辑 JSON 与资源清单的成本；当前尚无 CMake 开关排除 editor，构建层可选性由 DEBT-042 跟踪。
 - **唯一 owner**：GUI 属于 `tools/editor` adapter；项目数据语义仍由 parser、validator、迁移器、插件与运行时合同拥有。
 - **本轮完成边界**：Windows/D3D12 实机完成打开合法项目、真实 Project/Hierarchy/Scene 导航投影、共享 Selection、Inspector 修改 walkable、dirty/revision/diff/diagnostics、`PrepareSave`/`Commit` 原子保存、重开一致和独立 runtime 启停；Linux/Vulkan 保持构建与合同测试。闭合后立即停止，不扩展其他编辑器。
-- **当前阻断**：`ProjectWorkspace::PrepareSave` 目前只校验工作区已打开和 revision 一致，尚未对内存工作副本重新执行 parser、跨文件引用、资源预算与插件 validator；其 token 只代表 revision 可提交，不代表项目 clean。该保存门禁缺口由 DEBT-039 跟踪，关闭前不得宣称 P13 保存链闭合。
+- **当前状态**：`ProjectWorkspace::PrepareSave` 已在检查 revision 后通过同源 `Diagnose` 对完整 working copy 执行 parser、跨文件引用、资源预算、adapter 与插件 validator；插件 sidecar working copy 经有界 overlay reader 进入同一运行时 validator 输入，任何 error 均不签发 token。DEBT-039 已关闭；P13 保存链仍需结合其他当前阻断项的整体门禁判断。
 - **非目标**：通用 3D 建模器、DCC、联网协作、云端格式、运行时 GUI 依赖或绕过插件私有校验的自由脚本编辑。
 - **详细合同**：见 [`08-editor-plan.md`](08-editor-plan.md)、[`09-editor-interface-catalog.md`](09-editor-interface-catalog.md) 与 [`10-editor-ui-system.md`](10-editor-ui-system.md)。
 
 ## 最近一次验收快照
 
-> 下列数字只记录 2026-08-29 已执行证据；代码变化后必须重新运行，不能永久视为通过。
+> 下列数字只记录 2026-09-02 已执行证据；代码变化后必须重新运行，不能永久视为通过。
 
-- Windows `ctest --preset win-debug --output-on-failure`：310/310。
-- Linux/WSL `ctest --preset linux-debug --output-on-failure`：311/311。
-- P13 定向测试：43 assertions / 9 cases。
-- 私有头审计：179 个文件通过；`git diff --check` 通过。
+- Windows `ctest --preset win-debug --output-on-failure`：387/387。
+- Linux/WSL：本轮仅构建与定向测试证据，未运行全量 CTest；上一轮全量证据为 311/311（2026-08-29）。
+- 私有头审计：210 个文件通过；`git diff --check` 通过。
+- 文档索引门禁：`pwsh ./tools/ci/check_docs_index.ps1` 通过（19 local links; 16 current targets tracked）。
 - WSL 无 WSLg，未把 SDL 实窗口路径伪装为本地通过；Linux Vulkan 离屏测试使用 lavapipe。
 
 ## 风险清单

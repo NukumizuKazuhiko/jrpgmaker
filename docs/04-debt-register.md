@@ -18,13 +18,11 @@
 | `engine/plugin` | DEBT-036 |
 | `engine/ui` + `engine/render` + `app` | DEBT-037 |
 | `engine/ui` + `engine/render` + `tools/editor` | DEBT-038 |
-| `tools/project` + `tools/editor` | DEBT-039 |
 | `tools/ci` + `engine/plugin` | DEBT-040 |
 | 根构建/发布元数据 | DEBT-041 |
 | 根 CMake + `tools/editor` + tests | DEBT-042 |
 | `engine/ui` + tests + `tools/ci` | DEBT-043 |
 | `.github/workflows/ci.yml` + 平台文档 | DEBT-044 |
-| 文档索引 + git 边界 | DEBT-045 |
 | 文档/本机环境 | NOISE-001 |
 
 ## 未解决问题摘要（2026-08-30）
@@ -33,15 +31,12 @@
 
 | 优先级 | 未解决编号 | 当前影响 | 进入下一状态前的停止条件 |
 |---|---|---|---|
-| P0：仓库可复现性 | DEBT-043、DEBT-045 | CJK 测试/字体/golden 及部分当前真源未被 git 跟踪；当前工作树通过不能代表干净 checkout 可复现 | 审核许可与内容后显式纳入所需文件；golden-sync 可生成 CJK 基准；干净 checkout 的索引、链接和双后端比对通过 |
-| P0：数据正确性 | DEBT-039 | 编辑器保存 token 只证明 revision 一致，非法跨文档或插件数据仍可能写盘 | `PrepareSave` 对完整 working copy 运行同源 parser、引用、预算和插件校验；error 时不签 token，文件保持不变 |
-| P0：发布正确性 | DEBT-040 | 合法的自定义或多个插件 `data_roots` 可能在成功打包后被静默漏装 | 发布脚本逐项校验并装配声明 root，覆盖自定义、多 root、缺失、越界和确定性测试 |
 | P1：产品与工具链治理 | DEBT-041、DEBT-042、DEBT-044 | 包元数据残留已否定画风；editor 不是构建可选项；macOS 非产品支持但 CI 仍硬阻断 | 分别清理中性描述、验证 editor-off 核心构建测试、明确 macOS CI 为非阻断信号或正式工程门禁并同步 ADR |
 | P1：图形后端正确性与可见性 | DEBT-004、DEBT-007、DEBT-010、DEBT-015、DEBT-020–022、DEBT-027–028 | allocator 串行前置条件、descriptor 容量、资源状态、Vulkan 验证与真实 swapchain/present 同步仍缺完整合同或实机证据 | 在引入多帧/多窗口/真实 Linux surface 前完成对应合同、验证层、同步与实机测试；不得用离屏结果代替呈现证据 |
 | P2：结构与维护性 | DEBT-005、DEBT-018–019、DEBT-023–026、DEBT-038 | 后端大文件、shader 工具约定、空 platform owner、Stage 冗余/排序和 editor z-order/字体预热增加维护风险 | 只在真实消费者或 profiling 触发时按各 owner 入口处理，并保持现有合同测试与文档同步 |
 | P2：受限能力与未来扩展 | DEBT-003、DEBT-006、DEBT-008、DEBT-011–013、DEBT-030–031、DEBT-034–036 | 依赖布局、诊断、格式假设、多对象动画/资源策略、CI 外部波动及源码级插件边界仍有明确限制 | 触发对应升级、格式、规模、发布或 ABI 需求时按详细债务行验收；当前不得把限制描述成已支持能力 |
 
-当前阻断问题共 4 项：DEBT-039、DEBT-040、DEBT-043、DEBT-045。它们关闭前，不得宣称 P11 发布链、P12 稳定版本、P13 保存链或干净 checkout 文档真源已经闭合。
+当前登记的阻断问题共 0 项；P12 仍需真实连续 30 分钟试玩和发布闭环证据，P11 仍需完成其余发布门禁证据。
 
 ## 早期主登记表（DEBT-001–029）
 
@@ -108,15 +103,15 @@
 | DEBT-034 | 2026-08-27 | CI golden-sync、shader-sync 和 Linux Debug 依赖全新 runner 的 vcpkg 安装，易受 GNU/kernel 镜像瞬时 502、SSL 或 timeout 影响，导致未进入项目编译/比对 | 环境风险 | CI run `33052747956` 首轮三个失败 job 均在安装 `libmount` 时失败；随后加入按平台/manifest 的 vcpkg 下载缓存，CI run `33058546267` attempt 2 的 Linux Release、data-lint、golden-sync、shader-sync 均通过 | 保留缓存并在 vcpkg baseline 或 manifest 变化时复核；不得以跳过 golden/shader 比对代替门禁 | 已缓解 |
 | DEBT-035 | 2026-08-27 | 纹理资源服务尚未提供取消 token、优先级调度、压缩纹理格式和按访问热度淘汰 | 可记录债务 | P8-3 已补齐有界 CPU 文件解码、错误诊断、RGBA8 upload packet、app 阶段接线及 Acquire/Release/Unload；明确保留上述能力为后续资源系统迭代，避免把插件材质语义或后台线程 RHI 操作混入核心 | 后续增加取消/优先级/格式策略/可观测淘汰；不得绕过 `TextureResourceService` 直接在 app 创建 GPU 纹理 | 部分关闭 |
 | DEBT-036 | 2026-08-28 | P11 当前插件是源码级、构建期注册；`eventlint` 和 app 的样例宿主仍由编译期 registrar 提供工厂，不支持从 manifest 动态加载第三方二进制 | 设计风险 | 这是已确认的 P11 边界：避免跨编译器 DLL ABI、热加载和隐式任意代码执行；公开 SDK 已要求第三方宿主显式注册自己的工厂 | 若未来需要无源码插件分发，另立 ABI/签名/沙箱设计，不在 P11 偷渡动态加载 | 开放 |
-| DEBT-037 | 2026-08-29 | runtime 曾只能以 i18n 文本生成诊断投影，窗口内没有 FreeType glyph atlas 到 RHI 的可见字形绘制 | 阻断问题 | 功能实现已关闭：`DialogPresentationSnapshot` 经 runtime overlay、FreeType glyph atlas、`UiTextDrawPacket`/有界 `UiTextGpuBatch` 和 sampled texture pipeline 绘制；D3D12/Vulkan 使用统一 alpha blend 合同。当前工作树另有 CJK GPU golden，但其可复现 git/CI 边界独立由 DEBT-043 跟踪 | 2026-08-30 本地证据包含 Windows/D3D12 实机中文对话/提示、Windows/Linux 构建测试及 sampled-text RHI 比对；这些证明功能链存在，不替代 DEBT-043 的干净 checkout 门禁 | 已关闭（功能实现） |
-| DEBT-038 | 2026-08-29 | P13 编辑器已落地 glyph atlas、fallback 字体、sampled-text batch 与矩形裁剪；仍缺显式 z-order 与字体预热策略 | 设计风险 | 当前代码与单测已覆盖 glyph quad、fallback、caret/selection 和裁剪，编辑器 host 已接入 D3D12/Vulkan 文本 pipeline；这两项属于可见层级与首帧体验增强，不是当前导航编辑闭环的直接阻断，但 P13 仍受 DEBT-039 保存门禁约束 | 后续编辑器体验迭代通过共享 draw-order 合同补显式 z-order，并按实际字库与项目语言设计有界字体预热；中日文 GPU golden 的可复现门禁由 DEBT-043 跟踪 | 部分缓解 |
-| DEBT-039 | 2026-08-30 | 编辑器保存链把 `PrepareSave` token 当作可安全提交证明，但当前实现只检查工作区已打开和 revision 一致；它不对内存工作副本重新执行 parser、跨文件引用、资源预算或插件 validator，插件 descriptor 注册还使用空文档 validator，因此跨文档或插件非法数据可能进入 `Commit` | 阻断问题 | 现有 `Commit` 已具备多文件临时写入、备份、替换和失败回滚，不能用绕过该 owner 的 GUI 前置检查替代；保存正确性必须统一收口到 `tools/project`，避免 CLI/GUI 形成两套 clean 语义 | 在 `ProjectWorkspace::PrepareSave` 对完整 working copy 运行与 `Diagnose` 同源的 parser、跨文件与插件校验；任何 error 不签发 token。补充非法跨文档引用、非法插件私有数据、validator 异常、文件保持不变及 CLI/GUI 同结果测试 | 开放 |
-| DEBT-040 | 2026-08-30 | 插件运行时 manifest 允许多个任意安全相对 `data_roots`，但 `tools/ci/package_release.ps1` 仅校验这些声明，装配时固定复制 manifest 同目录下的 `data/`，既不逐项复制声明 root，也不拒绝未被装配的合法 root；第三方插件可得到成功但缺少私有数据的发布包 | 阻断问题 | 当前四个样例插件的唯一 root 都恰好是各自 manifest 同目录的 `data/`，只能证明样例布局可打包，不能把该实现推广为 SDK 合同 | 由发布装配逐项解析、containment 校验并复制所有 manifest `data_roots`，拒绝缺失、重复目标、越界和无法保持包内相对路径的 root；增加自定义 root、多 root、缺失 root 与确定性清单测试后刷新 Windows/Linux 发布证据 | 开放 |
+| DEBT-037 | 2026-08-29 | runtime 曾只能以 i18n 文本生成诊断投影，窗口内没有 FreeType glyph atlas 到 RHI 的可见字形绘制 | 阻断问题 | 功能实现已关闭：`DialogPresentationSnapshot` 经 runtime overlay、FreeType glyph atlas、`UiTextDrawPacket`/有界 `UiTextGpuBatch` 和 sampled texture pipeline 绘制；D3D12/Vulkan 使用统一 alpha blend 合同。CJK GPU golden 的可复现 git/CI 边界已由 DEBT-043 收口 | 2026-08-30 本地证据包含 Windows/D3D12 实机中文对话/提示、Windows/Linux 构建测试及 sampled-text RHI 比对；这些证明功能链存在，不替代 DEBT-043 的干净 checkout 门禁 | 已关闭（功能实现） |
+| DEBT-038 | 2026-08-29 | P13 编辑器已落地 glyph atlas、fallback 字体、sampled-text batch 与矩形裁剪；仍缺显式 z-order 与字体预热策略 | 设计风险 | 当前代码与单测已覆盖 glyph quad、fallback、caret/selection 和裁剪，编辑器 host 已接入 D3D12/Vulkan 文本 pipeline；这两项属于可见层级与首帧体验增强，不是当前导航编辑闭环的直接阻断 | 后续编辑器体验迭代通过共享 draw-order 合同补显式 z-order，并按实际字库与项目语言设计有界字体预热；中日文 GPU golden 的可复现门禁已由 DEBT-043 收口 | 部分缓解 |
+| DEBT-039 | 2026-08-30 | `PrepareSave` 通过 `tools/project::Diagnose` 对完整 working copy 执行同源核心 parser、跨文件引用、本地化覆盖、adapter 与插件 validator；插件 sidecar working copy 现在经有界 overlay reader 进入 `plugin::ValidateProjectPluginData`，非法插件数据和 validator 异常均阻断 token | 阻断问题 | — | 已补充 sidecar 非法数据、validator 异常、无 token、原文件不变及现有核心保存阻断测试；CLI/GUI 继续共享 `ProjectWorkspace` 保存 seam，descriptor 声明约束不替代插件 validator | 已关闭 |
+| DEBT-040 | 2026-08-30 | 插件运行时 manifest 允许多个任意安全相对 `data_roots`，但 `tools/ci/package_release.ps1` 仅校验这些声明，装配时固定复制 manifest 同目录下的 `data/`，既不逐项复制声明 root，也不拒绝未被装配的合法 root；第三方插件可得到成功但缺少私有数据的发布包 | 阻断问题 | `package_release.ps1` 现已逐项解析并装配所有声明 root，按 root 保留包内相对路径；对缺失、越界、重复、嵌套冲突、输出目录冲突和无法保持包内路径的 root 拒绝；`selftest_package_release.ps1` 覆盖自定义/多 root、拒绝场景及两次确定性清单 | Windows/Linux 发布 job 已接入该自测；需在当前支持平台的干净 runner 上随 P11 发布证据复跑实际样例包 | 已关闭（装配实现与行为自测） |
 | DEBT-041 | 2026-08-30 | 根 `vcpkg.json` 的 description 仍称项目为 `Persona-style JRPGs` 引擎，与产品真源已否定固定 Persona 式视觉目标、渲染风格由插件和项目资产拥有的边界冲突 | 设计风险 | 该字段不影响构建和运行，但可能进入包元数据、工具展示或后续文档，造成已否定方向回潮；本轮用户限定只修改文档，因此不改构建元数据 | 独立元数据清理轮将 description 改为与 `docs/00-product.md` 一致的中性 JRPG 运行框架定位，并搜索当前非历史文件确认 `Persona-style` 零残留；不得同时改变依赖或版本 | 开放 |
 | DEBT-042 | 2026-08-30 | 文档把 P13 editor 描述为可删除工具，但根 CMake 无条件 `add_subdirectory(tools/editor)`，单元测试目标直接链接 `jrpgmaker::editor_host`；editor 虽不是 app 的运行时依赖，却不是当前构建图中的可选组件 | 设计风险 | 运行包不包含 editor，运行时边界未被破坏；但干净核心构建仍会解析 SDL/editor 目标，测试也无法在排除 editor host 后原样构建 | 增加明确的 editor build option，按目标职责拆分 editor 专属测试或受同一 option 控制；关闭该 option 时配置、核心 build/test、app 和发布装配必须通过，再恢复“可删除”表述 | 开放 |
-| DEBT-043 | 2026-08-30 | 当前工作树已有 `runtime_overlay_test.cpp`、`NotoSansCJK-Regular.ttc` 和 `runtime_overlay_cjk_256x160.ppm`，测试内容同时覆盖中文、日文与标点并走 sampled-text/RHI readback；但三者均未被 git 跟踪，CI `golden-sync` 也只重生成旧的七张基准图，不会生成 runtime CJK golden | 阻断问题 | 本地当前树可运行不等于干净 checkout 可复现；未跟踪字体/测试/基准和缺失生成门禁会让 P12 的 CJK 成功标准在提交边界消失或静默漂移 | 明确审核字体许可与仓库体积后，将字体、测试和基准纳入 git，或改用可合法稳定获取的固定字体 fixture；为 golden 工具/专项命令增加 runtime overlay CJK 生成入口并纳入 golden-sync 与 artifact 列表，双后端比对通过后关闭 | 开放 |
+| DEBT-043 | 2026-08-30 | runtime overlay CJK GPU golden 曾未形成干净 checkout 可复现门禁，golden-sync 未生成或上传该基准 | 阻断问题 | — | `runtime_overlay_test.cpp`、固定的 `NotoSansCJK-Regular.ttc`（OFL-1.1）及 `runtime_overlay_cjk_256x160.ppm` 均已由 git 跟踪；`tools/ci/generate_runtime_overlay_golden.ps1` 通过真实 Catch2 GPU readback 生成基准，CI golden-sync 生成后执行 `git diff --exit-code -- tests/golden` 并上传 artifact；Windows/D3D12 与 Linux/Vulkan 本地输出 SHA-256 均为 `AA4F27D716AFFE81F34E634A26EFBAC9F2F9F4CB2D30A8C1132016D780FED94A` | 已关闭（2026-08-31） |
 | DEBT-044 | 2026-08-30 | 产品与 ADR 将 macOS 定义为后续适配、非当前完成门禁，但 `.github/workflows/ci.yml` 的 `build-test` matrix 仍包含 mac-debug/mac-release，且没有 `continue-on-error` 或条件豁免；任何 macOS 失败都会使整个 CI workflow 失败 | 设计风险 | 多平台兼容性检查本身有价值，但“产品不承诺”与“PR 被硬阻断”是两个不同合同；当前文档若只称其历史检查会掩盖实际合并影响 | 独立 CI 治理轮明确二选一：将 macOS job 调整为非阻断兼容性信号，或正式提升为工程合并门禁并同步 ADR/产品边界；在决策前文档必须同时陈述产品非支持与 CI 实际硬失败语义 | 开放 |
-| DEBT-045 | 2026-08-30 | `docs/README.md` 把 `CONTEXT.md`、`docs/12-editor-ui-framework-sdd.md` 和 `docs/adr/0008-current-platform-support.md` 登记为当前真源，并登记 archive 历史入口，但这些路径当前均未被 git 跟踪；它们只存在于本机工作树，干净 checkout 会丢失索引目标和决策上下文 | 阻断问题 | 当前任务限定只修改文档且未授权 stage/commit；不能用本机文件存在性冒充仓库可复现性，也不能用 `git add .` 吸入其他用户改动 | 提交前逐路径审核内容、许可证与归档边界，使用显式 pathspec 纳入需要的真源/历史文件；随后从干净 checkout 运行链接检查并确认 `git ls-files` 覆盖所有索引为“当前”的目标 | 开放 |
+| DEBT-045 | 2026-08-30 | 原登记误把 `CONTEXT.md`、当前文档、ADR 与 archive 历史入口判定为未被 Git 跟踪；当前索引链接目标均存在，且由 `git ls-files` 覆盖，未发现干净 checkout 会丢失的索引目标 | 阻断问题 | — | `tools/ci/check_docs_index.ps1` 逐项检查 README 本地链接目标存在且已被 Git 跟踪，并确认当前有效表存在目标；后续新增真源继续通过该门禁登记 | 已关闭（索引/链接门禁） |
 
 ## 补充关闭记录
 

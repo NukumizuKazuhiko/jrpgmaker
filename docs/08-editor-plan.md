@@ -21,13 +21,31 @@
 
 完整接口盘点见 [编辑器接口目录](09-editor-interface-catalog.md)，组件、主题与语言合同见 [编辑器 UI 系统合同](10-editor-ui-system.md)。两份合同在编码前一次性冻结 P13 第一闭环所需 seam，后续不得以“先在 GUI 里临时实现”为由绕开。
 
+## 本轮进度记录（2026-08-31 至 2026-09-02）
+
+本轮已按“先定 owner 与合同，再由 UI 拼装 projection”的 SDD 路线审查并推进最小闭环。产品目标保持为 Unity 式游戏引擎编辑器工作区，不退化为 JSON 表单编辑器；本次记录只覆盖导航网格编辑闭环，不扩展到通用 docking、角色/材质/渲染管线等后续能力。
+
+- `tools/editor::EditorWorkspaceController` 继续作为编辑器工作区控制层，统一持有当前项目、文档、`SelectionTarget`、面板 projection、dirty/revision/diff、结构化 diagnostics、命令路由和 preview 状态。Project、Hierarchy、Scene、Inspector、Toolbar、Status 只消费 projection 并发送结构化 command。
+- P13-0 的 `ProjectWorkspace` seam 保持不变：打开、解析、校验、revision、diff、`PrepareSave`/`Commit` 仍由 workspace 及现有 parser/validator 拥有；navigation adapter 继续是导航数据语义入口；GUI 不直接写文件、不修改裸 JSON、不解析 CLI 文本。
+- Windows/D3D12 实机已完成一条真实操作链：打开合法临时项目，Project 显示真实文档，打开 Navigation 后 Scene 显示真实 5×5 网格；点击 `(1, 0)` 后 Hierarchy、Scene、Inspector 共享同一选择；Inspector 显示真实坐标和 `walkable`，切换后 dirty、revision、diff、diagnostics 可见；保存后状态清除，直接重开项目仍保持修改后的阻挡格状态；工具栏可启动并停止独立 runtime preview。窗口缩放、菜单/工具栏反馈和输入转发也已在真实窗口中检查，操作截图已留存于本轮验收记录。
+- RmlUi 工作区已补齐 Unity 风格的三条可拖拽分隔条：Project/Hierarchy 与 Scene、Scene 与 Inspector 的垂直分隔，以及 Scene/Inspector 与 Diagnostics 的水平分隔。分隔条使用稳定 id、`role=separator`、方向和当前比例 ARIA 属性；比例、拖拽捕获和释放只保存在 editor UI 会话，重建文档与窗口 resize 会保留比例并以非负几何重新布局，极小窗口不会写入项目数据。
+- 分隔条比例、四个周边面板可见性与左侧活动标签现由 `tools/editor::EditorUserSettings` 负责持久化：schema v3 的 `splitters`、`visibility` 与 `active_left_panel` 使用稳定 id，四个可见性默认均为 true，默认活动页为 Project；loader 对 schema v1/v2 做显式迁移，对缺失、类型错误、非有限值、越界和未知 schema 回退完整默认值并产生结构化诊断。View 只提供类型化导入/导出、会话切换和 DOM 重排，不访问文件。拖拽释放、Window 面板切换及 Project/Hierarchy 标签激活均复用 host 的 `persist_user_settings` 原子保存链路，个人设置永不写入项目目录、theme/layout 或 domain。
+- Window 菜单提供 Project、Hierarchy、Inspector、Diagnostics 四个 `role=menuitemcheckbox` 面板切换项，Scene 常驻；命令统一为 `panel.toggle` 加稳定面板 id。Layout 二级菜单的 `layout.reset_default` 同时恢复四面板可见与三条 splitter，并立即复用 `persist_user_settings` 原子保存链路，`EditorWorkspaceController` 不拥有布局语义。隐藏面板时相邻主区延展且对应 splitter 消失，恢复后使用保存的 splitter 比例。
+- Hierarchy 使用现有 `NavigationProjection` 的有界 cells 构成真实树：地图根可展开/折叠，最多投影共享合同允许的 2048 个单元；每行通过稳定 index 发送 `navigation.select`，选择继续由 `EditorSession::SelectionTarget` 统一投影到 Hierarchy、Scene 与 Inspector。展开状态仅由 `RmlUiEditorView` 保存为会话状态，树容器独立滚动，不进入项目数据、controller 或个人设置。
+- 本轮最小修复补齐了失败文档命令的可见反馈：文档选择失败时，`EditorWorkspaceController` 重新投影结构化 diagnostics 并请求重绘，不把失败状态留在 session 内而不刷新 UI。对应合同测试为 `editor workspace controller redraws after a rejected document command`，已完成 red→green。
+- 在进度快照之后的延续轮次中补齐三项 Unity 式工作区能力（均先红测后实现，未扩大 owner 边界）：聚焦面板最大化/还原——点击面板记录 session-only `focused_panel`，Shift+Space 或 Window → Maximize Focused Panel 在目标可见时铺满 toolbar 与 statusbar 之间区域并临时隐藏其他面板与 splitter，还原后恢复原 visibility 与比例；左侧 dock 的 Project/Hierarchy 标签化——`dock.activate` 切换活动页并立即持久化，两页都可见时也只渲染活动页；空项目首屏提供可聚焦 `file.open` 按钮，新启动的编辑器不再只能靠 CLI 路径进入。
+- Hierarchy 树实机验收暴露并收敛了 RmlUi 渲染边界：`button` 是替换型控件不渲染内部子节点、flex/overflow 组合触发 Debug abort、`inline-block + nowrap` 裁剪标签；最终采用块级全宽 treeitem 行、父级裁切与默认 inline 文本流，并为 `hierarchy-tree/tree-children` 声明 `width: 100%` 使行占满左栏。这些约束已作为编辑器 RCSS 子集写入 [UI 系统合同](10-editor-ui-system.md)。
+- 2026-09-02 收口复验证据：`cmake --build --preset win-debug` 全目标成功且 warning 为 0；Windows 全量 CTest `387/387` 通过；`pwsh ./tools/ci/check_private_headers.ps1` 报告 `OK (210 files scanned)`；`pwsh ./tools/ci/check_docs_index.ps1` 报告 `OK (19 local links; 16 current targets tracked)`；`git diff --check` 通过。本轮此前各子轮的定向证据（editor/RmlUi/layout/input 定向 `82/82`、splitter 行为 2 用例 25 断言等）由对应实现轮次留存。
+- Linux/Vulkan `jrpgmaker_unit_tests` 目标构建成功；项目/插件/工作区相关定向测试已通过，面板显隐轮 Linux 定向测试亦通过。本次收口仍未运行 Linux 全量 CTest，因此不能把它记录为最终 Linux 全量门禁闭合证据。
+- 当前 P13 仍为“重新打开/进行中”。用户已确认在第一条导航闭环之后继续 Unity 式编辑器 UI 研发（单问题节奏、单轮单能力）；债务收口已完成，剩余工作为最终门禁证据（含 Linux 全量）、截图文件化和收口审查，不改变 P13 产品边界与非目标。`docs/11-plugin-system.md` 已同步保存 validator 合同。
+
 ## 本轮唯一范围
 
 1. 打开合法项目，Project 显示 `ProjectWorkspace::DescribeDocuments` 的真实资源，并按数据合同提供资源分类与有界搜索；Hierarchy 显示当前导航地图及可选择单元。
 2. Scene/Map View 显示 parser 产生的真实导航网格；单元投影最多 2048 个，超出部分裁剪，保证单帧 DrawList、Diagnostics 与 Status 仍有容量。
 3. Project、Hierarchy、Scene 和 Inspector 共享一个稳定 `SelectionTarget`；Inspector 只显示真实坐标并发送 walkable 切换命令。
 4. 修改统一进入 navigation adapter 与 `ProjectWorkspace::Apply`，dirty、revision、稳定 diff 和结构化 diagnostics 从同一会话状态投影。
-5. 保存只调用 `PrepareSave`/`Commit` 的统一写回链；当前 `PrepareSave` 只检查 revision，完整保存前校验缺口由 DEBT-039 跟踪，重开复核不能替代该门禁。
+5. 保存只调用 `PrepareSave`/`Commit` 的统一写回链；`PrepareSave` 在检查 revision 后对完整项目 working copy 执行同源 `Diagnose`，包括插件 sidecar 的运行时 validator 输入，重开复核不能替代该门禁。
 6. Toolbar 提供打开、保存、运行、停止；runtime preview 始终为独立进程。
 7. 空项目、加载失败、校验失败和保存失败均显示结构化状态；窗口 resize 后由共享布局重新计算命中区域。
 8. 菜单栏和工具栏采用 Unity 式工作区信息架构：小功能进入二级菜单，菜单项只映射到已存在的结构化 command；Project Settings 只暴露已有 document adapter（项目、材质/渲染、相机、输入、本地化和插件数据）。
@@ -38,7 +56,7 @@
 - 不做通用 3D 建模器、DCC、联网协作、云端项目格式或二进制热加载。
 - 不把 GUI 作为运行时启动依赖；目标上关闭 `tools/editor` 后不得影响核心构建、测试和发布包。当前根 CMake 无条件加入该目录，单元测试也直接链接 `jrpgmaker_editor_host`，所以构建层可删除性尚未成立（DEBT-042）。
 - 不通过自由 JSON 文本编辑绕过 parser、validator、迁移器、资源预算或插件私有校验。
-- 不引入新的 GUI 第三方依赖，除非先在 `docs/01-architecture.md` 登记并获得明确确认。
+- 编辑器 UI 使用已登记的 RmlUi Core（仅 `tools/editor`，CMake 固定 commit）；不把 RmlUi 引入 `engine/*`、运行时或项目数据 owner。
 
 ## 实施阶段
 
@@ -58,7 +76,8 @@
 - editor action map 已纳入启动 manifest，由 `engine/ui` 有界解析并由 host 构造 `InputMap`；重复 key 和非法 action 资源在启动阶段拒绝。
 - `engine/ui::MenuController` 已提供有界 MenuBar/PopupMenu 模型、根菜单与任意一层受限子菜单、鼠标命中、Alt/方向键/Enter/Escape 路由和结构化 `UiCommand`；菜单资源仍由 layout 节点的 `command` 字段声明，host 只负责将 command 映射到真实 session 操作。
 - editor shell 已提供 Unity 式顶部菜单栏、工具栏和窗口聚焦命令；Project projection 从 `DocumentDescriptor.category_key` 生成分类头、搜索行和有界资源行，显示的项目文档、路径、类型与诊断计数均来自 workspace/session projection。
-- `engine/ui` 已提供有界后端无关 `UiTree`/`DrawList`（矩形、localized text 参数与 glyph quad）；`render` 将其编译为 RHI 上传包。editor host 已完成 SDL 窗口、D3D12/Vulkan swapchain、主题字体候选、FreeType 灰度栅格化、CJK glyph atlas、CPU 文本与矩形视口裁剪、有序多字体 fallback、caret/selection 装饰和实际文字提交。显式 docking/z-order 系统不属于本轮导航闭环。
+- 编辑器 host 使用 RmlUi DOM/RCSS、SDL 输入转发和项目自有 RHI `RenderInterface`；`engine/ui` 的有界 `UiTree`/`DrawList` 合同继续服务运行时与遗留测试。当前已完成主题字体候选、FreeType 灰度栅格化、CJK glyph atlas、实际文字/矩形提交、Project/Hierarchy/Scene/Inspector/Diagnostics/Toolbar/Status 纵向切片；显式 docking/z-order 系统不属于本轮导航闭环。
+- 无项目启动状态保留 Unity 式 editor shell 的首个入口：空态使用现有 `editor.action.open` 本地化文案投影为可聚焦 `file.open` 按钮；鼠标点击及 Tab 后 Enter/Space 均通过 RmlUi 结构化 command 交给 host，由 host 映射到目录选择对话框，视图不直接执行文件 I/O。
 - 表单区域已由布局资源中的 `Form` 节点提供边界；adapter 字段被投影为有界控件行，焦点状态通过 theme recipe 的 `focused` 状态绘制，SDL 键盘、文本输入和表单鼠标命中通过 `EditorSession` 进入类型化 Apply。
 - 已实现命令行初始项目路径、SDL3 异步目录选择、工作区加载、字段值/诊断码（含路径）/预览指标的 locale 参数 projection，以及带 bounded 日志的错误面板和资源化状态栏。
 - 验收：空项目、正常项目和损坏项目均能显示结构化状态；关闭编辑器不修改文件。
@@ -76,15 +95,15 @@
 ### P13-3 第一组 schema-aware 编辑
 
 - 先实现 project manifest、日历/日程和事件文本字段编辑。
-- 目标保存门禁是在 `ProjectWorkspace::PrepareSave` 内对完整工作副本执行 parser、跨文件引用、插件 validator、资源预算和迁移检查；任何 error 不签发 token。当前实现尚未达到该目标：`PrepareSave` 只检查工作区状态和 revision，见 DEBT-039。
+ - 目标保存门禁是在 `ProjectWorkspace::PrepareSave` 内对完整工作副本执行 parser、跨文件引用、插件 validator、资源预算和迁移检查；任何 error 不签发 token。当前实现已在签发 token 前调用同源 `Diagnose`，核心项目文档的 parser、跨文件引用、本地化覆盖、已注册 adapter/plugin validator error 以及插件 sidecar working copy 的运行时 validator error 都会阻断保存；注册 editor descriptor 未提供专用 validator 时，workspace 还会校验其声明的 object、required、字段类型与 select choices 约束。
 - 验收：GUI 保存结果可被 CLI 无损打开；非法引用、越界值和插件 validator error 在保存前阻断且原文件不变；崩溃/取消不破坏原文件。
 
-当前进度：integer `NumberField` 已通过文本输入和有限步进进入统一 `ProjectWorkspace::Apply`；导航宽高由 adapter 与 `walkable` 原子归一化并记录复合 diff；布尔字段已提供资源化 `toggle` action 与类型化切换 seam；select 字段已支持 adapter 提供有界候选值并由左右动作循环提交。跨文档工作副本、原子写入与失败回滚已落地，标签页 dirty 状态按文档来源变化；保存前的完整 working-copy 重验尚未落地，因此 P13-3 保存门禁未闭合。
+ 当前进度：integer `NumberField` 已通过文本输入和有限步进进入统一 `ProjectWorkspace::Apply`；导航宽高由 adapter 与 `walkable` 原子归一化并记录复合 diff；布尔字段已提供资源化 `toggle` action 与类型化切换 seam；select 字段已支持 adapter 提供有界候选值并由左右动作循环提交。跨文档工作副本、原子写入与失败回滚已落地，标签页 dirty 状态按文档来源变化；`PrepareSave` 已在签发 token 前执行完整核心项目 `Diagnose`，对没有专用 validator 的 editor descriptor 执行声明约束校验，并让插件 validator 消费 sidecar working copy，非法核心或插件文档不再写盘。
 
 ### P13-4 地图/材质/插件扩展
 
 - 在已有数据合同上增加交互点、碰撞、导航、相机区域和材质实例编辑。
-- 加载并 lint `plugin.editor.json`、字段描述、插件 locale/icon 资源；sidecar 清单与 descriptor 的 schema、contract、插件 ID、roots、路径、重复项和数量上界校验已由 plugin owner 提供，descriptor 到 project editor adapter 的类型化转换已落地。sidecar 资源存在性、路径 containment 和单文件/总字节上界已落地；`ProjectWorkspace` 可注入 `PluginRegistry` 并在 Diagnose 阶段运行插件 validator；EditorSession 已按项目插件列表发现并装载相邻 sidecar/descriptor，枚举插件数据根中的有界 JSON 文档并生成可编辑标签页。字段描述只生成类型化 EditCommand；保存前重新调用运行时插件 validator 是 DEBT-039 的未闭合目标，插件私有 schema 仍不得提升为核心 schema。
+ - 加载并 lint `plugin.editor.json`、字段描述、插件 locale/icon 资源；sidecar 清单与 descriptor 的 schema、contract、插件 ID、roots、路径、重复项和数量上界校验已由 plugin owner 提供，descriptor 到 project editor adapter 的类型化转换已落地。sidecar 资源存在性、路径 containment 和单文件/总字节上界已落地；`ProjectWorkspace` 可注入 `PluginRegistry` 并在 Diagnose 阶段运行插件 validator，sidecar working copy 通过有界 overlay reader 进入同一运行时 validator 输入；EditorSession 已按项目插件列表发现并装载相邻 sidecar/descriptor，枚举插件数据根中的有界 JSON 文档并生成标签页。有效 descriptor 的标签页可编辑；sidecar/descriptor 缺失或无效时，私有文档通过只读 adapter 投影并附带可定位诊断，所有编辑入口拒绝写回。字段描述只生成类型化 EditCommand；缺少专用 validator 时，workspace 会从 descriptor 生成最小声明约束校验，插件私有 schema 仍不得提升为核心 schema。
 - 验收：替换数据即可改变运行时项目；核心 domain、RHI 后端和 app 业务分支不改。
 
 ### P13-5 只读运行预览与发布回归
