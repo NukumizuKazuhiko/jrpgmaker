@@ -12,6 +12,7 @@
     "editor.menu.project": "项目",
     "editor.menu.project_overview": "项目概览",
     "editor.menu.project_settings": "项目设置",
+    "editor.menu.validate_project": "验证项目",
     "editor.menu.general": "常规",
     "editor.menu.rendering": "渲染",
     "editor.menu.camera": "相机",
@@ -24,6 +25,10 @@
     "editor.menu.plugin_data": "插件数据",
     "editor.menu.run": "运行",
     "editor.menu.window": "窗口",
+    "editor.menu.layout": "布局",
+    "editor.menu.reset_layout": "恢复默认布局",
+    "editor.menu.maximize_focused_panel": "最大化当前面板",
+    "editor.menu.restore_focused_panel": "还原当前面板",
     "editor.project.search": "搜索资源：{value}",
     "editor.project.resource_meta": "{type} · 诊断 {diagnostics}",
     "editor.project.category.project": "项目设置",
@@ -41,6 +46,7 @@
     "editor.workspace.tree": "项目资源",
     "editor.workspace.project": "项目",
     "editor.workspace.hierarchy": "层级",
+    "editor.workspace.left_dock": "左侧工作区",
     "editor.hierarchy.navigation": "导航地图（{width} × {height}）",
     "editor.hierarchy.cell": "单元格（{x}, {y}）· 可行走 {walkable}",
     "editor.diff.change": "{document}{path}：{before} -> {after}",
@@ -100,5 +106,34 @@
     ,"editor.input.actions": "输入动作"
     ,"editor.localization.strings": "文本"
     ,"editor.resources.items": "资源"
+    ,"editor.brand.editor": "编辑器"
+    ,"editor.navigation.cell": "单元格"
+    ,"editor.project.search_placeholder": "筛选项目资源"
+    ,"editor.project.no_matches": "没有匹配的资源"
+    ,"editor.project.assets_documents": "资源 / 文档"
+    ,"editor.empty.open_project": "打开一个项目开始编辑"
+    ,"editor.empty.open_project_hint": "文件 > 打开项目"
+    ,"editor.hierarchy.scene_structure": "场景结构"
+    ,"editor.inspector.selection": "选择对象"
+    ,"editor.navigation.select_map": "在项目面板选择导航地图"
+    ,"editor.navigation.map": "导航地图"
+    ,"editor.navigation.no_selection": "未选择单元格"
+    ,"editor.navigation.inspector_hint": "点击网格单元选择；空格键切换可行走状态"
+    ,"editor.navigation.grid": "导航网格"
+    ,"editor.navigation.coordinate": "坐标"
+    ,"editor.navigation.on": "是"
+    ,"editor.navigation.off": "否"
+    ,"editor.navigation.blocked": "不可行走"
+    ,"editor.diagnostics.none": "没有诊断或未保存差异"
+    ,"editor.diagnostics.diff": "差异"
+    ,"editor.inspector.select_object": "选择一个对象查看属性"
+    ,"editor.status.project_ready": "项目就绪"
+    ,"editor.status.project_invalid": "项目无效"
+    ,"editor.status.saved": "已保存"
+    ,"editor.status.dirty_short": "● 未保存"
+    ,"editor.status.revision": "修订"
+    ,"editor.status.selection": "选择"
+    ,"editor.status.preview_running": "预览运行中"
+    ,"editor.status.editor_ready": "编辑器就绪"
   }
 }

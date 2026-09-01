@@ -1,7 +1,9 @@
 #include "jrpgmaker/editor/editor_workspace_controller.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <string>
+#include <vector>
 
 namespace jrpgmaker::editor {
 namespace {
@@ -39,6 +41,24 @@ bool HasCategory(const EditorSessionState* state, std::string_view category_key)
     return std::any_of(
         state->tabs.tabs.begin(), state->tabs.tabs.end(),
         [category_key](const auto& document) { return document.category_key == category_key; });
+}
+
+bool SameDiagnostics(const std::vector<project::Diagnostic>& left,
+                     const std::vector<project::Diagnostic>& right) {
+    if (left.size() != right.size())
+        return false;
+    return std::equal(left.begin(), left.end(), right.begin(),
+                      [](const auto& lhs, const auto& rhs) {
+                          return lhs.code == rhs.code && lhs.path == rhs.path;
+                      });
+}
+
+bool SelectDocumentAndRefresh(EditorSession* session, std::string_view document_id) {
+    if (session == nullptr || document_id.empty())
+        return false;
+    const auto diagnostics = session->state().diagnostics;
+    const bool selected = session->SelectDocument(document_id);
+    return selected || !SameDiagnostics(diagnostics, session->state().diagnostics);
 }
 
 bool CommandEnabled(std::string_view command, const EditorSessionState* state) {
@@ -201,7 +221,7 @@ EditorInteractionResult EditorWorkspaceController::DispatchMenuCommand(std::stri
                 return {};
             document_id = plugin->document_id;
         }
-        return {session_->SelectDocument(document_id), EditorHostRequest::kNone};
+        return {SelectDocumentAndRefresh(session_.get(), document_id), EditorHostRequest::kNone};
     }
     constexpr std::string_view focus_prefix = "window.focus.";
     if (command.rfind(focus_prefix, 0) == 0) {
@@ -213,6 +233,47 @@ EditorInteractionResult EditorWorkspaceController::DispatchMenuCommand(std::stri
         return {true, EditorHostRequest::kNone};
     }
     return {};
+}
+
+EditorInteractionResult EditorWorkspaceController::DispatchCommand(std::string_view command,
+                                                                   std::string_view argument) {
+    if (command == "document.select")
+        return SelectDocumentAndRefresh(session_.get(), argument)
+                   ? EditorInteractionResult{true, EditorHostRequest::kNone}
+                   : EditorInteractionResult{};
+    if (command == "navigation.select") {
+        std::size_t index = 0;
+        const auto [end, error] =
+            std::from_chars(argument.data(), argument.data() + argument.size(), index);
+        if (error != std::errc{} || end != argument.data() + argument.size())
+            return {};
+        return session_ != nullptr && session_->SelectNavigationCell(index)
+                   ? EditorInteractionResult{true, EditorHostRequest::kNone}
+                   : EditorInteractionResult{};
+    }
+    if (command == "navigation.toggle")
+        return session_ != nullptr && session_->ToggleSelectedNavigationWalkable()
+                   ? EditorInteractionResult{true, EditorHostRequest::kNone}
+                   : EditorInteractionResult{};
+    if (command == "project.filter")
+        return SetProjectFilter(argument) ? EditorInteractionResult{true, EditorHostRequest::kNone}
+                                          : EditorInteractionResult{};
+    if (command == "window.focus") {
+        const auto* panel = FindPanel(argument);
+        if (panel == nullptr)
+            return {};
+        focused_panel_ = std::string(argument);
+        return {true, EditorHostRequest::kNone};
+    }
+    return DispatchMenuCommand(command);
+}
+
+bool EditorWorkspaceController::SetProjectFilter(std::string_view filter) {
+    if (project_filter_ == filter)
+        return false;
+    project_filter_ = filter;
+    project_filter_text_.SetText(project_filter_);
+    return true;
 }
 
 EditorInteractionResult EditorWorkspaceController::KeyDown(std::string_view key) {
@@ -288,9 +349,9 @@ EditorInteractionResult EditorWorkspaceController::PointerDown(float x, float y)
         if (item.kind != ProjectPanelRowKind::kDocument ||
             item.document_index >= session_->state().tabs.tabs.size())
             return {};
-        return {
-            session_->SelectDocument(session_->state().tabs.tabs[item.document_index].document_id),
-            EditorHostRequest::kNone};
+        return {SelectDocumentAndRefresh(
+                    session_.get(), session_->state().tabs.tabs[item.document_index].document_id),
+                EditorHostRequest::kNone};
     }
     if (const auto* tabs = FindPanel("workspace.tabs");
         tabs != nullptr && Contains(tabs->bounds, x, y) && !session_->state().tabs.tabs.empty()) {
@@ -298,7 +359,8 @@ EditorInteractionResult EditorWorkspaceController::PointerDown(float x, float y)
             tabs->bounds.width / static_cast<float>(session_->state().tabs.tabs.size());
         const auto index = static_cast<std::size_t>((x - tabs->bounds.x) / width);
         if (index < session_->state().tabs.tabs.size())
-            return {session_->SelectDocument(session_->state().tabs.tabs[index].document_id),
+            return {SelectDocumentAndRefresh(session_.get(),
+                                             session_->state().tabs.tabs[index].document_id),
                     EditorHostRequest::kNone};
     }
     if (const auto* hierarchy = FindPanel("workspace.hierarchy");

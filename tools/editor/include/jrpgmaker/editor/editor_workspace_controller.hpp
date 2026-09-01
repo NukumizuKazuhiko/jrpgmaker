@@ -36,6 +36,9 @@ public:
     [[nodiscard]] EditorInteractionResult PointerDown(float x, float y);
     [[nodiscard]] EditorInteractionResult KeyDown(std::string_view key);
     [[nodiscard]] EditorInteractionResult Dispatch(EditorAction action);
+    [[nodiscard]] EditorInteractionResult DispatchCommand(std::string_view command,
+                                                          std::string_view argument = {});
+    [[nodiscard]] bool SetProjectFilter(std::string_view filter);
     [[nodiscard]] bool ApplyText(std::string_view text);
     [[nodiscard]] bool ApplyComposition(std::string_view text);
     [[nodiscard]] bool ApplyTextKey(std::string_view key);
@@ -44,6 +47,7 @@ public:
     [[nodiscard]] ui::DrawList BuildDrawList() const;
     [[nodiscard]] const EditorSessionState* state() const;
     [[nodiscard]] std::optional<ui::Rect> panel_bounds(std::string_view id) const;
+    [[nodiscard]] std::string_view project_filter() const { return project_filter_; }
     [[nodiscard]] bool menu_open() const { return menu_.open(); }
 
 private:

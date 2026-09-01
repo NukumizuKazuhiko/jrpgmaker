@@ -11,6 +11,8 @@ target_sources(
           interaction_test.cpp map_data_test.cpp render_style_test.cpp render_style_adapters_test.cpp
           cutscene_audio_ui_test.cpp dialog_presentation_test.cpp runtime_overlay_test.cpp editor_resources_test.cpp
           editor_shell_test.cpp editor_session_test.cpp ui_interaction_test.cpp project_workspace_test.cpp form_projection_test.cpp ui_draw_adapter_test.cpp
+          rmlui_editor_document_test.cpp
+          editor_user_settings_test.cpp
           plugin_test.cpp battle_plugins_test.cpp calendar_test.cpp save_test.cpp schedule_test.cpp p7_vertical_slice_test.cpp
           vertical_slice_test.cpp localization_test.cpp p12_acceptance_test.cpp)
 target_sources(jrpgmaker_unit_tests PRIVATE input_actions_test.cpp)
@@ -43,6 +45,7 @@ target_compile_definitions(jrpgmaker_unit_tests PRIVATE
                            JRPGMAKER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../golden"
                            JRPGMAKER_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../assets"
                            JRPGMAKER_EDITOR_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tools/editor/resources"
+                           JRPGMAKER_EDITOR_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tools/editor"
                            JRPGMAKER_RUNTIME_EXECUTABLE="$<TARGET_FILE:jrpgmaker_app>")
 add_dependencies(jrpgmaker_unit_tests jrpgmaker_app)
 

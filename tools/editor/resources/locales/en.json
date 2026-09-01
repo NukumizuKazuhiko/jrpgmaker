@@ -12,6 +12,7 @@
     "editor.menu.project": "Project",
     "editor.menu.project_overview": "Project Overview",
     "editor.menu.project_settings": "Project Settings",
+    "editor.menu.validate_project": "Validate Project",
     "editor.menu.general": "General",
     "editor.menu.rendering": "Rendering",
     "editor.menu.camera": "Camera",
@@ -24,6 +25,10 @@
     "editor.menu.plugin_data": "Plugin Data",
     "editor.menu.run": "Run",
     "editor.menu.window": "Window",
+    "editor.menu.layout": "Layout",
+    "editor.menu.reset_layout": "Reset Default Layout",
+    "editor.menu.maximize_focused_panel": "Maximize Focused Panel",
+    "editor.menu.restore_focused_panel": "Restore Focused Panel",
     "editor.project.search": "Search assets: {value}",
     "editor.project.resource_meta": "{type} · diagnostics {diagnostics}",
     "editor.project.category.project": "Project Settings",
@@ -41,6 +46,7 @@
     "editor.workspace.tree": "Project Resources",
     "editor.workspace.project": "Project",
     "editor.workspace.hierarchy": "Hierarchy",
+    "editor.workspace.left_dock": "Left workspace",
     "editor.hierarchy.navigation": "Navigation Map ({width} x {height})",
     "editor.hierarchy.cell": "Cell ({x}, {y}) · walkable {walkable}",
     "editor.diff.change": "{document}{path}: {before} -> {after}",
@@ -100,5 +106,34 @@
     ,"editor.input.actions": "Input Actions"
     ,"editor.localization.strings": "Strings"
     ,"editor.resources.items": "Resources"
+    ,"editor.brand.editor": "EDITOR"
+    ,"editor.navigation.cell": "Cell"
+    ,"editor.project.search_placeholder": "Filter project resources"
+    ,"editor.project.no_matches": "No matching resources"
+    ,"editor.project.assets_documents": "ASSETS / DOCUMENTS"
+    ,"editor.empty.open_project": "Open a project to begin editing"
+    ,"editor.empty.open_project_hint": "File > Open Project"
+    ,"editor.hierarchy.scene_structure": "SCENE STRUCTURE"
+    ,"editor.inspector.selection": "SELECTION"
+    ,"editor.navigation.select_map": "Select a navigation map in Project"
+    ,"editor.navigation.map": "Navigation Map"
+    ,"editor.navigation.no_selection": "No cell selected"
+    ,"editor.navigation.inspector_hint": "Click a grid cell to select it; press Space to toggle walkable"
+    ,"editor.navigation.grid": "Navigation Grid"
+    ,"editor.navigation.coordinate": "Coordinate"
+    ,"editor.navigation.on": "On"
+    ,"editor.navigation.off": "Off"
+    ,"editor.navigation.blocked": "Blocked"
+    ,"editor.diagnostics.none": "No diagnostics or pending changes"
+    ,"editor.diagnostics.diff": "diff"
+    ,"editor.inspector.select_object": "Select an object to inspect its properties"
+    ,"editor.status.project_ready": "PROJECT READY"
+    ,"editor.status.project_invalid": "PROJECT INVALID"
+    ,"editor.status.saved": "SAVED"
+    ,"editor.status.dirty_short": "● DIRTY"
+    ,"editor.status.revision": "rev"
+    ,"editor.status.selection": "selection"
+    ,"editor.status.preview_running": "PREVIEW RUNNING"
+    ,"editor.status.editor_ready": "EDITOR READY"
   }
 }
