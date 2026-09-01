@@ -21,9 +21,9 @@
 | 12 | [编辑器 UI 框架 SDD](12-editor-ui-framework-sdd.md) | P13 retained-mode UI 框架的 owner、接口、不变量和验收门禁 | 当前 |
 | CTX | [领域词汇](../CONTEXT.md) | 项目内当前支持平台、后续适配平台等统一术语 | 当前 |
 | ADR-008 | [当前平台支持边界](adr/0008-current-platform-support.md) | Windows/Linux 当前支持与 macOS 后续适配决策 | 当前 |
-| ADR-009 | [编辑器 UI 框架候选调研](adr/0009-editor-ui-framework-research.md) | RmlUi、Dear ImGui、Slint、Qt 的适配性、许可证、RHI 接入和 POC 建议 | 调研完成，候选待确认 |
+| ADR-009 | [编辑器 UI 框架候选调研](adr/0009-editor-ui-framework-research.md) | RmlUi、Dear ImGui、Slint、Qt 的适配性、许可证、RHI 接入和 POC 决策 | 调研完成，RmlUi editor-only 已选 |
 
-> Git 边界警告：截至 2026-08-30，`CONTEXT.md`、`12-editor-ui-framework-sdd.md`、`docs/adr/` 与 `docs/archive/` 仍是未跟踪路径。它们在当前工作树可读，但尚不能视为干净 checkout 可复现的真源；由 DEBT-045 跟踪。提交前必须显式审核并逐路径纳入，禁止用 `git add .`。
+> 索引门禁：运行 `pwsh ./tools/ci/check_docs_index.ps1`，检查本索引中的本地链接目标存在且已被 Git 跟踪；归档文档只作历史证据，不属于当前真源。
 
 根目录 [AGENTS.md](../AGENTS.md) 为项目宪法适配层，独立维护，不入本索引编号序列。
 
@@ -33,6 +33,7 @@
 - [完整债务登记](04-debt-register.md#早期主登记表debt-001029)：逐项证据、分级、后续入口与状态。
 - [里程碑与阻断](02-milestones.md)：P0–P13 当前状态和完成门禁。
 - [ADR-008 平台边界](adr/0008-current-platform-support.md)：Windows/Linux 支持范围与 macOS CI 现实。
+- `pwsh ./tools/ci/check_docs_index.ps1`：检查索引本地链接、当前真源目标存在性与 Git 跟踪状态。
 
 根目录 [LICENSE](../LICENSE) 声明本项目默认采用 GNU AGPL v3.0 或更高版本（SPDX：`AGPL-3.0-or-later`）。第三方依赖和素材仍以其各自许可证为准。
 

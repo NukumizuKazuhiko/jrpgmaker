@@ -119,6 +119,15 @@ jobs:
           clang-format --version
           git ls-files '*.cpp' '*.hpp' '*.h' | xargs -r clang-format --dry-run --Werror
 
+  docs-index:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Documentation index links and Git tracking
+        run: pwsh ./tools/ci/check_docs_index.ps1
+
   shader-sync:
     timeout-minutes: 30
     runs-on: ubuntu-latest
