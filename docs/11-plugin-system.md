@@ -201,7 +201,7 @@ sidecar 路径相对插件安装根解析；`plugin_id` 必须精确匹配相邻
 - host semantic theme recipe id；插件不得提供私有 RGBA、字号或布局像素。
 - 受限的 visible/enabled 条件，只能引用同文档字段并使用声明式比较；第一版可完全不支持条件，不能嵌入脚本。
 
-字段描述不是 validator。权威目标仍是保存前调用插件运行时 `ValidateData`/`ValidateMaterial`，且两者冲突时 validator 胜出并产生 error；但当前编辑器把 descriptor 注册为文档 adapter 时使用空文档 validator，`ProjectWorkspace::PrepareSave` 也不会重跑插件 validator。因此当前 descriptor 约束只能证明字段形状满足编辑器交互规则，不能证明插件数据可安全保存；该阻断由 DEBT-039 跟踪。
+字段描述不是 validator。权威目标仍是保存前调用插件运行时 `ValidateData`/`ValidateMaterial`，且两者冲突时 validator 胜出并产生 error；编辑器把 descriptor 注册为文档 adapter 后，`ProjectWorkspace::PrepareSave` 仍会通过同源 `Diagnose` 调用插件 validator，并把已加载的 sidecar working copy 经有界 overlay reader 作为 validator 输入。因此 descriptor 约束只提供字段形状的最小交互校验，不能替代插件私有 validator。
 
 没有 sidecar 或 descriptor 无效时，编辑器仍可显示插件状态、文件和 validator 诊断，但私有文档只读。禁止自动退化为可保存的自由 JSON 编辑器。
 
@@ -215,7 +215,7 @@ sidecar 路径相对插件安装根解析；`plugin_id` 必须精确匹配相邻
 
 ### 安全与预算
 
-sidecar 清单与 descriptor 的基础合同校验已落地：当前实现覆盖 schema/editor_contract、插件 ID、文档 type id/根/descriptor 路径、locale 路径、图标路径、字段路径与类型/角色、选择项、重复项和数量上界，并验证 editor roots 不得超出运行时 data_roots。descriptor 可转换为 project `DocumentAdapter`；sidecar 资源存在性、路径 containment 和单文件/总字节上界由 `ValidateEditorExtensionResources` 校验，`ProjectWorkspace` 可注入 `PluginRegistry` 并在 Diagnose 阶段调用已有 `ValidateProjectPluginData`。`EditorSession` 已按项目插件列表装载相邻 sidecar/descriptor，在每个声明 root 下递归枚举最多 128 个 JSON 文件，登记为插件类别的外部文档并进入 Project/标签页投影。当前未闭合的是保存前插件 validator（DEBT-039）以及无效 descriptor 时强制只读回退；后续还需为 descriptor 布局节点、locale 条目、图标尺寸和诊断数上界补齐测试。未知 schema/contract、路径越界、重复 type id、namespace 冲突或引用缺失都使扩展不可加载，但不能阻止运行时项目在没有编辑器的环境中启动。
+sidecar 清单与 descriptor 的基础合同校验已落地：当前实现覆盖 schema/editor_contract、插件 ID、文档 type id/根/descriptor 路径、locale 路径、图标路径、字段路径与类型/角色、选择项、重复项和数量上界，并验证 editor roots 不得超出运行时 data_roots。descriptor 可转换为 project `DocumentAdapter`；sidecar 资源存在性、路径 containment 和单文件/总字节上界由 `ValidateEditorExtensionResources` 校验，`ProjectWorkspace` 可注入 `PluginRegistry` 并在 Diagnose 阶段调用已有 `ValidateProjectPluginData`，已加载 sidecar working copy 通过有界 overlay reader 进入同一 validator 输入。`EditorSession` 已按项目插件列表装载相邻 sidecar/descriptor，在每个声明 root 下递归枚举最多 128 个 JSON 文件，登记为插件类别的外部文档并进入 Project/标签页投影。sidecar 或 descriptor 缺失、无效、资源校验失败或合同不兼容时，编辑器依据运行时 manifest 的 data roots 有界发现私有 JSON 文档，以只读 adapter 和 `editor.document.read_only` 诊断进入同一 Project/标签页投影；`ProjectWorkspace::Apply` 与 `EditorSession` 的所有编辑入口均拒绝这些文档并返回 `project.edit.document_read_only`，不会退化为自由 JSON 编辑器。未知 schema/contract、路径越界、重复 type id、namespace 冲突或引用缺失都使扩展不可加载，但不能阻止运行时项目在没有编辑器的环境中启动。
 
 ## 版本与兼容性
 

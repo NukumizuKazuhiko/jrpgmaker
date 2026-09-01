@@ -3,6 +3,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 
 #include <nlohmann/json.hpp>
@@ -12,6 +13,56 @@
 namespace {
 
 class NoopPlugin final : public jrpgmaker::plugin::IPlugin {};
+
+class SidecarValidatingPlugin final : public jrpgmaker::plugin::IPlugin {
+public:
+    [[nodiscard]] jrpgmaker::plugin::PluginValidationResult
+    ValidateData(const jrpgmaker::plugin::PluginValidationContext& context) const override {
+        const auto data = context.read_file("assets/data/plugin_doc.json");
+        if (!data)
+            return {.issues = {data.error.value_or(jrpgmaker::plugin::PluginError{
+                        "test.plugin.read", "sidecar could not be read", "plugin_doc"})}};
+        const std::string json(reinterpret_cast<const char*>(data.bytes.data()), data.bytes.size());
+        if (nlohmann::json::parse(json).value("name", std::string{}) == "invalid")
+            return {.issues = {{"test.plugin.invalid", "plugin sidecar data is invalid",
+                                "assets/data/plugin_doc.json"}}};
+        return {};
+    }
+};
+
+class ThrowingSidecarPlugin final : public jrpgmaker::plugin::IPlugin {
+public:
+    [[nodiscard]] jrpgmaker::plugin::PluginValidationResult
+    ValidateData(const jrpgmaker::plugin::PluginValidationContext&) const override {
+        throw std::runtime_error("test validator failure");
+    }
+};
+
+bool RegisterProjectPlugins(jrpgmaker::plugin::PluginRegistry& registry,
+                            jrpgmaker::plugin::PluginRegistry::Factory render_factory) {
+    const auto register_plugin = [&registry](const char* id, const char* type,
+                                             jrpgmaker::plugin::PluginRegistry::Factory factory) {
+        nlohmann::json document;
+        document["schema"] = 1;
+        document["id"] = id;
+        document["type"] = type;
+        document["version"] = 1;
+        document["engine_contract"] = 1;
+        document["data_roots"] = nlohmann::json::array({"assets/data"});
+        document["capabilities"] = nlohmann::json::array();
+        const auto manifest = jrpgmaker::plugin::ParseManifest(document);
+        if (!manifest || registry.Register(*manifest.manifest, std::move(factory)).has_value())
+            return false;
+        return true;
+    };
+    return register_plugin("sample.unlit", "render_style", std::move(render_factory)) &&
+           register_plugin("sample.style", "render_style",
+                           [] { return std::make_unique<NoopPlugin>(); }) &&
+           register_plugin("sample.instant", "battle",
+                           [] { return std::make_unique<NoopPlugin>(); }) &&
+           register_plugin("sample.turn_based", "battle",
+                           [] { return std::make_unique<NoopPlugin>(); });
+}
 
 std::filesystem::path MakeFixture() {
     const auto root = std::filesystem::temp_directory_path() / "jrpgmaker_workspace_fixture";
@@ -200,6 +251,46 @@ TEST_CASE("project workspace rejects stale save and preserves the source file",
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("project workspace rejects a save when the complete project diagnosis fails",
+          "[project][editor]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.SelectDocument("core.navigation").empty());
+    const auto edit = workspace.Apply({"core.navigation", "/walkable/0", false});
+    REQUIRE(edit);
+
+    const auto navigation_path = root / "assets/data/navigation_demo.json";
+    std::ifstream before_input(navigation_path, std::ios::binary);
+    const std::string before((std::istreambuf_iterator<char>(before_input)),
+                             std::istreambuf_iterator<char>());
+    nlohmann::json invalid_events = nlohmann::json::object();
+    invalid_events["schema"] = 1;
+    invalid_events["events"] = "invalid";
+    {
+        std::ofstream invalid_output(root / "assets/data/events_demo.json", std::ios::trunc);
+        invalid_output << invalid_events.dump(2) << '\n';
+    }
+    std::ifstream verify_input(root / "assets/data/events_demo.json");
+    nlohmann::json verify_events;
+    verify_input >> verify_events;
+    REQUIRE(verify_events["events"].is_string());
+    const auto diagnosis = workspace.Diagnose(*opened.snapshot);
+    REQUIRE_FALSE(diagnosis);
+
+    const auto plan = workspace.PrepareSave(edit.revision);
+    REQUIRE_FALSE(plan);
+    REQUIRE_FALSE(plan.diagnostics.empty());
+    REQUIRE(plan.diagnostics.front().code == "project.document.invalid");
+    std::ifstream after_input(navigation_path, std::ios::binary);
+    const std::string after((std::istreambuf_iterator<char>(after_input)),
+                            std::istreambuf_iterator<char>());
+    REQUIRE(after == before);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("project workspace commits through a temporary file and backup", "[project][editor]") {
     const auto root = MakeFixture();
     jrpgmaker::project::ProjectWorkspace workspace(root);
@@ -358,7 +449,8 @@ TEST_CASE("workspace edits and saves an external plugin document", "[project][pl
         .path = "assets/data/plugin_doc.json",
         .label_key = "plugin.example.document",
         .editable = true,
-        .type_id = "vendor.example.document.v1"}});
+        .type_id = "vendor.example.document.v1",
+        .category_key = {}}});
     const auto opened = workspace.Open();
     REQUIRE(opened);
     REQUIRE(
@@ -376,6 +468,218 @@ TEST_CASE("workspace edits and saves an external plugin document", "[project][pl
     std::ifstream input(root / "assets/data/plugin_doc.json");
     input >> saved;
     REQUIRE(saved["name"] == "after");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("workspace plugin validator sees the sidecar working copy before save",
+          "[project][plugin][p13]") {
+    const auto root = MakeFixture();
+    std::ofstream output(root / "assets/data/plugin_doc.json");
+    output << R"json({"schema":1,"name":"before"})json";
+    output.close();
+
+    jrpgmaker::plugin::PluginRegistry registry;
+    const auto register_plugin = [&registry](const char* id, const char* type,
+                                             jrpgmaker::plugin::PluginRegistry::Factory factory) {
+        nlohmann::json document;
+        document["schema"] = 1;
+        document["id"] = id;
+        document["type"] = type;
+        document["version"] = 1;
+        document["engine_contract"] = 1;
+        document["data_roots"] = nlohmann::json::array({"assets/data"});
+        document["capabilities"] = nlohmann::json::array();
+        const auto manifest = jrpgmaker::plugin::ParseManifest(document);
+        REQUIRE(manifest);
+        REQUIRE_FALSE(registry.Register(*manifest.manifest, std::move(factory)));
+    };
+    register_plugin("sample.unlit", "render_style",
+                    [] { return std::make_unique<SidecarValidatingPlugin>(); });
+    register_plugin("sample.style", "render_style", [] { return std::make_unique<NoopPlugin>(); });
+    register_plugin("sample.instant", "battle", [] { return std::make_unique<NoopPlugin>(); });
+    register_plugin("sample.turn_based", "battle", [] { return std::make_unique<NoopPlugin>(); });
+
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    const auto parsed = jrpgmaker::plugin::ParseEditorDescriptor(nlohmann::json{
+        {"schema", 1},
+        {"type_id", "vendor.example.document.v1"},
+        {"fields", nlohmann::json::array({nlohmann::json{{"path", "/name"},
+                                                         {"value_type", "string"},
+                                                         {"role", "text"},
+                                                         {"label_key", "plugin.example.name"},
+                                                         {"recipe", "input"}}})}});
+    REQUIRE(parsed);
+    REQUIRE(jrpgmaker::project::RegisterEditorDescriptor(
+        adapters, *parsed.descriptor,
+        [](const nlohmann::json&) { return std::vector<jrpgmaker::project::Diagnostic>{}; }));
+    jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters), &registry);
+    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+        .id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
+        .path = "assets/data/plugin_doc.json",
+        .label_key = "plugin.example.document",
+        .editable = true,
+        .type_id = "vendor.example.document.v1",
+        .category_key = {}}});
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    const auto document_id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json";
+    REQUIRE(workspace.SelectDocument(document_id).empty());
+    const auto edit =
+        workspace.Apply({.document_id = document_id, .field_path = "/name", .value = "invalid"});
+    REQUIRE(edit);
+
+    const auto plan = workspace.PrepareSave(edit.revision);
+    REQUIRE_FALSE(plan);
+    REQUIRE_FALSE(plan.diagnostics.empty());
+    REQUIRE(plan.diagnostics.front().code == "test.plugin.invalid");
+    std::ifstream input(root / "assets/data/plugin_doc.json");
+    nlohmann::json saved;
+    input >> saved;
+    REQUIRE(saved["name"] == "before");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("workspace blocks save when a sidecar plugin validator throws",
+          "[project][plugin][p13]") {
+    const auto root = MakeFixture();
+    const auto sidecar_path = root / "assets/data/plugin_doc.json";
+    std::ofstream output(sidecar_path);
+    output << R"json({"schema":1,"name":"before"})json";
+    output.close();
+
+    jrpgmaker::plugin::PluginRegistry registry;
+    REQUIRE(
+        RegisterProjectPlugins(registry, [] { return std::make_unique<ThrowingSidecarPlugin>(); }));
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    const auto parsed = jrpgmaker::plugin::ParseEditorDescriptor(nlohmann::json{
+        {"schema", 1},
+        {"type_id", "vendor.example.document.v1"},
+        {"fields", nlohmann::json::array({nlohmann::json{{"path", "/name"},
+                                                         {"value_type", "string"},
+                                                         {"role", "text"},
+                                                         {"label_key", "plugin.example.name"},
+                                                         {"recipe", "input"}}})}});
+    REQUIRE(parsed);
+    REQUIRE(jrpgmaker::project::RegisterEditorDescriptor(
+        adapters, *parsed.descriptor,
+        [](const nlohmann::json&) { return std::vector<jrpgmaker::project::Diagnostic>{}; }));
+    jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters), &registry);
+    const auto document_id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json";
+    workspace.SetExternalDocuments(
+        {jrpgmaker::project::DocumentDescriptor{.id = document_id,
+                                                .path = "assets/data/plugin_doc.json",
+                                                .label_key = "plugin.example.document",
+                                                .editable = true,
+                                                .type_id = "vendor.example.document.v1",
+                                                .category_key = {}}});
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.SelectDocument(document_id).empty());
+    const auto edit =
+        workspace.Apply({.document_id = document_id, .field_path = "/name", .value = "after"});
+    REQUIRE(edit);
+
+    const auto plan = workspace.PrepareSave(edit.revision);
+    REQUIRE_FALSE(plan);
+    REQUIRE_FALSE(plan.token.has_value());
+    REQUIRE_FALSE(plan.diagnostics.empty());
+    REQUIRE(plan.diagnostics.front().code == "plugin.validator.exception");
+    std::ifstream input(sidecar_path, std::ios::binary);
+    const std::string saved((std::istreambuf_iterator<char>(input)),
+                            std::istreambuf_iterator<char>());
+    REQUIRE(saved == R"json({"schema":1,"name":"before"})json");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("project workspace validates an external descriptor before save",
+          "[project][plugin][p13]") {
+    const auto root = MakeFixture();
+    std::ofstream output(root / "assets/data/plugin_doc.json");
+    output << R"json({"schema":1,"name":17})json";
+    output.close();
+
+    const auto parsed = jrpgmaker::plugin::ParseEditorDescriptor(nlohmann::json{
+        {"schema", 1},
+        {"type_id", "vendor.example.document.v1"},
+        {"fields", nlohmann::json::array({nlohmann::json{{"path", "/name"},
+                                                         {"value_type", "string"},
+                                                         {"role", "text"},
+                                                         {"label_key", "plugin.example.name"},
+                                                         {"recipe", "input"},
+                                                         {"required", true}}})}});
+    REQUIRE(parsed);
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    REQUIRE(jrpgmaker::project::RegisterEditorDescriptor(adapters, *parsed.descriptor, {}));
+    jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
+    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+        .id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
+        .path = "assets/data/plugin_doc.json",
+        .label_key = "plugin.example.document",
+        .editable = true,
+        .type_id = "vendor.example.document.v1",
+        .category_key = {}}});
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+
+    const auto plan = workspace.PrepareSave(opened.snapshot->revision);
+    REQUIRE_FALSE(plan);
+    REQUIRE_FALSE(plan.diagnostics.empty());
+    REQUIRE(plan.diagnostics.front().code == "project.editor_descriptor.field_type");
+    REQUIRE(plan.diagnostics.front().path ==
+            "plugin:vendor.example.document.v1:assets/data/plugin_doc.json:/name");
+
+    std::ifstream input(root / "assets/data/plugin_doc.json");
+    nlohmann::json saved;
+    input >> saved;
+    REQUIRE(saved["name"] == 17);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("project workspace rejects edits to read-only external documents",
+          "[project][plugin][p13][read-only]") {
+    const auto root = MakeFixture();
+    std::ofstream output(root / "assets/data/plugin_doc.json");
+    output << R"json({"schema":1,"name":"before"})json";
+    output.close();
+
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    const auto parsed = jrpgmaker::plugin::ParseEditorDescriptor(nlohmann::json{
+        {"schema", 1},
+        {"type_id", "vendor.example.read_only.v1"},
+        {"fields", nlohmann::json::array({nlohmann::json{{"path", "/name"},
+                                                         {"value_type", "string"},
+                                                         {"role", "text"},
+                                                         {"label_key", "plugin.example.name"},
+                                                         {"recipe", "input"}}})}});
+    REQUIRE(parsed);
+    REQUIRE(jrpgmaker::project::RegisterEditorDescriptor(adapters, *parsed.descriptor, {}));
+    jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
+    const auto document_id =
+        "plugin:readonly:vendor.example.read_only.v1:assets/data/plugin_doc.json";
+    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+        .id = document_id,
+        .path = "assets/data/plugin_doc.json",
+        .label_key = "plugin.example.document",
+        .editable = false,
+        .type_id = "vendor.example.read_only.v1",
+        .category_key = "editor.project.category.plugins"}});
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.SelectDocument(document_id).empty());
+    const auto edit = workspace.Apply({document_id, "/name", "after"});
+    REQUIRE_FALSE(edit);
+    REQUIRE(edit.diagnostics.size() == 1);
+    REQUIRE(edit.diagnostics.front().code == "project.edit.document_read_only");
+    REQUIRE(edit.diagnostics.front().path == document_id);
+
+    std::ifstream input(root / "assets/data/plugin_doc.json");
+    nlohmann::json saved;
+    input >> saved;
+    REQUIRE(saved["name"] == "before");
     std::error_code error;
     std::filesystem::remove_all(root, error);
 }

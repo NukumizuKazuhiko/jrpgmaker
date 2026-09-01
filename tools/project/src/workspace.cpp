@@ -23,9 +23,60 @@ bool SafeRelative(const std::string& path) {
            path.front() != '\\';
 }
 
+bool MatchesEditorValueType(const plugin::EditorFieldDescriptor& field,
+                            const nlohmann::json& value) {
+    const auto matches_scalar = [&value](std::string_view value_type) {
+        if (value_type == "string" || value_type == "path")
+            return value.is_string();
+        if (value_type == "integer")
+            return value.is_number_integer() || value.is_number_unsigned();
+        if (value_type == "boolean")
+            return value.is_boolean();
+        return false;
+    };
+    if (field.value_type == "string[]" || field.value_type == "path[]") {
+        if (!value.is_array())
+            return false;
+        for (const auto& item : value)
+            if (!item.is_string())
+                return false;
+        return true;
+    }
+    if (field.value_type == "select") {
+        return value.is_string() && std::find(field.choices.begin(), field.choices.end(),
+                                              value.get<std::string>()) != field.choices.end();
+    }
+    return matches_scalar(field.value_type);
+}
+
 void Add(std::vector<Diagnostic>& diagnostics, std::string code, std::string path) {
     if (diagnostics.size() < kMaxDiagnostics)
         diagnostics.push_back({std::move(code), std::move(path)});
+}
+
+DocumentValidator BuildEditorDescriptorValidator(plugin::EditorDescriptor descriptor) {
+    return [descriptor = std::move(descriptor)](const nlohmann::json& document) {
+        std::vector<Diagnostic> diagnostics;
+        if (!document.is_object()) {
+            Add(diagnostics, "project.editor_descriptor.document_type", "$");
+            return diagnostics;
+        }
+        for (const auto& field : descriptor.fields) {
+            try {
+                const auto pointer = nlohmann::json::json_pointer(field.path);
+                if (!document.contains(pointer)) {
+                    if (field.required)
+                        Add(diagnostics, "project.editor_descriptor.required", field.path);
+                    continue;
+                }
+                if (!MatchesEditorValueType(field, document.at(pointer)))
+                    Add(diagnostics, "project.editor_descriptor.field_type", field.path);
+            } catch (const nlohmann::json::exception&) {
+                Add(diagnostics, "project.editor_descriptor.field_path", field.path);
+            }
+        }
+        return diagnostics;
+    };
 }
 
 bool Read(const std::filesystem::path& path, nlohmann::json& document,
@@ -368,6 +419,8 @@ AdapterResult RegisterEditorDescriptor(DocumentAdapterRegistry& registry,
                                        const plugin::EditorDescriptor& descriptor,
                                        DocumentValidator validator,
                                        DocumentEditNormalizer normalizer) {
+    if (!validator)
+        validator = BuildEditorDescriptorValidator(descriptor);
     DocumentAdapter adapter{.type_id = descriptor.type_id,
                             .fields = {},
                             .validate = std::move(validator),
@@ -560,8 +613,28 @@ DiagnosticSet ProjectWorkspace::Diagnose(const ProjectSnapshot& snapshot) const 
             Add(result.diagnostics, diagnostic.code, document.id + ":" + diagnostic.path);
     }
     if (plugins_ != nullptr) {
-        for (const auto& issue :
-             plugin::ValidateProjectPluginData(snapshot.manifest, *plugins_, snapshot.root))
+        const auto read_override =
+            [this](std::string_view relative_path) -> std::optional<plugin::PluginDataReadResult> {
+            const auto document =
+                std::find_if(external_documents_.begin(), external_documents_.end(),
+                             [relative_path](const DocumentDescriptor& descriptor) {
+                                 return descriptor.path.generic_string() == relative_path;
+                             });
+            if (document == external_documents_.end())
+                return std::nullopt;
+            const auto working = working_documents_.find(document->id);
+            if (working == working_documents_.end())
+                return std::nullopt;
+            std::string serialized = working->second.dump(2);
+            serialized.push_back('\n');
+            std::vector<std::byte> bytes(serialized.size());
+            for (std::size_t index = 0; index < serialized.size(); ++index)
+                bytes[index] =
+                    static_cast<std::byte>(static_cast<unsigned char>(serialized[index]));
+            return plugin::PluginDataReadResult{.bytes = std::move(bytes), .error = std::nullopt};
+        };
+        for (const auto& issue : plugin::ValidateProjectPluginData(snapshot.manifest, *plugins_,
+                                                                   snapshot.root, read_override))
             Add(result.diagnostics, issue.code, issue.path);
     }
     if (!result.diagnostics.empty())
@@ -603,6 +676,14 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
     const auto current =
         std::find_if(documents.begin(), documents.end(),
                      [this](const auto& document) { return document.id == current_document_id_; });
+    if (current == documents.end()) {
+        Add(result.diagnostics, "project.edit.document_unknown", current_document_id_);
+        return result;
+    }
+    if (!current->editable) {
+        Add(result.diagnostics, "project.edit.document_read_only", current_document_id_);
+        return result;
+    }
     const auto adapter_id = current == documents.end() || current->type_id.empty()
                                 ? current_document_id_
                                 : current->type_id;
@@ -707,6 +788,11 @@ SavePlan ProjectWorkspace::PrepareSave(std::uint64_t expected_revision) const {
     }
     if (expected_revision != revision_) {
         AddRevisionConflict(result.diagnostics);
+        return result;
+    }
+    const auto diagnosis = Diagnose(*snapshot_);
+    if (!diagnosis.diagnostics.empty()) {
+        result.diagnostics = diagnosis.diagnostics;
         return result;
     }
     result.token = SaveToken{revision_};

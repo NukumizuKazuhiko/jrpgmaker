@@ -548,7 +548,8 @@ std::optional<PluginError> ValidateProjectDataRoots(const ProjectManifest& proje
 
 std::vector<PluginError> ValidateProjectPluginData(const ProjectManifest& project,
                                                    const PluginRegistry& registry,
-                                                   const std::filesystem::path& project_root) {
+                                                   const std::filesystem::path& project_root,
+                                                   PluginDataReadOverride read_override) {
     std::vector<PluginError> issues;
     const auto append = [&issues](PluginError issue) {
         if (issues.size() < 128u)
@@ -625,6 +626,27 @@ std::vector<PluginError> ValidateProjectPluginData(const ProjectManifest& projec
                     PluginError{"plugin.validator.path", "plugin data path escapes declared roots",
                                 id + ":" + relative};
                 return result;
+            }
+            if (read_override) {
+                const auto overridden = read_override(relative);
+                if (overridden.has_value()) {
+                    if (overridden->error.has_value())
+                        return *overridden;
+                    if (overridden->bytes.size() > kMaxPluginValidationFileBytes) {
+                        result.error =
+                            PluginError{"plugin.validator.file_size",
+                                        "plugin data file is missing or exceeds 256 KiB", relative};
+                        return result;
+                    }
+                    if (total_bytes > kMaxPluginValidationTotalBytes - overridden->bytes.size()) {
+                        result.error = PluginError{"plugin.validator.byte_budget",
+                                                   "plugin validator byte budget exceeded", id};
+                        return result;
+                    }
+                    ++reads;
+                    total_bytes += overridden->bytes.size();
+                    return *overridden;
+                }
             }
             const auto size = std::filesystem::file_size(path, error);
             if (error || size > kMaxPluginValidationFileBytes) {

@@ -130,15 +130,20 @@ ProjectManifestParseResult ParseProjectManifest(const nlohmann::json& document);
 ValidateProjectPlugins(const ProjectManifest& project, const class PluginRegistry& registry);
 [[nodiscard]] std::optional<PluginError>
 ValidateProjectDataRoots(const ProjectManifest& project, const std::filesystem::path& project_root);
-[[nodiscard]] std::vector<PluginError>
-ValidateProjectPluginData(const ProjectManifest& project, const class PluginRegistry& registry,
-                          const std::filesystem::path& project_root);
 
 struct PluginDataReadResult {
     std::vector<std::byte> bytes;
     std::optional<PluginError> error;
     explicit operator bool() const { return !error.has_value(); }
 };
+
+using PluginDataReadOverride =
+    std::function<std::optional<PluginDataReadResult>(std::string_view relative_path)>;
+
+[[nodiscard]] std::vector<PluginError>
+ValidateProjectPluginData(const ProjectManifest& project, const class PluginRegistry& registry,
+                          const std::filesystem::path& project_root,
+                          PluginDataReadOverride read_override = {});
 
 inline constexpr std::size_t kMaxPluginValidationFiles = 32;
 inline constexpr std::size_t kMaxPluginValidationFileBytes = 256 * 1024;
