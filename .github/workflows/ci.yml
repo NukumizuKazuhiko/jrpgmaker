@@ -214,6 +214,7 @@ jobs:
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-skin ./tests/golden/skin_bind_64x64.ppm ./assets/art/meshes/arm_skinned.gltf 0.0 0.0
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-skin ./tests/golden/skin_wave_64x64.ppm ./assets/art/meshes/arm_skinned.gltf 1.0 1.0
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-skin ./tests/golden/skin_blend_64x64.ppm ./assets/art/meshes/arm_skinned.gltf 1.0 0.5
+          pwsh ./tools/ci/generate_runtime_overlay_golden.ps1 -BuildRoot ./build/linux-debug -OutputPath ./tests/golden/runtime_overlay_cjk_256x160.ppm
           git diff --exit-code -- tests/golden
 
       - name: Upload golden screenshots as artifacts
@@ -228,6 +229,7 @@ jobs:
             tests/golden/skin_bind_64x64.ppm
             tests/golden/skin_wave_64x64.ppm
             tests/golden/skin_blend_64x64.ppm
+            tests/golden/runtime_overlay_cjk_256x160.ppm
 
   private-headers:
     timeout-minutes: 30
