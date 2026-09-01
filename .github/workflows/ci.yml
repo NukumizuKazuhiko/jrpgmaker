@@ -99,6 +99,7 @@ jobs:
       - name: Assemble deterministic release package
         shell: pwsh
         run: |
+          pwsh ./tools/ci/selftest_package_release.ps1
           $one = Join-Path $env:RUNNER_TEMP "jrpgmaker-release-one-${{ matrix.preset }}"
           $two = Join-Path $env:RUNNER_TEMP "jrpgmaker-release-two-${{ matrix.preset }}"
           pwsh ./tools/ci/package_release.ps1 -BuildRoot "./build/${{ matrix.preset }}" -ProjectRoot . -OutputRoot $one

@@ -112,7 +112,7 @@ manifest parsed → registered → data validated → instance created
 
 插件私有内容只位于 manifest 声明的 `data_roots`。validator 通过 `PluginValidationContext::read_file(relative_path)` 读取，禁止自行打开项目路径、读取环境变量、跟随符号链接越界或访问其他插件目录。
 
-该运行时合同允许多个任意安全相对 root；发布装配不得擅自把它收窄为固定目录。当前 `package_release.ps1` 仍只复制 manifest 同目录的 `data/`，没有逐项消费 `data_roots`，因此发布链尚未满足本合同，见 DEBT-040。
+该运行时合同允许多个任意安全相对 root；发布装配不得擅自把它收窄为固定目录。`package_release.ps1` 逐项消费全部声明 root，并按声明路径保留包内相对位置；对缺失、越界、重复、嵌套冲突、输出目录冲突和无法保持包内相对路径的 root 拒绝装配。行为回归由 `tools/ci/selftest_package_release.ps1` 覆盖。
 
 | 项目 | 当前上界 |
 |---|---:|

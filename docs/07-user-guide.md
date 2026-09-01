@@ -88,7 +88,7 @@ pwsh ./tools/ci/package_release.ps1 `
 
 `OutputRoot` 必须不存在。脚本会复制宿主可执行文件、顶层运行库、assets、插件 manifest，并生成 `release-manifest.json`。构建中间文件不会进入运行包；发布前应在两个空目录各装配一次并比较 manifest。
 
-当前脚本只复制各插件 manifest 同目录下的 `data/`，尚未按任意合法 `data_roots` 完整装配。DEBT-040 关闭前，仅当插件的全部私有数据都采用这一布局时才能使用该发布命令；自定义或多个 root 必须停止发布，不能在包生成后手工补文件。
+脚本按每个插件 manifest 声明的全部 `data_roots` 装配私有数据，并保留 root 的包内相对路径。缺失、越界、重复、嵌套冲突、输出目录冲突或无法保持包内相对路径的 root 会使发布失败；不会补装未声明的目录。可用 `pwsh ./tools/ci/selftest_package_release.ps1` 运行发布装配行为自测。
 
 插件 SDK 使用 `cmake --install` 生成的 CMake package，不随运行时发布包分发。当前插件模型是源码级、构建期注册，不支持跨编译器 DLL 热加载。
 

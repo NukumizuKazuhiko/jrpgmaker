@@ -23,7 +23,7 @@
 
 发布包由 `tools/ci/package_release.ps1` 生成，输入一个已完成的构建目录和项目根目录。它只复制宿主可执行文件及其顶层运行库（`.dll`/`.so`/`.dylib`），不会把 `CMakeFiles`、对象文件或 CMake 元数据装入运行包；同时复制项目 assets、插件 manifest，并生成 `release-manifest.json`。装配前会检查 manifest 的 schema、id、type、version、engine contract、data roots 和 capabilities，且要求 contract 等于当前 SDK contract。清单按相对路径排序并记录文件大小与 SHA-256；文件数和总大小均有上界，已有输出目录会被拒绝以避免覆盖。
 
-当前插件数据装配范围比运行时合同窄：脚本不遍历 manifest 声明的 `data_roots`，只复制每个 `plugin.json` 同目录下的 `data/`。仓库样例均使用这一布局，但自定义 root 或多个 root 可能通过校验后仍被漏装。DEBT-040 关闭前，发布负责人必须把“全部私有数据位于相邻 `data/`”作为临时前置条件；不满足时停止发布，不能手工补文件后把包记为可复现产物。
+插件数据装配逐项消费 manifest 声明的全部 `data_roots`；root 按项目根的安全相对路径解析，并在发布包中保留同一包内相对路径。缺失、越界、重复、嵌套冲突、插件输出目录冲突或无法保持包内相对路径的 root 会在复制前拒绝；不会隐式扫描或补装未声明目录。`tools/ci/selftest_package_release.ps1` 是该合同的行为级回归入口。
 
 开发者 SDK 不混入运行时发布包；使用构建目录执行 `cmake --install` 可得到 `jrpgmakerConfig.cmake`、公共头和 `jrpgmaker::plugin` target，外部插件工程通过 `find_package(jrpgmaker CONFIG REQUIRED)` 消费。
 
@@ -36,6 +36,6 @@ P13 编辑器扩展资源不进入游戏运行包。独立编辑器包可以复�
 - `registry.contract`：检查插件 manifest 的 `engine_contract` 是否等于公开头文件中的 `kPluginEngineContract`。
 - `plugin.validator.path`：检查请求路径是否为安全相对路径，并确认没有通过符号链接越出声明的 `data_roots`。
 - `plugin.validator.file_budget` 或 `byte_budget`：拆分 validator 数据读取，不能通过增加宿主上限绕过合同。
-- manifest 使用自定义或多个 `data_roots`：当前发布脚本不支持完整装配；按 DEBT-040 停止发布，不能把成功退出视为数据已入包。
+- manifest 使用自定义或多个 `data_roots`：确认每个声明 root 在项目根内存在且为目录；发布脚本会按声明路径装配，发现缺失、越界、重复或目标冲突时直接失败。
 - 发布脚本找不到应用：确认 `BuildRoot/app` 下存在当前平台的 `jrpgmaker_app(.exe)`，并使用完成构建的 release 目录。
 - 清单两次生成不一致：检查构建目录是否在装配期间被其他进程写入；清理后从同一 commit 重新构建。

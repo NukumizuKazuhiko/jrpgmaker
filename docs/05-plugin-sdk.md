@@ -64,6 +64,6 @@ pwsh ./tools/ci/package_release.ps1 -BuildRoot ./build/win-release -ProjectRoot 
 # 当前支持的 Linux 使用 ./build/linux-release；macOS preset 仅供未来适配环境使用
 ```
 
-当前脚本尚未完整实现上述 `data_roots` 合同：它会校验声明是安全相对路径，却只复制每个 `plugin.json` 同目录下固定名称的 `data/`。因此在 DEBT-040 关闭前，只有全部运行时私有数据都放在该目录的插件可使用此命令生成完整发布包；其他合法 root 即使通过 manifest 校验也可能被静默漏装，不能据此发布。
+发布脚本逐项解析并装配 manifest 的全部 `data_roots`；root 以项目根为基准解析，并按声明路径保留包内相对位置。缺失、越界、重复、嵌套冲突、输出目录冲突或无法保持包内相对路径的 root 会在装配时拒绝。`tools/ci/selftest_package_release.ps1` 覆盖自定义 root、多 root、拒绝场景和确定性清单。
 
 脚本拒绝覆盖已有输出目录，并对文件数（4096）和总大小（512 MiB）设上界；`release-manifest.json` 按相对路径排序记录每个文件的大小与 SHA-256。发布前应在两个空输出目录运行两次并比较 manifest，确保装配确定性。
