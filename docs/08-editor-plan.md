@@ -36,8 +36,9 @@
 - 在进度快照之后的延续轮次中补齐三项 Unity 式工作区能力（均先红测后实现，未扩大 owner 边界）：聚焦面板最大化/还原——点击面板记录 session-only `focused_panel`，Shift+Space 或 Window → Maximize Focused Panel 在目标可见时铺满 toolbar 与 statusbar 之间区域并临时隐藏其他面板与 splitter，还原后恢复原 visibility 与比例；左侧 dock 的 Project/Hierarchy 标签化——`dock.activate` 切换活动页并立即持久化，两页都可见时也只渲染活动页；空项目首屏提供可聚焦 `file.open` 按钮，新启动的编辑器不再只能靠 CLI 路径进入。
 - Hierarchy 树实机验收暴露并收敛了 RmlUi 渲染边界：`button` 是替换型控件不渲染内部子节点、flex/overflow 组合触发 Debug abort、`inline-block + nowrap` 裁剪标签；最终采用块级全宽 treeitem 行、父级裁切与默认 inline 文本流，并为 `hierarchy-tree/tree-children` 声明 `width: 100%` 使行占满左栏。这些约束已作为编辑器 RCSS 子集写入 [UI 系统合同](10-editor-ui-system.md)。
 - 2026-09-02 收口复验证据：`cmake --build --preset win-debug` 全目标成功且 warning 为 0；Windows 全量 CTest `387/387` 通过；`pwsh ./tools/ci/check_private_headers.ps1` 报告 `OK (210 files scanned)`；`pwsh ./tools/ci/check_docs_index.ps1` 报告 `OK (19 local links; 16 current targets tracked)`；`git diff --check` 通过。本轮此前各子轮的定向证据（editor/RmlUi/layout/input 定向 `82/82`、splitter 行为 2 用例 25 断言等）由对应实现轮次留存。
-- Linux/Vulkan `jrpgmaker_unit_tests` 目标构建成功；项目/插件/工作区相关定向测试已通过，面板显隐轮 Linux 定向测试亦通过。本次收口仍未运行 Linux 全量 CTest，因此不能把它记录为最终 Linux 全量门禁闭合证据。
-- 当前 P13 仍为“重新打开/进行中”。用户已确认在第一条导航闭环之后继续 Unity 式编辑器 UI 研发（单问题节奏、单轮单能力）；债务收口已完成，剩余工作为最终门禁证据（含 Linux 全量）、截图文件化和收口审查，不改变 P13 产品边界与非目标。`docs/11-plugin-system.md` 已同步保存 validator 合同。
+- Linux/Vulkan `jrpgmaker_unit_tests` 目标构建成功；项目/插件/工作区相关定向测试已通过，面板显隐轮 Linux 定向测试亦通过。2026-09-02 收口时已在 WSL2（lavapipe 离屏 Vulkan）运行 Linux 全量 `ctest --preset linux-debug`：388/388，0 失败，构成本轮最终 Linux 全量门禁闭合证据（总数比 Windows 多 1 项为平台专属测试）。
+- 2026-09-02 收口审查与截图文件化完成：本轮停止条件要求的实机证据已全部落盘为 [`assets/p13/2026-09-02/`](assets/p13/2026-09-02/01-project-loaded.png) 下 15 张截图——项目加载、文件菜单打开/关闭、窗口菜单与布局二级菜单、根菜单切换、Project 过滤命中（"nav"→仅显示导航文档）、导航 5×5 网格、共享 Selection（坐标 (1,0)）、Inspector `walkable` 切换后的 dirty/revision/差异诊断、保存后状态清除、预览运行中/停止（独立 `jrpgmaker_app` 进程退出）、聚焦面板最大化/还原。GUI 保存结果另经 `projecttool validate` 与数据文件复核（`navigation_demo.json` `walkable[1]=false`）确认与 CLI 同源一致。审查中观察到弹出菜单项可被 Project 搜索框局部遮挡，属 [DEBT-038](04-debt-register.md) 已登记的显式 z-order 缺失表现，菜单仍可操作，不阻断本轮。
+- 2026-09-02 收口声明：本页"本轮唯一范围"的完整 Windows 实机操作、Windows/Linux 全量门禁与文档证据均已闭合，**第一条导航编辑闭环完成**；随后立即停止，不进入 docking、其他文档编辑器或 P13 后续功能。P13-5 的创建→编辑→校验→构建→运行→迁移发布回归与 DEBT-042 构建可选性仍开放，作为后续独立轮次入口。
 
 ## 本轮唯一范围
 
@@ -121,5 +122,5 @@
 - GUI 使用可重复的临时项目 fixture 验证打开、编辑、取消、非法数据、原子保存和恢复。
 - Windows 优先；Linux 使用 WSL 做构建和无窗口合同测试，真实 SDL 窗口需要 WSLg/桌面环境，不伪造为本地通过。
 - clang-format、`git diff --check`、私有头审计、全量 CTest、data-lint 和 P12 发布启动回归必须保持通过。
-- P13-0 的 `ProjectWorkspace` seam 保持有效，不推倒重建。只有本页“本轮唯一范围”的完整 Windows 实机操作、Windows/Linux 门禁和文档证据都闭合后，才允许声明“第一条导航编辑闭环完成”；随后立即停止，不进入 docking、其他文档编辑器或 P13 后续功能。当前状态为重新打开/进行中。
+- P13-0 的 `ProjectWorkspace` seam 保持有效，不推倒重建。只有本页“本轮唯一范围”的完整 Windows 实机操作、Windows/Linux 门禁和文档证据都闭合后，才允许声明“第一条导航编辑闭环完成”；随后立即停止，不进入 docking、其他文档编辑器或 P13 后续功能。该闭环已于 2026-09-02 收口声明完成（见进度记录末条）。
 - 本轮停止条件还包括：菜单打开/关闭、二级菜单切换、Project 过滤、窗口聚焦和工具栏反馈在真实 Windows 窗口中可观察；未有数据合同的角色、通用渲染管线资产导入和任意资源编辑不得以假入口提前接入。完成后立即停止，不继续扩展 Unity 重合功能。

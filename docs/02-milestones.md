@@ -32,7 +32,7 @@
 | P10 项目装配工具 | 已闭合 | 创建、校验、构建、运行、迁移和稳定 diff 的 CLI 闭环。 |
 | P11 插件 SDK 与发布硬化 | 未闭合 | SDK consumer、运行时合同和样例布局的发布装配已有验证；DEBT-040 的任意安全 `data_roots` 逐项装配已实现并有行为自测，仍需随 P11 其他发布门禁刷新最终 runner 证据。 |
 | P12 首个稳定版本 | 未闭合 | 缺真实连续 30 分钟可玩证据；中日文 runtime overlay GPU golden 已由固定字体、专项生成命令和 golden-sync 纳入可复现门禁。 |
-| P13 开发者项目编辑器 | 重新打开/进行中 | 以 Unity 式游戏引擎编辑器为目标重建第一条导航地图编辑纵向闭环；GUI 仍不得成为第二语义 owner。 |
+| P13 开发者项目编辑器 | 本轮闭环已收口（2026-09-02） | 第一条导航地图编辑纵向闭环的 Windows 实机、双平台全量门禁与截图证据均已闭合；P13-5 发布回归与构建可选性（DEBT-042）仍开放，后续 Unity 式 UI 能力需另行立项。GUI 仍不得成为第二语义 owner。 |
 
 ## 阶段合同
 
@@ -79,7 +79,7 @@
 - **目的**：在 P10 CLI 合同之上提供运行时非必需的本地 GUI，降低直接编辑 JSON 与资源清单的成本；当前尚无 CMake 开关排除 editor，构建层可选性由 DEBT-042 跟踪。
 - **唯一 owner**：GUI 属于 `tools/editor` adapter；项目数据语义仍由 parser、validator、迁移器、插件与运行时合同拥有。
 - **本轮完成边界**：Windows/D3D12 实机完成打开合法项目、真实 Project/Hierarchy/Scene 导航投影、共享 Selection、Inspector 修改 walkable、dirty/revision/diff/diagnostics、`PrepareSave`/`Commit` 原子保存、重开一致和独立 runtime 启停；Linux/Vulkan 保持构建与合同测试。闭合后立即停止，不扩展其他编辑器。
-- **当前状态**：`ProjectWorkspace::PrepareSave` 已在检查 revision 后通过同源 `Diagnose` 对完整 working copy 执行 parser、跨文件引用、资源预算、adapter 与插件 validator；插件 sidecar working copy 经有界 overlay reader 进入同一运行时 validator 输入，任何 error 均不签发 token。DEBT-039 已关闭；P13 保存链仍需结合其他当前阻断项的整体门禁判断。
+- **当前状态**：`ProjectWorkspace::PrepareSave` 已在检查 revision 后通过同源 `Diagnose` 对完整 working copy 执行 parser、跨文件引用、资源预算、adapter 与插件 validator；插件 sidecar working copy 经有界 overlay reader 进入同一运行时 validator 输入，任何 error 均不签发 token。DEBT-039 已关闭。2026-09-02 收口审查完成：Windows 实机操作链、菜单/二级菜单/Project 过滤/窗口聚焦/工具栏反馈附加停止条件均已截图文件化（见 `assets/p13/2026-09-02/`，由 [08-editor-plan.md](08-editor-plan.md) 引用），本轮"第一条导航编辑闭环完成"已声明并停止。
 - **非目标**：通用 3D 建模器、DCC、联网协作、云端格式、运行时 GUI 依赖或绕过插件私有校验的自由脚本编辑。
 - **详细合同**：见 [`08-editor-plan.md`](08-editor-plan.md)、[`09-editor-interface-catalog.md`](09-editor-interface-catalog.md) 与 [`10-editor-ui-system.md`](10-editor-ui-system.md)。
 
@@ -88,7 +88,8 @@
 > 下列数字只记录 2026-09-02 已执行证据；代码变化后必须重新运行，不能永久视为通过。
 
 - Windows `ctest --preset win-debug --output-on-failure`：387/387。
-- Linux/WSL：本轮仅构建与定向测试证据，未运行全量 CTest；上一轮全量证据为 311/311（2026-08-29）。
+- Linux/WSL 全量 `ctest --preset linux-debug --output-on-failure`：388/388，0 失败（2026-09-02，WSL2 + lavapipe 离屏 Vulkan；总数比 Windows 多 1 项为平台专属测试）。
+- Windows 实机编辑器操作与附加停止条件（菜单开/关、二级菜单、菜单切换、Project 过滤、面板最大化/还原、工具栏预览启停）截图 15 张，存于 `docs/assets/p13/2026-09-02/`；GUI 保存结果经 `projecttool validate` 与数据文件复核（`navigation_demo.json` `walkable[1]=false`）确认与 CLI 同源一致。
 - 私有头审计：210 个文件通过；`git diff --check` 通过。
 - 文档索引门禁：`pwsh ./tools/ci/check_docs_index.ps1` 通过（19 local links; 16 current targets tracked）。
 - WSL 无 WSLg，未把 SDL 实窗口路径伪装为本地通过；Linux Vulkan 离屏测试使用 lavapipe。
