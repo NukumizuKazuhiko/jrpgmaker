@@ -673,6 +673,22 @@ TEST_CASE("RmlUi editor toolbar exposes interaction state styles", "[editor][rml
     REQUIRE(stylesheet.find("#toolbar > .toolbar-button.disabled") != std::string::npos);
 }
 
+TEST_CASE("RmlUi menubar establishes the top workspace stacking context",
+          "[editor][rmlui][menu][z-order]") {
+    const auto stylesheet_path =
+        std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR) / "rml" / "editor_workspace.rcss";
+    std::ifstream stylesheet_file(stylesheet_path);
+    REQUIRE(stylesheet_file.is_open());
+    const std::string stylesheet((std::istreambuf_iterator<char>(stylesheet_file)), {});
+
+    const auto rule_start = stylesheet.find("#menubar {");
+    REQUIRE(rule_start != std::string::npos);
+    const auto rule_end = stylesheet.find('}', rule_start);
+    REQUIRE(rule_end != std::string::npos);
+    const auto menubar_rule = stylesheet.substr(rule_start, rule_end - rule_start);
+    REQUIRE(menubar_rule.find("z-index: 30;") != std::string::npos);
+}
+
 TEST_CASE("RmlUi hierarchy stylesheet keeps tree items as bounded rows",
           "[editor][rmlui][hierarchy]") {
     const auto stylesheet_path =
