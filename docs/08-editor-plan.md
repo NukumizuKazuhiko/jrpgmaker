@@ -37,8 +37,9 @@
 - Hierarchy 树实机验收暴露并收敛了 RmlUi 渲染边界：`button` 是替换型控件不渲染内部子节点、flex/overflow 组合触发 Debug abort、`inline-block + nowrap` 裁剪标签；最终采用块级全宽 treeitem 行、父级裁切与默认 inline 文本流，并为 `hierarchy-tree/tree-children` 声明 `width: 100%` 使行占满左栏。这些约束已作为编辑器 RCSS 子集写入 [UI 系统合同](10-editor-ui-system.md)。
 - 2026-09-02 收口复验证据：`cmake --build --preset win-debug` 全目标成功且 warning 为 0；Windows 全量 CTest `387/387` 通过；`pwsh ./tools/ci/check_private_headers.ps1` 报告 `OK (210 files scanned)`；`pwsh ./tools/ci/check_docs_index.ps1` 报告 `OK (19 local links; 16 current targets tracked)`；`git diff --check` 通过。本轮此前各子轮的定向证据（editor/RmlUi/layout/input 定向 `82/82`、splitter 行为 2 用例 25 断言等）由对应实现轮次留存。
 - Linux/Vulkan `jrpgmaker_unit_tests` 目标构建成功；项目/插件/工作区相关定向测试已通过，面板显隐轮 Linux 定向测试亦通过。2026-09-02 收口时已在 WSL2（lavapipe 离屏 Vulkan）运行 Linux 全量 `ctest --preset linux-debug`：388/388，0 失败，构成本轮最终 Linux 全量门禁闭合证据（总数比 Windows 多 1 项为平台专属测试）。
-- 2026-09-02 截图文件化记录已落盘为 [`assets/p13/2026-09-02/`](assets/p13/2026-09-02/01-project-loaded.png) 下 15 张截图——项目加载、文件菜单打开/关闭、窗口菜单与布局二级菜单、根菜单切换、Project 过滤命中（"nav"→仅显示导航文档）、导航 5×5 网格、共享 Selection（坐标 (1,0)）、Inspector `walkable` 切换后的 dirty/revision/差异诊断、保存后状态清除、预览运行中/停止（独立 `jrpgmaker_app` 进程退出）、聚焦面板最大化/还原。GUI 保存结果另经 `projecttool validate` 与数据文件复核（`navigation_demo.json` `walkable[1]=false`）确认与 CLI 同源一致。2026-09-04 集成审查确认其中弹出菜单被 Project 搜索框局部遮挡违反本页冻结的 GUI 验收合同；`#menubar` 现建立高于 workspace panel/splitter 的顶层 stacking context，并由 `[editor][rmlui][menu][z-order]` 回归测试锁定。当前 Windows 自动化服务不可用，修复后的真实窗口截图仍待复验。
-- 2026-09-04 集成审查暂停原收口声明：在修复后的 Windows 真实窗口复验和本轮其余阻断审查闭合前，不宣称“第一条导航编辑闭环完成”，也不进入 docking、其他文档编辑器或 P13 后续功能。P13-5 的创建→编辑→校验→构建→运行→迁移发布回归与 DEBT-042 构建可选性仍开放，作为后续独立轮次入口。
+- 2026-09-02 截图文件化记录已落盘为 [`assets/p13/2026-09-02/`](assets/p13/2026-09-02/01-project-loaded.png) 下 15 张截图——项目加载、文件菜单打开/关闭、窗口菜单与布局二级菜单、根菜单切换、Project 过滤命中（"nav"→仅显示导航文档）、导航 5×5 网格、共享 Selection（坐标 (1,0)）、Inspector `walkable` 切换后的 dirty/revision/差异诊断、保存后状态清除、预览运行中/停止（独立 `jrpgmaker_app` 进程退出）、聚焦面板最大化/还原。GUI 保存结果另经 `projecttool validate` 与数据文件复核（`navigation_demo.json` `walkable[1]=false`）确认与 CLI 同源一致。2026-09-04 集成审查确认其中弹出菜单被 Project 搜索框局部遮挡违反本页冻结的 GUI 验收合同；`#menubar` 现建立高于 workspace panel/splitter 的顶层 stacking context，并由 `[editor][rmlui][menu][z-order]` 回归测试锁定。
+- 2026-09-05 菜单层叠修复已在 Windows 真实窗口复验：以 `5bc7d3b` 构建 `win-debug` editor，打开 `C:\Users\Vens_\AppData\Local\Temp\jrpgmaker_p13_gui_menu_20260905_1700`（`project.json` SHA-256 `cf110bbdac834ad17bcc45ceb90951296904c41db847ef9a19da109a1eabc671`），`projecttool validate` 退出 0；展开 Project 菜单时，弹层在与 Project filter 重叠的区域保持完整可见，随后点击“项目概览”成功关闭菜单并刷新诊断。当前截图为 [`assets/p13/2026-09-05/01-project-menu-above-project-filter.png`](assets/p13/2026-09-05/01-project-menu-above-project-filter.png)，1282×752、253542 bytes、SHA-256 `83012b51ed76f445535f294e27009c07d0c9aa90d494a09b194b0c56d4fa11bb`。该证据只闭合具体菜单遮挡复验，不替代窗口 resize 命中、错误态与保存重开的一致性证据。
+- 2026-09-04 集成审查暂停原收口声明；2026-09-05 已补齐菜单层叠真窗证据，但本轮其余阻断审查闭合前仍不恢复“第一条导航编辑闭环完成”声明，也不进入 docking、其他文档编辑器或 P13 后续功能。P13-5 的创建→编辑→校验→构建→运行→迁移发布回归与 DEBT-042 构建可选性仍开放，作为后续独立轮次入口。
 
 ## 本轮唯一范围
 
@@ -122,5 +123,5 @@
 - GUI 使用可重复的临时项目 fixture 验证打开、编辑、取消、非法数据、原子保存和恢复。
 - Windows 优先；Linux 使用 WSL 做构建和无窗口合同测试，真实 SDL 窗口需要 WSLg/桌面环境，不伪造为本地通过。
 - clang-format、`git diff --check`、私有头审计、全量 CTest、data-lint 和 P12 发布启动回归必须保持通过。
-- P13-0 的 `ProjectWorkspace` seam 保持有效，不推倒重建。只有本页“本轮唯一范围”的完整 Windows 实机操作、Windows/Linux 门禁和文档证据都闭合后，才允许声明“第一条导航编辑闭环完成”；随后立即停止，不进入 docking、其他文档编辑器或 P13 后续功能。该闭环已于 2026-09-02 收口声明完成（见进度记录末条）。
+- P13-0 的 `ProjectWorkspace` seam 保持有效，不推倒重建。只有本页“本轮唯一范围”的完整 Windows 实机操作、Windows/Linux 门禁和文档证据都闭合后，才允许声明“第一条导航编辑闭环完成”；随后立即停止，不进入 docking、其他文档编辑器或 P13 后续功能。2026-09-02 的历史收口声明已由 2026-09-04 集成审查暂停，当前状态以本页进度记录末条为准。
 - 本轮停止条件还包括：菜单打开/关闭、二级菜单切换、Project 过滤、窗口聚焦和工具栏反馈在真实 Windows 窗口中可观察；未有数据合同的角色、通用渲染管线资产导入和任意资源编辑不得以假入口提前接入。完成后立即停止，不继续扩展 Unity 重合功能。

@@ -32,7 +32,7 @@
 | P10 项目装配工具 | 已闭合 | 创建、校验、构建、运行、迁移和稳定 diff 的 CLI 闭环。 |
 | P11 插件 SDK 与发布硬化 | 未闭合 | SDK consumer、运行时合同和样例布局的发布装配已有验证；DEBT-040 的任意安全 `data_roots` 逐项装配已实现并有行为自测，仍需随 P11 其他发布门禁刷新最终 runner 证据。 |
 | P12 首个稳定版本 | 未闭合 | 缺真实连续 30 分钟可玩证据；中日文 runtime overlay GPU golden 已由固定字体、专项生成命令和 golden-sync 纳入可复现门禁。 |
-| P13 开发者项目编辑器 | 集成审查中 | 2026-09-02 的导航地图编辑纵向闭环已有 Windows 截图和双平台门禁记录；2026-09-04 集成审查发现菜单层叠违反冻结验收合同，代码与回归测试已修复，修复后的 Windows 真实窗口证据及其余阻断审查闭合前不恢复完成声明。GUI 仍不得成为第二语义 owner。 |
+| P13 开发者项目编辑器 | 集成审查中 | 2026-09-02 的导航地图编辑纵向闭环已有 Windows 截图和双平台门禁记录；2026-09-04 集成审查发现的菜单层叠缺陷已修复，并于 2026-09-05 通过新的 Windows 真实窗口截图和菜单命中复验。其余阻断审查与 GUI 证据缺口闭合前不恢复完成声明。GUI 仍不得成为第二语义 owner。 |
 
 ## 阶段合同
 
@@ -79,7 +79,7 @@
 - **目的**：在 P10 CLI 合同之上提供运行时非必需的本地 GUI，降低直接编辑 JSON 与资源清单的成本；当前尚无 CMake 开关排除 editor，构建层可选性由 DEBT-042 跟踪。
 - **唯一 owner**：GUI 属于 `tools/editor` adapter；项目数据语义仍由 parser、validator、迁移器、插件与运行时合同拥有。
 - **本轮完成边界**：Windows/D3D12 实机完成打开合法项目、真实 Project/Hierarchy/Scene 导航投影、共享 Selection、Inspector 修改 walkable、dirty/revision/diff/diagnostics、`PrepareSave`/`Commit` 原子保存、重开一致和独立 runtime 启停；Linux/Vulkan 保持构建与合同测试。闭合后立即停止，不扩展其他编辑器。
-- **当前状态**：`ProjectWorkspace::PrepareSave` 已在检查 revision 后通过同源 `Diagnose` 对完整 working copy 执行 parser、跨文件引用、资源预算、adapter 与插件 validator；插件 sidecar working copy 经有界 overlay reader 进入同一运行时 validator 输入，任何 error 均不签发 token。DEBT-039 已关闭。2026-09-02 的 Windows 实机操作链、菜单/二级菜单/Project 过滤/窗口聚焦/工具栏反馈已截图文件化（见 `assets/p13/2026-09-02/`，由 [08-editor-plan.md](08-editor-plan.md) 引用）；2026-09-04 集成审查因菜单层叠违反冻结验收合同暂停完成声明，代码与回归测试已修复，等待修复后的 Windows 真窗复验及其余阻断审查闭合。
+- **当前状态**：`ProjectWorkspace::PrepareSave` 已在检查 revision 后通过同源 `Diagnose` 对完整 working copy 执行 parser、跨文件引用、资源预算、adapter 与插件 validator；插件 sidecar working copy 经有界 overlay reader 进入同一运行时 validator 输入，任何 error 均不签发 token。DEBT-039 已关闭。2026-09-02 的 Windows 实机操作链、菜单/二级菜单/Project 过滤/窗口聚焦/工具栏反馈已截图文件化（见 `assets/p13/2026-09-02/`，由 [08-editor-plan.md](08-editor-plan.md) 引用）；2026-09-04 集成审查发现的菜单层叠缺陷已修复，2026-09-05 的 Windows 真窗复验确认 Project 弹层位于 Project filter 上方且菜单项可命中。其余阻断审查仍需闭合。
 - **非目标**：通用 3D 建模器、DCC、联网协作、云端格式、运行时 GUI 依赖或绕过插件私有校验的自由脚本编辑。
 - **详细合同**：见 [`08-editor-plan.md`](08-editor-plan.md)、[`09-editor-interface-catalog.md`](09-editor-interface-catalog.md) 与 [`10-editor-ui-system.md`](10-editor-ui-system.md)。
 
