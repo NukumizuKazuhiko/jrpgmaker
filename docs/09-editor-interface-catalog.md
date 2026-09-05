@@ -59,7 +59,7 @@ interface 规则：
 
 | 数据 | 当前 owner/interface | GUI 用法 | 状态/动作 |
 |---|---|---|---|
-| 项目 manifest | `plugin::ParseProjectManifest`、`ValidateProjectPlugins`、`ValidateProjectDataRoots`、`ValidateProjectPluginData` | 项目概览、插件选择、文档发现 | 可复用；由 workspace 统一调度；`navigation`/`collision`/`camera`/`interaction` 路径显式声明，禁止按目录和文件名推断 |
+| 项目 manifest | `plugin::ParseProjectManifest`、`ValidateProjectPlugins`、`ValidateProjectDataRoots`、`ValidateProjectPluginData` | 项目概览、插件选择；EditorSession 按声明 root 做 GUI 文档发现 | 可复用；manifest/parser/validator 与运行时 I/O 预算由 plugin/workspace owner 统一调度；GUI 发现只使用声明路径，不按目录和文件名推断 |
 | 插件 manifest/实例 | `plugin::ParseManifest`、`ValidatePluginManifest`、`PluginRegistry` | 插件状态与私有数据入口 | 可复用；错误统一映射为 `Diagnostic` |
 | 渲染资源 catalog | `render::ParseRenderResourceCatalog` | 资源树与引用诊断 | 可复用 |
 | 材质实例 | `IRenderStyleAdapter::ValidateMaterial` | opaque JSON 表单与保存阻断 | validator 可复用；字段描述按 [插件系统规范](11-plugin-system.md) 的 editor sidecar 提供 |
@@ -122,6 +122,7 @@ interface 规则：
 - `editor::BuildFormProjection` 将 adapter 字段描述与 workspace 当前 JSON 合成为表单 projection；GUI 只消费 `path`、`value_type`、`label_key`、`recipe`、当前值和只读/必填状态，提交仍必须回到 `ProjectWorkspace::Apply`。
 - `editor::BuildWorkspacePreview` 将 `DiagnosticSet` 转为结构化预览指标；诊断失败时只返回诊断，不生成伪造指标，GUI 不得自行统计项目内容。
 - `editor::EditorSession` 持有 GUI 工作区状态，统一编排 `Open`/`Refresh`/字段选择/`Apply`/`Save`；它只把类型化字段值交给 `ProjectWorkspace`，不直接写文件或复制 validator 语义。
+- 插件私有 GUI 文档发现由 `EditorSession` 的私有 helper 拥有：每个 manifest `data_root` 最多遍历 128 个文件/目录 entry、递归深度最多 16 层，触顶分别返回 `editor.document_root.entry_budget` 或 `editor.document_root.depth_budget`；该 helper 只生成 editor projection，不改变 `engine/plugin` 的 manifest/parser/validator/containment 与 I/O 预算 owner，也不改变 `ProjectWorkspace` 的 descriptor 生命周期。
 - `editor::EditorWorkspaceController` 是各面板唯一装配与命令路由入口；panel 只发送命中/动作，`main.cpp` 不认识文档 id、JSON path、导航坐标或保存语义。
 - `NavigationProjection::kMaxProjectedCells` 统一限制 Scene 网格的 CPU/DrawList 投影；当前首闭环采用有界裁剪，不能由面板自行扩大或生成无界控件。
 - 字段焦点由 `ui::UiContext` 按布局注册顺序管理；editor session 只把焦点 widget 映射为当前 projection 索引，不复制焦点环或 tab 排序规则。

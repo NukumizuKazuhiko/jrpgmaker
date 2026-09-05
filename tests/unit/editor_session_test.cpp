@@ -378,20 +378,24 @@ TEST_CASE("editor workspace controller redraws after a rejected document command
     std::filesystem::remove_all(root, error);
 }
 
-TEST_CASE("editor session discovers and edits a plugin sidecar document", "[editor][plugin][p13]") {
+TEST_CASE("editor session discovers and edits a plugin sidecar document",
+          "[editor][plugin][p13][budget]") {
     const auto root = MakeFixture("_plugin");
     std::error_code error;
     std::filesystem::create_directories(root / "plugins/sample.unlit/editor");
     std::filesystem::create_directories(root / "plugin_data");
+    std::filesystem::create_directories(root / "overflow_data");
     {
         std::ofstream manifest(root / "plugins/sample.unlit/plugin.json");
         manifest << R"json({"schema":1,"id":"sample.unlit","type":"render_style",
-                            "version":1,"engine_contract":1,"data_roots":["plugin_data"],
+                            "version":1,"engine_contract":1,
+                            "data_roots":["plugin_data","overflow_data"],
                             "capabilities":[]})json";
         std::ofstream sidecar(root / "plugins/sample.unlit/plugin.editor.json");
         sidecar << R"json({"schema":1,"plugin_id":"sample.unlit","editor_contract":1,
                           "documents":[{"type_id":"sample.unlit.document.v1",
-                            "roots":["plugin_data"],"descriptor":"editor/document.json"}],
+                            "roots":["plugin_data","overflow_data"],
+                            "descriptor":"editor/document.json"}],
                           "locales":{"en":"editor/en.json"},"icons":"editor/icons.json"})json";
         std::ofstream descriptor(root / "plugins/sample.unlit/editor/document.json");
         descriptor << R"json({"schema":1,"type_id":"sample.unlit.document.v1","fields":[
@@ -401,12 +405,19 @@ TEST_CASE("editor session discovers and edits a plugin sidecar document", "[edit
         locale << "{}";
         std::ofstream icons(root / "plugins/sample.unlit/editor/icons.json");
         icons << "{}";
+        for (int index = 0; index < 129; ++index)
+            std::ofstream(root / "overflow_data" / ("ignored_" + std::to_string(index) + ".txt"));
         std::ofstream document(root / "plugin_data/example.json");
         document << R"json({"schema":1,"name":"before"})json";
     }
 
     jrpgmaker::editor::EditorSession session(root);
     REQUIRE(session.Open());
+    REQUIRE(std::any_of(session.state().diagnostics.begin(), session.state().diagnostics.end(),
+                        [](const auto& diagnostic) {
+                            return diagnostic.code == "editor.document_root.entry_budget" &&
+                                   diagnostic.path == "overflow_data";
+                        }));
     const auto tab = std::find_if(
         session.state().tabs.tabs.begin(), session.state().tabs.tabs.end(), [](const auto& item) {
             return item.document_id == "plugin:sample.unlit.document.v1:plugin_data/example.json";
@@ -481,7 +492,7 @@ TEST_CASE("editor session keeps plugin documents read-only when the descriptor i
 }
 
 TEST_CASE("editor session keeps plugin documents read-only when the sidecar is missing",
-          "[editor][plugin][p13][read-only]") {
+          "[editor][plugin][p13][read-only][budget]") {
     const auto root = MakeFixture("_plugin_read_only_sidecar");
     std::error_code error;
     std::filesystem::create_directories(root / "plugins/sample.missing");
@@ -499,10 +510,20 @@ TEST_CASE("editor session keeps plugin documents read-only when the sidecar is m
                             "capabilities":[]})json";
         std::ofstream document(root / "plugin_data/example.json");
         document << R"json({"schema":1,"name":"before"})json";
+        auto depth = root / "plugin_data";
+        for (int index = 0; index < 17; ++index) {
+            depth /= "nested" + std::to_string(index);
+            std::filesystem::create_directory(depth, error);
+        }
     }
 
     jrpgmaker::editor::EditorSession session(root);
     REQUIRE(session.Open());
+    REQUIRE(std::any_of(session.state().diagnostics.begin(), session.state().diagnostics.end(),
+                        [](const auto& diagnostic) {
+                            return diagnostic.code == "editor.document_root.depth_budget" &&
+                                   diagnostic.path == "plugin_data";
+                        }));
     const auto tab =
         std::find_if(session.state().tabs.tabs.begin(), session.state().tabs.tabs.end(),
                      [](const auto& item) { return item.path == "plugin_data/example.json"; });

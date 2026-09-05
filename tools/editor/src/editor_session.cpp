@@ -50,6 +50,68 @@ bool ReadJson(const std::filesystem::path& path, nlohmann::json& document,
     return true;
 }
 
+template <typename AddJsonFile>
+void DiscoverPluginDocuments(const std::filesystem::path& project_root, std::string_view root,
+                             std::vector<project::Diagnostic>& diagnostics, std::size_t& projected,
+                             AddJsonFile&& add_json_file) {
+    constexpr std::size_t kMaxProjectedDocuments = 128;
+    constexpr std::size_t kMaxTraversalEntries = 128;
+    constexpr std::size_t kMaxTraversalDepth = 16;
+
+    const auto root_path = project_root / root;
+    std::error_code error;
+    if (!std::filesystem::exists(root_path, error) || error)
+        return;
+
+    std::size_t entries = 0;
+    bool depth_budget_reported = false;
+    const auto visit = [&](const std::filesystem::directory_entry& entry, std::size_t depth) {
+        ++entries;
+        if (entries > kMaxTraversalEntries) {
+            diagnostics.push_back({"editor.document_root.entry_budget", std::string(root)});
+            return false;
+        }
+
+        std::error_code entry_error;
+        const bool is_directory = entry.is_directory(entry_error);
+        if (depth >= kMaxTraversalDepth && !depth_budget_reported) {
+            diagnostics.push_back({"editor.document_root.depth_budget", std::string(root)});
+            depth_budget_reported = true;
+        }
+        if (depth >= kMaxTraversalDepth && is_directory && !entry_error)
+            return true;
+        entry_error.clear();
+        if (projected >= kMaxProjectedDocuments || !entry.is_regular_file(entry_error) ||
+            entry_error || entry.path().extension() != ".json")
+            return true;
+        if (add_json_file(entry.path()))
+            ++projected;
+        return true;
+    };
+
+    if (std::filesystem::is_regular_file(root_path, error)) {
+        if (!error)
+            (void) visit(std::filesystem::directory_entry(root_path), 0);
+        return;
+    }
+    if (error || !std::filesystem::is_directory(root_path, error) || error)
+        return;
+
+    std::error_code iterator_error;
+    for (std::filesystem::recursive_directory_iterator it(root_path, iterator_error), end;
+         it != end && !iterator_error;) {
+        const auto depth = static_cast<std::size_t>(it.depth());
+        if (!visit(*it, depth))
+            break;
+        std::error_code entry_error;
+        if (depth >= kMaxTraversalDepth && it->is_directory(entry_error) && !entry_error)
+            it.disable_recursion_pending();
+        it.increment(iterator_error);
+    }
+    if (iterator_error)
+        diagnostics.push_back({"editor.document_root.enumeration", std::string(root)});
+}
+
 bool IsNavigationCellSelection(const std::optional<SelectionTarget>& selection) {
     return selection.has_value() && selection->kind == "navigation.cell";
 }
@@ -236,23 +298,17 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
         if (!ensure_read_only_adapter())
             return;
         std::size_t discovered = 0;
-        std::error_code error;
         for (const auto& root : roots) {
             if (discovered >= 128)
                 break;
-            const auto root_path = root_ / root;
-            if (!std::filesystem::exists(root_path, error))
-                continue;
             const auto add_file = [&](const std::filesystem::path& path) {
-                if (discovered >= 128 || path.extension() != ".json")
-                    return;
                 const auto relative = path.lexically_relative(root_).generic_string();
                 if (!external_paths.insert(relative).second)
-                    return;
+                    return false;
                 const auto document_id =
                     "plugin:readonly:" + std::string(plugin_id) + ":" + relative;
                 if (!external_ids.insert(document_id).second)
-                    return;
+                    return false;
                 external_documents_.push_back(project::DocumentDescriptor{
                     .id = document_id,
                     .path = relative,
@@ -261,24 +317,9 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
                     .type_id = std::string(kReadOnlyPluginDocumentType),
                     .category_key = "editor.project.category.plugins"});
                 diagnostics.push_back({"editor.document.read_only", relative});
-                ++discovered;
+                return true;
             };
-            if (std::filesystem::is_regular_file(root_path, error)) {
-                add_file(root_path);
-                continue;
-            }
-            if (!std::filesystem::is_directory(root_path, error))
-                continue;
-            std::error_code iterator_error;
-            for (std::filesystem::recursive_directory_iterator it(root_path, iterator_error), end;
-                 it != end && !iterator_error; it.increment(iterator_error)) {
-                if (it->is_regular_file(iterator_error) && !iterator_error)
-                    add_file(it->path());
-                if (discovered >= 128)
-                    break;
-            }
-            if (iterator_error)
-                diagnostics.push_back({"editor.document_root.enumeration", root});
+            DiscoverPluginDocuments(root_, root, diagnostics, discovered, add_file);
         }
     };
     for (const auto& id : parsed_project.manifest->plugins) {
@@ -380,21 +421,13 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
                     continue;
                 }
                 std::size_t discovered = 0;
-                std::error_code iterator_error;
-                for (std::filesystem::recursive_directory_iterator it(root_path, iterator_error),
-                     end;
-                     it != end && !iterator_error; it.increment(iterator_error)) {
-                    if (discovered >= 128)
-                        break;
-                    if (!it->is_regular_file(iterator_error) || iterator_error ||
-                        it->path().extension() != ".json")
-                        continue;
-                    const auto relative = it->path().lexically_relative(root_).generic_string();
+                const auto add_file = [&](const std::filesystem::path& path) {
+                    const auto relative = path.lexically_relative(root_).generic_string();
                     const auto document_id = "plugin:" + document.type_id + ":" + relative;
                     if (!external_paths.insert(relative).second)
-                        continue;
+                        return false;
                     if (!external_ids.insert(document_id).second)
-                        continue;
+                        return false;
                     external_documents_.push_back(project::DocumentDescriptor{
                         .id = document_id,
                         .path = relative,
@@ -402,10 +435,9 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
                         .editable = true,
                         .type_id = document.type_id,
                         .category_key = "editor.project.category.plugins"});
-                    ++discovered;
-                }
-                if (iterator_error)
-                    diagnostics.push_back({"editor.document_root.enumeration", root});
+                    return true;
+                };
+                DiscoverPluginDocuments(root_, root, diagnostics, discovered, add_file);
             }
         }
     }
