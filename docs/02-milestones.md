@@ -22,7 +22,7 @@
 | P0 奠基 | 已闭合 | 构建、测试、CI、格式与私有头门禁骨架已建立。 |
 | P1 RHI 垂直切片 | 已闭合 | RHI 合同、D3D12/Vulkan 后端、离屏 golden 与 SDL 主循环已建立。 |
 | P2 资源与场景 | 已闭合 | glTF、资产句柄、场景层级、相机和泄漏检测闭环。 |
-| P3 事件与对话 | 已闭合阶段范围 | domain 事件/对话、CJK 文本合同与数据 lint 已落地；runtime overlay GPU golden 的测试、固定字体、许可文本和基准图均已纳入 git，并由 golden-sync 专项命令重生成和检查。 |
+| P3 事件与对话 | 已闭合阶段范围 | domain 事件/对话、CJK 文本合同与数据 lint 已落地；runtime overlay GPU 主 golden 与 lavapipe 权威 `runtime_overlay_cjk_256x160_edge_class.ppm` causal mask 均纳入 git，并由 golden-sync 成对重生成、零容差检查和上传 artifact；跨后端 alpha-composite 差异只允许落在 mask 白色 partial-coverage glyph 像素。 |
 | P4 角色与世界 | 已闭合 | 角色控制、碰撞、寻路、交互、动画与镜头闭环。 |
 | P5 插件与战斗 seam | 已闭合 | 源码级构建期注册、插件数据/validator 与两类战斗插件验证完成。 |
 | P6 渲染风格与演出 | 已闭合 | 渲染风格插件、表现计划、后处理和双风格替换验证完成。 |
@@ -46,7 +46,7 @@
 
 - **目的**：建立事件、对话、CJK 文本、角色移动、碰撞、寻路、交互和动画的共享领域合同。
 - **唯一 owner**：JRPG 业务真相属于 `engine/domain`；UI、render、audio 和平台层只消费结构化 projection 或命令。
-- **停止条件**：数据 lint 与领域测试覆盖正常、错误和边界路径；文本改动必须包含中日文用例，产品发布前还须有被 git 跟踪、由 CI 可重生成并在双后端比对的真实 GPU golden。
+- **停止条件**：数据 lint 与领域测试覆盖正常、错误和边界路径；文本改动必须包含中日文用例，产品发布前还须有被 git 跟踪、由 CI 可重生成并在双后端比对的真实 GPU golden；CJK alpha-composite 必须先通过 lavapipe edge-class reference 的全帧零容差比对，跨实现 1 级量化差异只允许发生在该 mask 证明的 partial-coverage 字形像素，mask 黑色像素仍须 bit-exact。
 
 ### P5–P6：插件扩展边界
 
