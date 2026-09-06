@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "jrpgmaker/editor/editor_session.hpp"
 #include "jrpgmaker/editor/editor_workspace_controller.hpp"
@@ -290,6 +293,83 @@ TEST_CASE("editor navigation cell selection edits and survives atomic reopen",
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("editor session preserves plugin load diagnostics across navigation edit and save",
+          "[editor][plugin][p13]") {
+    const auto root = MakeFixture("_plugin_diagnostics_persistence");
+    std::error_code error;
+    const auto write_manifest = [&root](std::string_view id, std::string_view data_roots) {
+        const auto plugin_root = root / "plugins" / std::string(id);
+        std::filesystem::create_directories(plugin_root);
+        std::ofstream manifest(plugin_root / "plugin.json");
+        manifest << "{\"schema\":1,\"id\":\"" << id
+                 << "\",\"type\":\"battle\",\"version\":1,"
+                    "\"engine_contract\":1,\"data_roots\":"
+                 << data_roots << ",\"capabilities\":[]}\n";
+    };
+    write_manifest("sample.unlit", "[]");
+    write_manifest("sample.style", "[]");
+    write_manifest("sample.instant", "[\"plugins/sample_instant/data\"]");
+    write_manifest("sample.turn_based", "[\"plugins/sample_turn_based/data\"]");
+    std::filesystem::create_directories(root / "plugins/sample_instant/data");
+    std::filesystem::create_directories(root / "plugins/sample_turn_based/data");
+    std::ofstream(root / "plugins/sample_instant/data/encounters_demo.json") << "{}\n";
+    std::ofstream(root / "plugins/sample_turn_based/data/encounters_demo.json") << "{}\n";
+
+    const std::vector<std::pair<std::string, std::string>> expected = {
+        {"editor.plugin.sidecar_missing",
+         (root / "plugins" / "sample.unlit" / "plugin.editor.json").string()},
+        {"editor.plugin.sidecar_missing",
+         (root / "plugins" / "sample.style" / "plugin.editor.json").string()},
+        {"editor.plugin.sidecar_missing",
+         (root / "plugins" / "sample.instant" / "plugin.editor.json").string()},
+        {"editor.document.read_only", "plugins/sample_instant/data/encounters_demo.json"},
+        {"editor.plugin.sidecar_missing",
+         (root / "plugins" / "sample.turn_based" / "plugin.editor.json").string()},
+        {"editor.document.read_only", "plugins/sample_turn_based/data/encounters_demo.json"},
+    };
+    jrpgmaker::editor::EditorSession session(root);
+    const auto require_diagnostics =
+        [&](const std::vector<std::pair<std::string, std::string>>& expected_diagnostics,
+            bool dirty, std::size_t changes) {
+            std::vector<std::pair<std::string, std::string>> actual;
+            for (const auto& diagnostic : session.state().diagnostics)
+                actual.emplace_back(diagnostic.code, diagnostic.path);
+            const auto describe = [](const auto& diagnostics) {
+                std::string result;
+                for (const auto& [code, path] : diagnostics)
+                    result += code + "@" + path + "|";
+                return result;
+            };
+            INFO("actual=" << describe(actual) << " expected=" << describe(expected_diagnostics));
+            REQUIRE(actual == expected_diagnostics);
+            REQUIRE(session.state().dirty == dirty);
+            REQUIRE(session.state().diff.changes.size() == changes);
+        };
+
+    REQUIRE(session.Open());
+    require_diagnostics(expected, false, 0);
+    REQUIRE(session.SelectDocument("core.navigation"));
+    require_diagnostics(expected, false, 0);
+    REQUIRE(session.SelectNavigationCell(7));
+    REQUIRE(session.ToggleSelectedNavigationWalkable());
+    require_diagnostics(expected, true, 1);
+
+    const auto temporary = root / "assets/data/navigation_demo.json.tmp";
+    std::ofstream(temporary) << "{}\n";
+    REQUIRE_FALSE(session.Save());
+    auto expected_save_failure = expected;
+    expected_save_failure.emplace_back("project.save.temporary_exists", temporary.string());
+    require_diagnostics(expected_save_failure, true, 1);
+
+    error.clear();
+    REQUIRE(std::filesystem::remove(temporary, error));
+    REQUIRE_FALSE(error);
+    REQUIRE(session.Save());
+    require_diagnostics(expected, false, 0);
+
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("editor navigation selection ignores text input owned by form fields",
           "[editor][selection][navigation][ui text]") {
     const auto root = MakeFixture("_navigation_text_input");
@@ -298,8 +378,13 @@ TEST_CASE("editor navigation selection ignores text input owned by form fields",
     REQUIRE(session.SelectDocument("core.navigation"));
     REQUIRE(session.SelectNavigationCell(0));
     const auto selection = session.state().selection;
+    const auto startup_diagnostics = session.state().diagnostics;
     REQUIRE_FALSE(session.ApplySelectedText(" "));
-    REQUIRE(session.state().diagnostics.empty());
+    REQUIRE(session.state().diagnostics.size() == startup_diagnostics.size());
+    for (std::size_t index = 0; index < startup_diagnostics.size(); ++index) {
+        REQUIRE(session.state().diagnostics[index].code == startup_diagnostics[index].code);
+        REQUIRE(session.state().diagnostics[index].path == startup_diagnostics[index].path);
+    }
     REQUIRE(session.state().selection == selection);
 
     std::error_code error;

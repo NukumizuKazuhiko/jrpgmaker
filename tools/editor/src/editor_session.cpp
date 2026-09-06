@@ -141,12 +141,32 @@ bool EditorSession::Open(std::filesystem::path root) {
     workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_);
     snapshot_.reset();
     state_ = {};
+    startup_plugin_diagnostics_.clear();
+    operation_diagnostics_.clear();
     focus_context_.ClearFocusables();
     return Open();
 }
 
 void EditorSession::SetDiagnostics(std::vector<project::Diagnostic> diagnostics) {
-    state_.diagnostics = std::move(diagnostics);
+    operation_diagnostics_ = std::move(diagnostics);
+    RebuildDiagnostics();
+}
+
+void EditorSession::RebuildDiagnostics() {
+    state_.diagnostics.clear();
+    const auto append_unique = [this](const project::Diagnostic& diagnostic) {
+        const auto duplicate = std::find_if(state_.diagnostics.begin(), state_.diagnostics.end(),
+                                            [&diagnostic](const auto& existing) {
+                                                return existing.code == diagnostic.code &&
+                                                       existing.path == diagnostic.path;
+                                            });
+        if (duplicate == state_.diagnostics.end())
+            state_.diagnostics.push_back(diagnostic);
+    };
+    for (const auto& diagnostic : startup_plugin_diagnostics_)
+        append_unique(diagnostic);
+    for (const auto& diagnostic : operation_diagnostics_)
+        append_unique(diagnostic);
     if (snapshot_)
         state_.tabs = BuildDocumentTabsProjection(workspace_.DescribeDocuments(*snapshot_),
                                                   state_.form.document_id,
@@ -239,7 +259,8 @@ void EditorSession::PublishTextFieldState() {
 }
 
 bool EditorSession::Open() {
-    const auto plugin_diagnostics = LoadPluginEditorAdapters();
+    startup_plugin_diagnostics_ = LoadPluginEditorAdapters();
+    operation_diagnostics_.clear();
     workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_);
     workspace_.SetExternalDocuments(external_documents_);
     const auto result = workspace_.Open();
@@ -257,14 +278,7 @@ bool EditorSession::Open() {
     for (std::size_t index = 0; index < state_.form.fields.size(); ++index)
         (void) focus_context_.RegisterFocusable(index + 1, index);
     SyncTextField(true);
-    if (plugin_diagnostics.empty()) {
-        SetDiagnostics(state_.preview.diagnostics);
-    } else {
-        auto diagnostics = plugin_diagnostics;
-        diagnostics.insert(diagnostics.end(), state_.preview.diagnostics.begin(),
-                           state_.preview.diagnostics.end());
-        SetDiagnostics(std::move(diagnostics));
-    }
+    SetDiagnostics(state_.preview.diagnostics);
     return state_.preview.valid;
 }
 

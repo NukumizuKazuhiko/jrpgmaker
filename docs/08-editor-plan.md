@@ -108,6 +108,7 @@
 
 - 在已有数据合同上增加交互点、碰撞、导航、相机区域和材质实例编辑。
  - 加载并 lint `plugin.editor.json`、字段描述、插件 locale/icon 资源；sidecar 清单与 descriptor 的 schema、contract、插件 ID、roots、路径、重复项和数量上界校验已由 plugin owner 提供，descriptor 到 project editor adapter 的类型化转换已落地。sidecar 资源存在性、路径 containment 和单文件/总字节上界已落地；`ProjectWorkspace` 可注入 `PluginRegistry` 并在 Diagnose 阶段运行插件 validator，sidecar working copy 通过有界 overlay reader 进入同一运行时 validator 输入；EditorSession 已按项目插件列表发现并装载相邻 sidecar/descriptor，使用其私有有界遍历 helper 扫描每个插件数据根最多 128 个 entry、递归深度最多 16 层，并以 `editor.document_root.entry_budget`/`editor.document_root.depth_budget` 结构化诊断暴露触顶，再生成最多 128 个 JSON 文档标签页。有效 descriptor 的标签页可编辑；sidecar/descriptor 缺失或无效时，私有文档通过只读 adapter 投影并附带可定位诊断，所有编辑入口拒绝写回。字段描述只生成类型化 EditCommand；缺少专用 validator 时，workspace 会从 descriptor 生成最小声明约束校验，插件私有 schema 仍不得提升为核心 schema。
+   EditorSession 每次 `Open(root)` 替换插件加载诊断基线；选择、编辑、保存产生的 workspace 操作诊断与该基线按 `(code,path)` 稳定去重投影，diff 保持独立；切换 root 时清掉旧基线。
 - 验收：替换数据即可改变运行时项目；核心 domain、RHI 后端和 app 业务分支不改。
 
 ### P13-5 只读运行预览与发布回归
