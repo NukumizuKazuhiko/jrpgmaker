@@ -48,7 +48,9 @@ locales/en.json                     # 英文语言包
 }
 ```
 
-用户设置只保存所选资源 id、窗口位置/尺寸和布局比例，不复制主题或文案。路径由 SDL 偏好目录 Adapter 提供；项目目录内不写编辑器个人设置。
+用户设置只保存所选资源 id、窗口位置/尺寸、布局比例与周边面板可见性，不复制主题或文案。当前合同由 `tools/editor::EditorUserSettings` 实现：schema v3 的 `splitters` 仅允许 `splitter-left-center`、`splitter-scene-inspector`、`splitter-diagnostics`，`visibility` 仅允许 `workspace.project`、`workspace.hierarchy`、`workspace.inspector`、`workspace.diagnostics`，`active_left_panel` 只允许 `workspace.project` 或 `workspace.hierarchy`；四个 visibility 默认均为 true，默认活动页为 Project。schema v1 通过显式迁移保留比例并补齐 visibility 与活动页，schema v2 保留比例和 visibility 并补齐活动页；字段缺失、类型错误、非有限值、越界值、坏 JSON、未知 schema 或超过 64 KiB 均产生结构化诊断并回退完整默认设置。默认值唯一来自 `EditorUserSettings{}`；RmlUiEditorView 仅接收/导出该 typed settings、切换会话状态并重排 DOM，不做文件 I/O。路径由 SDL 偏好目录 Adapter 提供；项目目录内不写编辑器个人设置。写入采用临时文件加原子替换，替换失败保留旧设置。Window 菜单的四个 panel checkbox 发送 `panel.toggle` 与稳定面板 id；Scene 常驻。Project 与 Hierarchy 共用左侧 dock：`dock.activate` 切换活动标签并立即保存，两页都可见时也只渲染活动页；隐藏活动页会选择另一可见页，重新显示一页会激活该页。Window → Layout → Reset Default Layout（中文为“窗口 → 布局 → 恢复默认布局”）发送 `layout.reset_default`，host 同时恢复四面板可见、Project 活动页与三条 splitter 并立即保存。
+
+RmlUiEditorView 还持有不进入 `EditorUserSettings` 的 session-only `focused_panel` 与最大化目标。点击 Project、Hierarchy、Scene、Inspector 或 Diagnostics 面板记录最近焦点；Shift+Space 或 Window → Maximize Focused Panel（再次触发为 Restore）仅在目标仍可见且存在时切换。最大化把目标铺满 toolbar 下沿至 statusbar 上沿，暂时隐藏其他工作区面板和全部 splitters；还原重新应用原 visibility 与 splitter ratios。Reset Default Layout、隐藏当前目标、目标缺失或 markup 重建失败均安全退出最大化。普通 Space 仍交给 RmlUi 控件与文本输入。
 
 ## 主题 schema
 
@@ -117,21 +119,23 @@ status: StatusBar
 
 ## 组件目录
 
-### 通用控件行为（`engine/ui` owner）
+### 通用控件行为
+
+运行时通用控件仍由 `engine/ui` owner；编辑器工作区的 retained-mode 控件由 `tools/editor::RmlUiEditorView` 通过 RML/RCSS 提供。两者共享文案、主题和数据 owner 边界，但不共享第二份项目状态。
 
 | 组件 | 状态/命令 | 第一进入阶段 |
 |---|---|---|
-| `Text` | localized text、选择禁用、测量结果 | P13-0 |
-| `Panel` | children、padding、recipe | 已有基础，P13-0 主题化 |
-| `Button`/`ToggleButton` | hover/pressed/focus/disabled、activate | P13-1 |
+| `Text` | localized text、选择禁用、测量结果 | P13-0；编辑器由 RmlUi 文档消费 |
+| `Panel` | children、padding、recipe | 已有基础，P13-0 主题化；编辑器由 RCSS 主题化 |
+| `Button`/`ToggleButton` | hover/pressed/focus/disabled、activate | P13-1；编辑器通过 RmlUi command listener |
 | `TextField` | UTF-8 文本、selection、caret、IME composition、commit/cancel | P13-1（core 状态、键盘/IME host、字段命中、真实 glyph 与 theme 驱动 caret/selection 装饰已落地） |
 | `NumberField` | 文本编辑态、类型化 commit、范围诊断 | P13-3（integer 已接入 adapter 校验与复合归一化；浮点/范围控件仍待补） |
 | `CheckBox`/`Select` | value、focus、change command | P13-3 |
 | `ScrollView` | offset、viewport、wheel/keyboard scroll、clamp | 不进入本轮；导航网格采用 2048 单元有界裁剪 |
-| `TreeView` | expanded/selected ids、activate/rename command | 本轮只投影真实 Project/Hierarchy 行与稳定 selection，不实现通用重命名 |
+| `TreeView` | expanded/selected ids、activate/rename command | Hierarchy 已消费有界 `NavigationProjection`，提供地图根折叠、独立滚动、真实单元选择与稳定 selection；不实现通用重命名 |
 | `Table`/`ListView` | rows、selection、排序 projection、虚拟化上界 | P13-2 |
 | `Tabs` | active id、close/select command、dirty marker | P13-2 |
-| `SplitPane` | ratio、min sizes、drag command | P13-1 |
+| `SplitPane` | ratio、min sizes、drag command | P13-1（RmlUi 工作区已实现三条稳定 splitter：垂直 Project/Hierarchy↔Scene、Scene↔Inspector 与水平主区↔Diagnostics；比例和捕获为 UI 会话状态） |
 | `Dialog`/`Menu`/`Toast` | modal/focus trap/command、受限队列 | P13-2 |
 | `Toolbar`/`StatusBar` | command items、structured status | P13-1 |
 | `MenuBar`/`PopupMenu` | 有界根菜单/子菜单、hover/open、键盘导航、结构化 command | P13-1（`MenuController` 已落地） |
@@ -150,7 +154,7 @@ status: StatusBar
 | `PreviewPanel` | `PreviewSnapshot` | refresh/run-project command |
 | `PluginPanelHost` | [插件系统规范](11-plugin-system.md) 定义的 editor extension descriptors | namespaced plugin command |
 
-本轮菜单与工作区组合规则：layout 资源声明菜单层级和 `command`，locale 提供菜单文本，theme 提供 `menu.root_width`、`menu.row_height`、`menu.popup_width` 及各状态 recipe；`MenuController` 在布局后的 bounds 上处理鼠标/键盘输入并输出 `UiCommand`。菜单 DrawList 在 shell/panel 后绘制，保证弹出层可见且不改变面板 owner。项目菜单只启用当前 workspace 中确实存在的 document/category，禁用项仍可见并提供明确 disabled 视觉状态。
+本轮菜单与工作区组合规则：layout 资源声明菜单层级和 `command`，locale 提供菜单文本，theme 提供 `menu.root_width`、`menu.row_height`、`menu.popup_width` 及各状态 recipe；`MenuController` 在布局后的 bounds 上处理鼠标/键盘输入并输出 `UiCommand`。菜单 DrawList 在 shell/panel 后绘制，保证弹出层可见且不改变面板 owner。Window 菜单的 Layout 子菜单沿用同一键盘/鼠标访问路径；其 `layout.reset_default` 只由 host adapter 消费并映射到 typed user settings。项目菜单只启用当前 workspace 中确实存在的 document/category，禁用项仍可见并提供明确 disabled 视觉状态。
 
 Project 面板采用有界的 filter row、category header 和 document row，不为每个资源创建无界控件。搜索仅过滤 `DocumentDescriptor` projection；资源路径、类型、dirty 标记和诊断计数仍来自结构化 session 状态。
 
@@ -159,6 +163,7 @@ Project 面板采用有界的 filter row、category header 和 document row，�
 ## 输入、焦点与文本
 
 - SDL event 只在 editor host 转换为平台无关 `UiEvent`；控件不得 include SDL 头。
+- 编辑器 host 分离逻辑窗口坐标与物理 framebuffer 像素：RHI 和 RmlUi context 使用实际像素尺寸，RmlUi 使用 SDL display scale 作为 density-independent pixel ratio，指针命中经过同一输入 seam 缩放；窗口尺寸或显示缩放变化时同步重算，保证 CSS 布局、视觉区域与命中区域一致。
 - 键盘快捷键由版本化 `actions/editor.json` 提供，不在 event loop 写 scancode 分支；`tools/editor` 只把 SDL key name 映射到 action id，保留系统级文本输入、IME 和窗口关闭事件的 Adapter 映射。
 - 焦点顺序来自布局树和显式 `tab_index`，modal 使用 focus trap；Esc/Enter 等语义先映射为 action id。
 - `TextField` 必须使用 SDL 文本输入/IME composition，内部保存 UTF-8，光标移动按 grapheme/cluster 语义；CJK 测量复用 `Font`、`TextShaper`、`LineBreaker`。
@@ -166,7 +171,7 @@ Project 面板采用有界的 filter row、category header 和 document row，�
 
 ## 渲染与字体 seam
 
-- `engine/ui` 输出后端无关 `DrawList`：矩形、localized text 参数和 glyph quad；当前已落地有界矩形/`recipe`/状态、占位符参数、glyph atlas UV、有序 primitive 合同和 CPU 文本/矩形视口裁剪。纹理/图标统一资源与通用显式 z-order 不进入本轮；`tools/editor` 不直接录制 D3D12/Vulkan 命令。
+- `engine/ui` 输出后端无关 `DrawList`：矩形、localized text 参数和 glyph quad；当前已落地有界矩形/`recipe`/状态、占位符参数、glyph atlas UV、有序 primitive 合同和 CPU 文本/矩形视口裁剪。编辑器的 RmlUi `RenderInterface` 只在 `tools/editor` 将有界 RmlUi 几何录制到现有 RHI；不把 D3D12/Vulkan 语义泄漏到 UI 资源或项目 owner。
 - 布局节点可声明受校验的像素 `bounds`；`editor::BuildShellDrawList` 仅把布局 bounds、recipe 和 label key 投影到 DrawList，不在 host 中写面板坐标或文案。
 - `render::BuildUiDrawPacket` 将 DrawList 按原始顺序解析为有界 NDC 顶点/索引上传包，并把 recipe/state、semantic token 和颜色错误作为结构化诊断返回；`UploadUiDrawPacket`/`RecordUiDrawPacket` 负责 RHI buffer 上传、绑定与 indexed draw，主题只提供资源 id/token，不持有 GPU handle。
 - 字体资源由 theme 声明候选文件列表和像素规格；启动时验证候选文件并按声明顺序加载可用字体，`ui::Font` 提供 FreeType 灰度 bitmap 与 pitch 输出，`GlyphAtlas` 以有界容量生成 UV，RHI text batch 已完成纹理上传/采样绘制，文本投影已支持按字符的有序 fallback，并由真实 glyph advance 生成 theme 驱动的 selection/caret 装饰。额外字体预热优化不进入本轮。

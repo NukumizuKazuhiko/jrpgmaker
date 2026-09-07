@@ -503,9 +503,9 @@ ui::DrawList BuildPreviewDrawList(const PreviewProjection& projection, ui::Rect 
         (void) draw_list.Add(
             ui::DrawText{row, "editor.preview.process", {{"value", value}}, std::nullopt});
     }
-    const auto add_log = [&draw_list, &bounds, row_height, &projection](std::string_view key,
-                                                                        const std::string& value,
-                                                                        std::size_t row_index) {
+    const auto add_log = [&draw_list, &bounds, row_height](std::string_view key,
+                                                           const std::string& value,
+                                                           std::size_t row_index) {
         if (value.empty())
             return;
         constexpr std::size_t kMaxPreviewLogDisplayBytes = 4096;

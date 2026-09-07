@@ -218,8 +218,8 @@ bool EditProject(const std::filesystem::path& root, const std::filesystem::path&
             std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
         return false;
     }
-    std::cout << (root / "project.json").string() << ": written; backup="
-              << committed.backup.string() << '\n';
+    std::cout << (root / "project.json").string()
+              << ": written; backup=" << committed.backup.string() << '\n';
     return true;
 }
 
@@ -257,8 +257,8 @@ bool DiagnoseProject(const std::filesystem::path& root) {
     }
     std::cout << root.string() << ": diagnostic snapshot events=" << diagnosed.event_count
               << " interactions=" << diagnosed.interaction_count
-              << " collision_boxes=" << diagnosed.collision_count << " navigation="
-              << diagnosed.navigation_width << "x" << diagnosed.navigation_height
+              << " collision_boxes=" << diagnosed.collision_count
+              << " navigation=" << diagnosed.navigation_width << "x" << diagnosed.navigation_height
               << " camera_regions=" << diagnosed.camera_region_count << '\n';
     return true;
 }

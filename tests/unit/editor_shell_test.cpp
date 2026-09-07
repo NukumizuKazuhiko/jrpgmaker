@@ -26,11 +26,17 @@ TEST_CASE("editor input map translates only pressed configured keys", "[editor]"
 
 TEST_CASE("ui menu opens a submenu and emits a structured command", "[ui][menu]") {
     jrpgmaker::ui::MenuController menu;
-    REQUIRE(menu.SetModel(
-        {.roots = {{.id = 1,
-                    .label_key = "editor.menu.file",
-                    .children = {
-                        {.id = 2, .label_key = "editor.action.save", .command = "file.save"}}}}}));
+    jrpgmaker::ui::MenuItem save;
+    save.id = 2;
+    save.label_key = "editor.action.save";
+    save.command = "file.save";
+    jrpgmaker::ui::MenuItem file;
+    file.id = 1;
+    file.label_key = "editor.menu.file";
+    file.children = {save};
+    jrpgmaker::ui::MenuBarModel model;
+    model.roots = {file};
+    REQUIRE(menu.SetModel(model));
     REQUIRE(
         menu.Layout({0, 0, 300, 28}, {.root_width = 100, .row_height = 24, .popup_width = 180}));
     REQUIRE(menu.PointerDown(20, 12).changed);
@@ -44,14 +50,21 @@ TEST_CASE("ui menu opens a submenu and emits a structured command", "[ui][menu]"
 
 TEST_CASE("ui menu keyboard navigation and escape obey focus ownership", "[ui][menu][ui context]") {
     jrpgmaker::ui::MenuController menu;
-    REQUIRE(menu.SetModel({.roots = {{.id = 1,
-                                      .label_key = "editor.menu.project",
-                                      .children = {{.id = 2,
-                                                    .label_key = "editor.document.camera",
-                                                    .command = "document.core.camera"},
-                                                   {.id = 3,
-                                                    .label_key = "editor.document.input",
-                                                    .command = "document.app.input_actions"}}}}}));
+    jrpgmaker::ui::MenuItem camera;
+    camera.id = 2;
+    camera.label_key = "editor.document.camera";
+    camera.command = "document.core.camera";
+    jrpgmaker::ui::MenuItem input;
+    input.id = 3;
+    input.label_key = "editor.document.input";
+    input.command = "document.app.input_actions";
+    jrpgmaker::ui::MenuItem project;
+    project.id = 1;
+    project.label_key = "editor.menu.project";
+    project.children = {camera, input};
+    jrpgmaker::ui::MenuBarModel model;
+    model.roots = {project};
+    REQUIRE(menu.SetModel(model));
     REQUIRE(
         menu.Layout({0, 0, 240, 28}, {.root_width = 120, .row_height = 24, .popup_width = 180}));
     REQUIRE(menu.KeyDown("Alt").changed);
@@ -89,11 +102,13 @@ TEST_CASE("editor shell projection preserves layout hierarchy and metadata", "[e
     layout.root = {.type = "SplitPane",
                    .id = "root",
                    .label_key = "editor.window.title",
+                   .command = {},
                    .recipe = "panel",
                    .bounds = {},
                    .children = {{.type = "WorkspaceTree",
                                  .id = "tree",
                                  .label_key = "",
+                                 .command = {},
                                  .recipe = "",
                                  .bounds = {},
                                  .children = {}}}};
@@ -111,6 +126,7 @@ TEST_CASE("editor shell projection produces draw primitives from layout bounds",
     layout.root = {.type = "Panel",
                    .id = "root",
                    .label_key = "editor.window.title",
+                   .command = {},
                    .recipe = "panel",
                    .bounds = {0.0f, 0.0f, 100.0f, 50.0f},
                    .children = {}};
@@ -137,19 +153,23 @@ TEST_CASE("editor toolbar projects four distinct commands", "[ui][editor][toolba
 
 TEST_CASE("project panel projects bounded categories and case insensitive filtering",
           "[editor][project][selection]") {
+    jrpgmaker::editor::DocumentTabProjection project_tab;
+    project_tab.document_id = "project.manifest";
+    project_tab.path = "project.json";
+    project_tab.label_key = "editor.document.project";
+    project_tab.category_key = "editor.project.category.project";
+    jrpgmaker::editor::DocumentTabProjection camera_tab;
+    camera_tab.document_id = "core.camera";
+    camera_tab.path = "assets/data/camera.json";
+    camera_tab.label_key = "editor.document.camera";
+    camera_tab.category_key = "editor.project.category.camera";
+    jrpgmaker::editor::DocumentTabProjection input_tab;
+    input_tab.document_id = "app.input_actions";
+    input_tab.path = "assets/data/input.json";
+    input_tab.label_key = "editor.document.input";
+    input_tab.category_key = "editor.project.category.input";
     const jrpgmaker::editor::DocumentTabsProjection documents{
-        .tabs = {{.document_id = "project.manifest",
-                  .path = "project.json",
-                  .label_key = "editor.document.project",
-                  .category_key = "editor.project.category.project"},
-                 {.document_id = "core.camera",
-                  .path = "assets/data/camera.json",
-                  .label_key = "editor.document.camera",
-                  .category_key = "editor.project.category.camera"},
-                 {.document_id = "app.input_actions",
-                  .path = "assets/data/input.json",
-                  .label_key = "editor.document.input",
-                  .category_key = "editor.project.category.input"}}};
+        .tabs = {project_tab, camera_tab, input_tab}};
     const auto filtered = jrpgmaker::editor::BuildProjectPanelProjection(documents, "CAMERA");
     REQUIRE(filtered.rows.size() == 3);
     REQUIRE(filtered.rows[0].kind == jrpgmaker::editor::ProjectPanelRowKind::kFilter);
@@ -206,7 +226,8 @@ TEST_CASE("editor shell reflows regions with actual window size", "[editor][layo
 
 TEST_CASE("editor status bar projects localized state and revision", "[ui][editor]") {
     const auto draw_list = jrpgmaker::editor::BuildStatusBarDrawList(
-        {.open = true, .dirty = true, .revision = 7}, {0, 0, 100, 20}, "panel");
+        {.open = true, .dirty = true, .revision = 7, .focused_panel_label_key = {}},
+        {0, 0, 100, 20}, "panel");
     REQUIRE(draw_list.size() == 2);
     const auto& text = std::get<jrpgmaker::ui::DrawText>(draw_list.primitives()[1]);
     REQUIRE(text.text_key == "editor.status.dirty");
@@ -291,10 +312,24 @@ TEST_CASE("preview draw projection preserves structured metric and diagnostic ke
 
 TEST_CASE("document tabs preserve manifest order and dirty active state", "[ui][editor]") {
     const std::vector<jrpgmaker::project::DocumentDescriptor> documents = {
-        {"project.manifest", "project.json", "editor.document.project", true, "project.manifest"},
-        {"domain.event_script", "events.json", "editor.document.events", true,
-         "domain.event_script"},
-        {"core.material", "materials.json", "editor.document.material", false, "core.material"}};
+        {.id = "project.manifest",
+         .path = "project.json",
+         .label_key = "editor.document.project",
+         .editable = true,
+         .type_id = "project.manifest",
+         .category_key = {}},
+        {.id = "domain.event_script",
+         .path = "events.json",
+         .label_key = "editor.document.events",
+         .editable = true,
+         .type_id = "domain.event_script",
+         .category_key = {}},
+        {.id = "core.material",
+         .path = "materials.json",
+         .label_key = "editor.document.material",
+         .editable = false,
+         .type_id = "core.material",
+         .category_key = {}}};
     const auto tabs = jrpgmaker::editor::BuildDocumentTabsProjection(
         documents, "domain.event_script", true, {{"project.bad", "events.json"}});
     REQUIRE(tabs.tabs.size() == 3);
@@ -312,9 +347,18 @@ TEST_CASE("document tabs preserve manifest order and dirty active state", "[ui][
 
 TEST_CASE("document tabs mark every document with pending changes", "[ui][editor]") {
     const std::vector<jrpgmaker::project::DocumentDescriptor> documents = {
-        {"project.manifest", "project.json", "editor.document.project", true, "project.manifest"},
-        {"core.navigation", "navigation.json", "editor.document.navigation", true,
-         "core.navigation"}};
+        {.id = "project.manifest",
+         .path = "project.json",
+         .label_key = "editor.document.project",
+         .editable = true,
+         .type_id = "project.manifest",
+         .category_key = {}},
+        {.id = "core.navigation",
+         .path = "navigation.json",
+         .label_key = "editor.document.navigation",
+         .editable = true,
+         .type_id = "core.navigation",
+         .category_key = {}}};
     const std::vector<jrpgmaker::project::Change> changes = {{.document_id = "project.manifest",
                                                               .field_path = "/id",
                                                               .before = "old",
@@ -335,9 +379,18 @@ TEST_CASE("document tabs mark every document with pending changes", "[ui][editor
 
 TEST_CASE("diagnostics filter and diff projection retain stable document ownership", "[editor]") {
     const std::vector<jrpgmaker::project::DocumentDescriptor> documents = {
-        {"project.manifest", "project.json", "editor.document.project", true, "project.manifest"},
-        {"core.navigation", "navigation.json", "editor.document.navigation", true,
-         "core.navigation"}};
+        {.id = "project.manifest",
+         .path = "project.json",
+         .label_key = "editor.document.project",
+         .editable = true,
+         .type_id = "project.manifest",
+         .category_key = {}},
+        {.id = "core.navigation",
+         .path = "navigation.json",
+         .label_key = "editor.document.navigation",
+         .editable = true,
+         .type_id = "core.navigation",
+         .category_key = {}}};
     const std::vector<jrpgmaker::project::Diagnostic> diagnostics = {
         {"navigation.invalid", "navigation.json"}, {"project.invalid", "project.json"}};
     const auto filtered =

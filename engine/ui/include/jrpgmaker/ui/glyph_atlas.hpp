@@ -42,7 +42,7 @@ public:
     [[nodiscard]] std::size_t size() const { return entries_.size(); }
 
     [[nodiscard]] std::optional<GlyphAtlasEntry> Find(std::uint32_t codepoint,
-                                                       std::uint32_t pixel_height) const;
+                                                      std::uint32_t pixel_height) const;
 
 private:
     struct Key {

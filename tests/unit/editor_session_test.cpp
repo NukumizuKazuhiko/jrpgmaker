@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "jrpgmaker/editor/editor_session.hpp"
 #include "jrpgmaker/editor/editor_workspace_controller.hpp"
@@ -39,6 +42,7 @@ TEST_CASE("editor workspace controller routes toolbar clicks as structured host 
                             resources.bundle->theme.dimensions.at("space.sm"),
          .diagnostic_row_height = resources.bundle->theme.dimensions.at("font.caption") +
                                   resources.bundle->theme.dimensions.at("space.xs"),
+         .menu = {},
          .runtime_executable = {}});
     REQUIRE(controller.Resize(1280, 720));
 
@@ -55,7 +59,8 @@ TEST_CASE("editor workspace controller routes nested project settings to real do
     const auto resources =
         jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
     REQUIRE(resources);
-    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout});
+    jrpgmaker::editor::EditorWorkspaceController controller(
+        {.layout = resources.bundle->layout, .menu = {}, .runtime_executable = {}});
     REQUIRE(controller.Resize(1280, 720));
     REQUIRE(controller.OpenProject(root));
 
@@ -78,7 +83,8 @@ TEST_CASE("editor workspace controller filters project resources through the sha
     const auto resources =
         jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
     REQUIRE(resources);
-    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout});
+    jrpgmaker::editor::EditorWorkspaceController controller(
+        {.layout = resources.bundle->layout, .menu = {}, .runtime_executable = {}});
     REQUIRE(controller.Resize(1280, 720));
     REQUIRE(controller.OpenProject(root));
     const auto project = controller.panel_bounds("workspace.project");
@@ -121,6 +127,7 @@ TEST_CASE(
     jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
                                                              .form_row_height = 24,
                                                              .diagnostic_row_height = 16,
+                                                             .menu = {},
                                                              .runtime_executable = {}});
     REQUIRE(controller.Resize(1280, 720));
     REQUIRE(controller.OpenProject(root));
@@ -176,6 +183,7 @@ TEST_CASE("editor workspace controller bounds large grids without dropping statu
     jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
                                                              .form_row_height = 24,
                                                              .diagnostic_row_height = 16,
+                                                             .menu = {},
                                                              .runtime_executable = {}});
     REQUIRE(controller.Resize(1280, 720));
     REQUIRE(controller.OpenProject(root));
@@ -285,6 +293,83 @@ TEST_CASE("editor navigation cell selection edits and survives atomic reopen",
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("editor session preserves plugin load diagnostics across navigation edit and save",
+          "[editor][plugin][p13]") {
+    const auto root = MakeFixture("_plugin_diagnostics_persistence");
+    std::error_code error;
+    const auto write_manifest = [&root](std::string_view id, std::string_view data_roots) {
+        const auto plugin_root = root / "plugins" / std::string(id);
+        std::filesystem::create_directories(plugin_root);
+        std::ofstream manifest(plugin_root / "plugin.json");
+        manifest << "{\"schema\":1,\"id\":\"" << id
+                 << "\",\"type\":\"battle\",\"version\":1,"
+                    "\"engine_contract\":1,\"data_roots\":"
+                 << data_roots << ",\"capabilities\":[]}\n";
+    };
+    write_manifest("sample.unlit", "[]");
+    write_manifest("sample.style", "[]");
+    write_manifest("sample.instant", "[\"plugins/sample_instant/data\"]");
+    write_manifest("sample.turn_based", "[\"plugins/sample_turn_based/data\"]");
+    std::filesystem::create_directories(root / "plugins/sample_instant/data");
+    std::filesystem::create_directories(root / "plugins/sample_turn_based/data");
+    std::ofstream(root / "plugins/sample_instant/data/encounters_demo.json") << "{}\n";
+    std::ofstream(root / "plugins/sample_turn_based/data/encounters_demo.json") << "{}\n";
+
+    const std::vector<std::pair<std::string, std::string>> expected = {
+        {"editor.plugin.sidecar_missing",
+         (root / "plugins" / "sample.unlit" / "plugin.editor.json").string()},
+        {"editor.plugin.sidecar_missing",
+         (root / "plugins" / "sample.style" / "plugin.editor.json").string()},
+        {"editor.plugin.sidecar_missing",
+         (root / "plugins" / "sample.instant" / "plugin.editor.json").string()},
+        {"editor.document.read_only", "plugins/sample_instant/data/encounters_demo.json"},
+        {"editor.plugin.sidecar_missing",
+         (root / "plugins" / "sample.turn_based" / "plugin.editor.json").string()},
+        {"editor.document.read_only", "plugins/sample_turn_based/data/encounters_demo.json"},
+    };
+    jrpgmaker::editor::EditorSession session(root);
+    const auto require_diagnostics =
+        [&](const std::vector<std::pair<std::string, std::string>>& expected_diagnostics,
+            bool dirty, std::size_t changes) {
+            std::vector<std::pair<std::string, std::string>> actual;
+            for (const auto& diagnostic : session.state().diagnostics)
+                actual.emplace_back(diagnostic.code, diagnostic.path);
+            const auto describe = [](const auto& diagnostics) {
+                std::string result;
+                for (const auto& [code, path] : diagnostics)
+                    result += code + "@" + path + "|";
+                return result;
+            };
+            INFO("actual=" << describe(actual) << " expected=" << describe(expected_diagnostics));
+            REQUIRE(actual == expected_diagnostics);
+            REQUIRE(session.state().dirty == dirty);
+            REQUIRE(session.state().diff.changes.size() == changes);
+        };
+
+    REQUIRE(session.Open());
+    require_diagnostics(expected, false, 0);
+    REQUIRE(session.SelectDocument("core.navigation"));
+    require_diagnostics(expected, false, 0);
+    REQUIRE(session.SelectNavigationCell(7));
+    REQUIRE(session.ToggleSelectedNavigationWalkable());
+    require_diagnostics(expected, true, 1);
+
+    const auto temporary = root / "assets/data/navigation_demo.json.tmp";
+    std::ofstream(temporary) << "{}\n";
+    REQUIRE_FALSE(session.Save());
+    auto expected_save_failure = expected;
+    expected_save_failure.emplace_back("project.save.temporary_exists", temporary.string());
+    require_diagnostics(expected_save_failure, true, 1);
+
+    error.clear();
+    REQUIRE(std::filesystem::remove(temporary, error));
+    REQUIRE_FALSE(error);
+    REQUIRE(session.Save());
+    require_diagnostics(expected, false, 0);
+
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("editor navigation selection ignores text input owned by form fields",
           "[editor][selection][navigation][ui text]") {
     const auto root = MakeFixture("_navigation_text_input");
@@ -293,8 +378,13 @@ TEST_CASE("editor navigation selection ignores text input owned by form fields",
     REQUIRE(session.SelectDocument("core.navigation"));
     REQUIRE(session.SelectNavigationCell(0));
     const auto selection = session.state().selection;
+    const auto startup_diagnostics = session.state().diagnostics;
     REQUIRE_FALSE(session.ApplySelectedText(" "));
-    REQUIRE(session.state().diagnostics.empty());
+    REQUIRE(session.state().diagnostics.size() == startup_diagnostics.size());
+    for (std::size_t index = 0; index < startup_diagnostics.size(); ++index) {
+        REQUIRE(session.state().diagnostics[index].code == startup_diagnostics[index].code);
+        REQUIRE(session.state().diagnostics[index].path == startup_diagnostics[index].path);
+    }
     REQUIRE(session.state().selection == selection);
 
     std::error_code error;
@@ -329,6 +419,7 @@ TEST_CASE("editor workspace controller exposes project open failures as structur
     jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
                                                              .form_row_height = 24,
                                                              .diagnostic_row_height = 16,
+                                                             .menu = {},
                                                              .runtime_executable = {}});
     REQUIRE(controller.Resize(1280, 720));
     const auto missing =
@@ -347,20 +438,49 @@ TEST_CASE("editor workspace controller exposes project open failures as structur
     REQUIRE(diagnostic != draw_list.primitives().end());
 }
 
-TEST_CASE("editor session discovers and edits a plugin sidecar document", "[editor][plugin][p13]") {
+TEST_CASE("editor workspace controller redraws after a rejected document command",
+          "[editor][diagnostics][menu]") {
+    const auto root = MakeFixture("_document_command_failure");
+    std::error_code error;
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(resources);
+    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
+                                                             .form_row_height = 24,
+                                                             .diagnostic_row_height = 16,
+                                                             .menu = {},
+                                                             .runtime_executable = {}});
+    REQUIRE(controller.Resize(1280, 720));
+    REQUIRE(controller.OpenProject(root));
+    std::filesystem::remove(root / "assets/data/material_demo.json", error);
+    REQUIRE_FALSE(error);
+
+    const auto result = controller.DispatchCommand("document.select", "core.material");
+    REQUIRE(result.changed);
+    REQUIRE(controller.state() != nullptr);
+    REQUIRE_FALSE(controller.state()->diagnostics.empty());
+
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor session discovers and edits a plugin sidecar document",
+          "[editor][plugin][p13][budget]") {
     const auto root = MakeFixture("_plugin");
     std::error_code error;
     std::filesystem::create_directories(root / "plugins/sample.unlit/editor");
     std::filesystem::create_directories(root / "plugin_data");
+    std::filesystem::create_directories(root / "overflow_data");
     {
         std::ofstream manifest(root / "plugins/sample.unlit/plugin.json");
         manifest << R"json({"schema":1,"id":"sample.unlit","type":"render_style",
-                            "version":1,"engine_contract":1,"data_roots":["plugin_data"],
+                            "version":1,"engine_contract":1,
+                            "data_roots":["plugin_data","overflow_data"],
                             "capabilities":[]})json";
         std::ofstream sidecar(root / "plugins/sample.unlit/plugin.editor.json");
         sidecar << R"json({"schema":1,"plugin_id":"sample.unlit","editor_contract":1,
                           "documents":[{"type_id":"sample.unlit.document.v1",
-                            "roots":["plugin_data"],"descriptor":"editor/document.json"}],
+                            "roots":["plugin_data","overflow_data"],
+                            "descriptor":"editor/document.json"}],
                           "locales":{"en":"editor/en.json"},"icons":"editor/icons.json"})json";
         std::ofstream descriptor(root / "plugins/sample.unlit/editor/document.json");
         descriptor << R"json({"schema":1,"type_id":"sample.unlit.document.v1","fields":[
@@ -370,12 +490,19 @@ TEST_CASE("editor session discovers and edits a plugin sidecar document", "[edit
         locale << "{}";
         std::ofstream icons(root / "plugins/sample.unlit/editor/icons.json");
         icons << "{}";
+        for (int index = 0; index < 129; ++index)
+            std::ofstream(root / "overflow_data" / ("ignored_" + std::to_string(index) + ".txt"));
         std::ofstream document(root / "plugin_data/example.json");
         document << R"json({"schema":1,"name":"before"})json";
     }
 
     jrpgmaker::editor::EditorSession session(root);
     REQUIRE(session.Open());
+    REQUIRE(std::any_of(session.state().diagnostics.begin(), session.state().diagnostics.end(),
+                        [](const auto& diagnostic) {
+                            return diagnostic.code == "editor.document_root.entry_budget" &&
+                                   diagnostic.path == "overflow_data";
+                        }));
     const auto tab = std::find_if(
         session.state().tabs.tabs.begin(), session.state().tabs.tabs.end(), [](const auto& item) {
             return item.document_id == "plugin:sample.unlit.document.v1:plugin_data/example.json";
@@ -391,6 +518,161 @@ TEST_CASE("editor session discovers and edits a plugin sidecar document", "[edit
     std::ifstream input(root / "plugin_data/example.json");
     input >> saved;
     REQUIRE(saved["name"] == "after");
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor session keeps plugin documents read-only when the descriptor is missing",
+          "[editor][plugin][p13][read-only]") {
+    const auto root = MakeFixture("_plugin_read_only_descriptor");
+    std::error_code error;
+    std::filesystem::create_directories(root / "plugins/sample.invalid");
+    std::filesystem::create_directories(root / "plugin_data");
+    {
+        std::ifstream input(root / "project.json");
+        nlohmann::json project;
+        input >> project;
+        project["plugins"].push_back("sample.invalid");
+        std::ofstream output(root / "project.json");
+        output << project.dump(2);
+        std::ofstream manifest(root / "plugins/sample.invalid/plugin.json");
+        manifest << R"json({"schema":1,"id":"sample.invalid","type":"render_style",
+                            "version":1,"engine_contract":1,"data_roots":["plugin_data"],
+                            "capabilities":[]})json";
+        std::ofstream sidecar(root / "plugins/sample.invalid/plugin.editor.json");
+        sidecar << R"json({"schema":1,"plugin_id":"sample.invalid","editor_contract":1,
+                          "documents":[{"type_id":"sample.invalid.document.v1",
+                            "roots":["plugin_data"],"descriptor":"editor/missing.json"}],
+                          "locales":{},"icons":"editor/icons.json"})json";
+        std::ofstream document(root / "plugin_data/example.json");
+        document << R"json({"schema":1,"name":"before"})json";
+    }
+
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    const auto tab =
+        std::find_if(session.state().tabs.tabs.begin(), session.state().tabs.tabs.end(),
+                     [](const auto& item) { return item.path == "plugin_data/example.json"; });
+    REQUIRE(tab != session.state().tabs.tabs.end());
+    REQUIRE_FALSE(tab->editable);
+    const auto document_id = tab->document_id;
+    REQUIRE(std::any_of(session.state().diagnostic_panel.items.begin(),
+                        session.state().diagnostic_panel.items.end(),
+                        [&document_id](const auto& item) {
+                            return item.document_id == document_id &&
+                                   item.diagnostic.code == "editor.document.read_only";
+                        }));
+
+    REQUIRE(session.SelectDocument(document_id));
+    REQUIRE_FALSE(session.ApplySelected("after"));
+    REQUIRE(std::any_of(session.state().diagnostics.begin(), session.state().diagnostics.end(),
+                        [](const auto& diagnostic) {
+                            return diagnostic.code == "project.edit.document_read_only";
+                        }));
+
+    std::ifstream input(root / "plugin_data/example.json");
+    nlohmann::json saved;
+    input >> saved;
+    REQUIRE(saved["name"] == "before");
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor session keeps plugin documents read-only when the sidecar is missing",
+          "[editor][plugin][p13][read-only][budget]") {
+    const auto root = MakeFixture("_plugin_read_only_sidecar");
+    std::error_code error;
+    std::filesystem::create_directories(root / "plugins/sample.missing");
+    std::filesystem::create_directories(root / "plugin_data");
+    {
+        std::ifstream input(root / "project.json");
+        nlohmann::json project;
+        input >> project;
+        project["plugins"].push_back("sample.missing");
+        std::ofstream output(root / "project.json");
+        output << project.dump(2);
+        std::ofstream manifest(root / "plugins/sample.missing/plugin.json");
+        manifest << R"json({"schema":1,"id":"sample.missing","type":"render_style",
+                            "version":1,"engine_contract":1,"data_roots":["plugin_data"],
+                            "capabilities":[]})json";
+        std::ofstream document(root / "plugin_data/example.json");
+        document << R"json({"schema":1,"name":"before"})json";
+        auto depth = root / "plugin_data";
+        for (int index = 0; index < 17; ++index) {
+            depth /= std::to_string(index);
+            REQUIRE(std::filesystem::create_directory(depth, error));
+            REQUIRE_FALSE(error);
+        }
+    }
+
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    REQUIRE(std::any_of(session.state().diagnostics.begin(), session.state().diagnostics.end(),
+                        [](const auto& diagnostic) {
+                            return diagnostic.code == "editor.document_root.depth_budget" &&
+                                   diagnostic.path == "plugin_data";
+                        }));
+    const auto tab =
+        std::find_if(session.state().tabs.tabs.begin(), session.state().tabs.tabs.end(),
+                     [](const auto& item) { return item.path == "plugin_data/example.json"; });
+    REQUIRE(tab != session.state().tabs.tabs.end());
+    REQUIRE_FALSE(tab->editable);
+    REQUIRE(std::any_of(
+        session.state().diagnostics.begin(), session.state().diagnostics.end(),
+        [](const auto& diagnostic) { return diagnostic.code == "editor.plugin.sidecar_missing"; }));
+    REQUIRE(session.SelectDocument(tab->document_id));
+    REQUIRE_FALSE(session.ApplySelectedText("after"));
+    REQUIRE(std::any_of(session.state().diagnostics.begin(), session.state().diagnostics.end(),
+                        [](const auto& diagnostic) {
+                            return diagnostic.code == "project.edit.document_read_only";
+                        }));
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor session keeps plugin documents read-only when the descriptor is invalid",
+          "[editor][plugin][p13][read-only]") {
+    const auto root = MakeFixture("_plugin_read_only_invalid_descriptor");
+    std::error_code error;
+    std::filesystem::create_directories(root / "plugins/sample.invalid/editor");
+    std::filesystem::create_directories(root / "plugin_data");
+    {
+        std::ifstream input(root / "project.json");
+        nlohmann::json project;
+        input >> project;
+        project["plugins"].push_back("sample.invalid");
+        std::ofstream output(root / "project.json");
+        output << project.dump(2);
+        std::ofstream manifest(root / "plugins/sample.invalid/plugin.json");
+        manifest << R"json({"schema":1,"id":"sample.invalid","type":"render_style",
+                            "version":1,"engine_contract":1,"data_roots":["plugin_data"],
+                            "capabilities":[]})json";
+        std::ofstream sidecar(root / "plugins/sample.invalid/plugin.editor.json");
+        sidecar << R"json({"schema":1,"plugin_id":"sample.invalid","editor_contract":1,
+                          "documents":[{"type_id":"sample.invalid.document.v1",
+                            "roots":["plugin_data"],"descriptor":"editor/document.json"}],
+                          "locales":{},"icons":"editor/icons.json"})json";
+        std::ofstream descriptor(root / "plugins/sample.invalid/editor/document.json");
+        descriptor << R"json({"schema":1,"type_id":"sample.invalid.document.v1","fields":[]})json";
+        std::ofstream icons(root / "plugins/sample.invalid/editor/icons.json");
+        icons << "{}";
+        std::ofstream document(root / "plugin_data/example.json");
+        document << R"json({"schema":1,"name":"before"})json";
+    }
+
+    jrpgmaker::editor::EditorSession session(root);
+    REQUIRE(session.Open());
+    const auto tab =
+        std::find_if(session.state().tabs.tabs.begin(), session.state().tabs.tabs.end(),
+                     [](const auto& item) { return item.path == "plugin_data/example.json"; });
+    REQUIRE(tab != session.state().tabs.tabs.end());
+    REQUIRE_FALSE(tab->editable);
+    REQUIRE(std::any_of(
+        session.state().diagnostics.begin(), session.state().diagnostics.end(),
+        [](const auto& diagnostic) { return diagnostic.code == "editor_descriptor.fields"; }));
+    REQUIRE(session.SelectDocument(tab->document_id));
+    REQUIRE_FALSE(session.ApplySelected("after"));
+    REQUIRE(std::any_of(session.state().diagnostics.begin(), session.state().diagnostics.end(),
+                        [](const auto& diagnostic) {
+                            return diagnostic.code == "project.edit.document_read_only";
+                        }));
     std::filesystem::remove_all(root, error);
 }
 

@@ -24,7 +24,7 @@ public:
     PreviewProcess& operator=(const PreviewProcess&) = delete;
 
     [[nodiscard]] bool Start(const std::filesystem::path& executable,
-                              const std::filesystem::path& project_root);
+                             const std::filesystem::path& project_root);
     void Poll();
     void Stop();
     [[nodiscard]] const PreviewProcessState& state() const { return state_; }

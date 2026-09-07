@@ -13,9 +13,19 @@ namespace jrpgmaker::editor {
 
 namespace {
 
+constexpr std::string_view kReadOnlyPluginDocumentType = "plugin.read_only.document";
+
 void AddPluginDiagnostic(std::vector<project::Diagnostic>& diagnostics,
                          const plugin::PluginError& error) {
     diagnostics.push_back({error.code, error.path});
+}
+
+void AddPluginDiagnosticAt(std::vector<project::Diagnostic>& diagnostics,
+                           const plugin::PluginError& error,
+                           const std::filesystem::path& resource_path) {
+    const auto path = resource_path.generic_string();
+    diagnostics.push_back(
+        {error.code, path + (error.path.empty() ? std::string{} : ":" + error.path)});
 }
 
 bool ReadJson(const std::filesystem::path& path, nlohmann::json& document,
@@ -40,8 +50,77 @@ bool ReadJson(const std::filesystem::path& path, nlohmann::json& document,
     return true;
 }
 
+template <typename AddJsonFile>
+void DiscoverPluginDocuments(const std::filesystem::path& project_root, std::string_view root,
+                             std::vector<project::Diagnostic>& diagnostics, std::size_t& projected,
+                             AddJsonFile&& add_json_file) {
+    constexpr std::size_t kMaxProjectedDocuments = 128;
+    constexpr std::size_t kMaxTraversalEntries = 128;
+    constexpr std::size_t kMaxTraversalDepth = 16;
+
+    const auto root_path = project_root / root;
+    std::error_code error;
+    if (!std::filesystem::exists(root_path, error) || error)
+        return;
+
+    std::size_t entries = 0;
+    bool depth_budget_reported = false;
+    const auto visit = [&](const std::filesystem::directory_entry& entry, std::size_t depth) {
+        ++entries;
+        if (entries > kMaxTraversalEntries) {
+            diagnostics.push_back({"editor.document_root.entry_budget", std::string(root)});
+            return false;
+        }
+
+        std::error_code entry_error;
+        const bool is_directory = entry.is_directory(entry_error);
+        if (depth >= kMaxTraversalDepth && !depth_budget_reported) {
+            diagnostics.push_back({"editor.document_root.depth_budget", std::string(root)});
+            depth_budget_reported = true;
+        }
+        if (depth >= kMaxTraversalDepth && is_directory && !entry_error)
+            return true;
+        entry_error.clear();
+        if (projected >= kMaxProjectedDocuments || !entry.is_regular_file(entry_error) ||
+            entry_error || entry.path().extension() != ".json")
+            return true;
+        if (add_json_file(entry.path()))
+            ++projected;
+        return true;
+    };
+
+    if (std::filesystem::is_regular_file(root_path, error)) {
+        if (!error)
+            (void) visit(std::filesystem::directory_entry(root_path), 0);
+        return;
+    }
+    if (error || !std::filesystem::is_directory(root_path, error) || error)
+        return;
+
+    std::error_code iterator_error;
+    for (std::filesystem::recursive_directory_iterator it(root_path, iterator_error), end;
+         it != end && !iterator_error;) {
+        const auto depth = static_cast<std::size_t>(it.depth());
+        if (!visit(*it, depth))
+            break;
+        std::error_code entry_error;
+        if (depth >= kMaxTraversalDepth && it->is_directory(entry_error) && !entry_error)
+            it.disable_recursion_pending();
+        it.increment(iterator_error);
+    }
+    if (iterator_error)
+        diagnostics.push_back({"editor.document_root.enumeration", std::string(root)});
+}
+
 bool IsNavigationCellSelection(const std::optional<SelectionTarget>& selection) {
     return selection.has_value() && selection->kind == "navigation.cell";
+}
+
+bool IsReadOnlyDocument(const EditorSessionState& state) {
+    const auto current = std::find_if(
+        state.tabs.tabs.begin(), state.tabs.tabs.end(),
+        [&state](const auto& document) { return document.document_id == state.form.document_id; });
+    return current != state.tabs.tabs.end() && !current->editable;
 }
 
 } // namespace
@@ -62,12 +141,32 @@ bool EditorSession::Open(std::filesystem::path root) {
     workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_);
     snapshot_.reset();
     state_ = {};
+    startup_plugin_diagnostics_.clear();
+    operation_diagnostics_.clear();
     focus_context_.ClearFocusables();
     return Open();
 }
 
 void EditorSession::SetDiagnostics(std::vector<project::Diagnostic> diagnostics) {
-    state_.diagnostics = std::move(diagnostics);
+    operation_diagnostics_ = std::move(diagnostics);
+    RebuildDiagnostics();
+}
+
+void EditorSession::RebuildDiagnostics() {
+    state_.diagnostics.clear();
+    const auto append_unique = [this](const project::Diagnostic& diagnostic) {
+        const auto duplicate = std::find_if(state_.diagnostics.begin(), state_.diagnostics.end(),
+                                            [&diagnostic](const auto& existing) {
+                                                return existing.code == diagnostic.code &&
+                                                       existing.path == diagnostic.path;
+                                            });
+        if (duplicate == state_.diagnostics.end())
+            state_.diagnostics.push_back(diagnostic);
+    };
+    for (const auto& diagnostic : startup_plugin_diagnostics_)
+        append_unique(diagnostic);
+    for (const auto& diagnostic : operation_diagnostics_)
+        append_unique(diagnostic);
     if (snapshot_)
         state_.tabs = BuildDocumentTabsProjection(workspace_.DescribeDocuments(*snapshot_),
                                                   state_.form.document_id,
@@ -160,7 +259,8 @@ void EditorSession::PublishTextFieldState() {
 }
 
 bool EditorSession::Open() {
-    const auto plugin_diagnostics = LoadPluginEditorAdapters();
+    startup_plugin_diagnostics_ = LoadPluginEditorAdapters();
+    operation_diagnostics_.clear();
     workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_);
     workspace_.SetExternalDocuments(external_documents_);
     const auto result = workspace_.Open();
@@ -178,14 +278,7 @@ bool EditorSession::Open() {
     for (std::size_t index = 0; index < state_.form.fields.size(); ++index)
         (void) focus_context_.RegisterFocusable(index + 1, index);
     SyncTextField(true);
-    if (plugin_diagnostics.empty()) {
-        SetDiagnostics(state_.preview.diagnostics);
-    } else {
-        auto diagnostics = plugin_diagnostics;
-        diagnostics.insert(diagnostics.end(), state_.preview.diagnostics.begin(),
-                           state_.preview.diagnostics.end());
-        SetDiagnostics(std::move(diagnostics));
-    }
+    SetDiagnostics(state_.preview.diagnostics);
     return state_.preview.valid;
 }
 
@@ -202,21 +295,51 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
     }
     std::unordered_set<std::string> loaded_types;
     std::unordered_set<std::string> external_ids;
+    std::unordered_set<std::string> external_paths;
+    const auto ensure_read_only_adapter = [&]() {
+        if (adapters_.Find(std::string(kReadOnlyPluginDocumentType)) != nullptr)
+            return true;
+        const auto result = adapters_.Register(project::DocumentAdapter{
+            .type_id = std::string(kReadOnlyPluginDocumentType),
+            .fields = {},
+            .validate = [](const nlohmann::json&) { return std::vector<project::Diagnostic>{}; },
+            .normalize_edit = {}});
+        diagnostics.insert(diagnostics.end(), result.diagnostics.begin(), result.diagnostics.end());
+        return static_cast<bool>(result);
+    };
+    const auto discover_read_only = [&](std::string_view plugin_id,
+                                        const std::vector<std::string>& roots) {
+        if (!ensure_read_only_adapter())
+            return;
+        std::size_t discovered = 0;
+        for (const auto& root : roots) {
+            if (discovered >= 128)
+                break;
+            const auto add_file = [&](const std::filesystem::path& path) {
+                const auto relative = path.lexically_relative(root_).generic_string();
+                if (!external_paths.insert(relative).second)
+                    return false;
+                const auto document_id =
+                    "plugin:readonly:" + std::string(plugin_id) + ":" + relative;
+                if (!external_ids.insert(document_id).second)
+                    return false;
+                external_documents_.push_back(project::DocumentDescriptor{
+                    .id = document_id,
+                    .path = relative,
+                    .label_key = "plugin." + std::string(plugin_id) + ".document",
+                    .editable = false,
+                    .type_id = std::string(kReadOnlyPluginDocumentType),
+                    .category_key = "editor.project.category.plugins"});
+                diagnostics.push_back({"editor.document.read_only", relative});
+                return true;
+            };
+            DiscoverPluginDocuments(root_, root, diagnostics, discovered, add_file);
+        }
+    };
     for (const auto& id : parsed_project.manifest->plugins) {
         const auto plugin_root = root_ / "plugins" / id;
         const auto sidecar_path = plugin_root / "plugin.editor.json";
         std::error_code error;
-        if (!std::filesystem::exists(sidecar_path, error))
-            continue;
-
-        nlohmann::json sidecar_document;
-        if (!ReadJson(sidecar_path, sidecar_document, diagnostics))
-            continue;
-        const auto extension = plugin::ParseEditorExtension(sidecar_document);
-        if (!extension) {
-            AddPluginDiagnostic(diagnostics, *extension.error);
-            continue;
-        }
         std::optional<plugin::PluginManifest> manifest;
         if (plugins_ != nullptr)
             manifest = plugins_->FindManifest(id);
@@ -231,47 +354,77 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
             }
             manifest = parsed_manifest.manifest;
         }
-        if (extension.extension->plugin_id != id) {
-            AddPluginDiagnostic(diagnostics, plugin::PluginError{"editor.plugin_id",
-                                                                 "sidecar plugin id mismatch", id});
+        if (!std::filesystem::exists(sidecar_path, error)) {
+            diagnostics.push_back({"editor.plugin.sidecar_missing", sidecar_path.string()});
+            discover_read_only(id, manifest->data_roots);
+            continue;
+        }
+        nlohmann::json sidecar_document;
+        if (!ReadJson(sidecar_path, sidecar_document, diagnostics)) {
+            discover_read_only(id, manifest->data_roots);
+            continue;
+        }
+        const auto extension = plugin::ParseEditorExtension(sidecar_document);
+        if (!extension) {
+            AddPluginDiagnosticAt(diagnostics, *extension.error, sidecar_path);
+            discover_read_only(id, manifest->data_roots);
+            continue;
+        }
+        if (const auto contract_error =
+                plugin::ValidateEditorExtension(*extension.extension, *manifest);
+            contract_error.has_value()) {
+            AddPluginDiagnosticAt(diagnostics, *contract_error, sidecar_path);
+            discover_read_only(id, manifest->data_roots);
             continue;
         }
         const auto resource_errors =
             plugin::ValidateEditorExtensionResources(*extension.extension, *manifest, plugin_root);
         for (const auto& resource_error : resource_errors)
-            AddPluginDiagnostic(diagnostics, resource_error);
-        if (!resource_errors.empty())
+            AddPluginDiagnosticAt(diagnostics, resource_error, sidecar_path);
+        if (!resource_errors.empty()) {
+            discover_read_only(id, manifest->data_roots);
             continue;
+        }
         for (const auto& document : extension.extension->documents) {
             nlohmann::json descriptor_document;
-            if (!ReadJson(plugin_root / document.descriptor, descriptor_document, diagnostics))
+            const auto descriptor_path = plugin_root / document.descriptor;
+            if (!ReadJson(descriptor_path, descriptor_document, diagnostics)) {
+                discover_read_only(id, manifest->data_roots);
                 continue;
+            }
             const auto descriptor = plugin::ParseEditorDescriptor(descriptor_document);
             if (!descriptor) {
-                AddPluginDiagnostic(diagnostics, *descriptor.error);
+                AddPluginDiagnosticAt(diagnostics, *descriptor.error, descriptor_path);
+                discover_read_only(id, manifest->data_roots);
                 continue;
             }
             if (descriptor.descriptor->type_id != document.type_id) {
-                AddPluginDiagnostic(diagnostics,
-                                    plugin::PluginError{"editor_descriptor.type_id",
-                                                        "descriptor type_id does not match sidecar",
-                                                        document.type_id});
+                AddPluginDiagnosticAt(
+                    diagnostics,
+                    plugin::PluginError{"editor_descriptor.type_id",
+                                        "descriptor type_id does not match sidecar",
+                                        document.type_id},
+                    descriptor_path);
+                discover_read_only(id, manifest->data_roots);
                 continue;
             }
             if (!loaded_types.insert(document.type_id).second) {
-                AddPluginDiagnostic(diagnostics,
-                                    plugin::PluginError{"editor.document.duplicate_type",
-                                                        "editor document type is already loaded",
-                                                        document.type_id});
+                AddPluginDiagnosticAt(diagnostics,
+                                      plugin::PluginError{"editor.document.duplicate_type",
+                                                          "editor document type is already loaded",
+                                                          document.type_id},
+                                      descriptor_path);
+                discover_read_only(id, manifest->data_roots);
                 continue;
             }
-            const auto result = project::RegisterEditorDescriptor(
-                adapters_, *descriptor.descriptor,
-                [](const nlohmann::json&) { return std::vector<project::Diagnostic>{}; });
+            const auto result =
+                project::RegisterEditorDescriptor(adapters_, *descriptor.descriptor, {});
             diagnostics.insert(diagnostics.end(), result.diagnostics.begin(),
                                result.diagnostics.end());
-            if (!result)
+            if (!result) {
+                discover_read_only(id, manifest->data_roots);
                 continue;
+            }
 
             for (const auto& root : document.roots) {
                 const auto root_path = root_ / root;
@@ -282,19 +435,13 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
                     continue;
                 }
                 std::size_t discovered = 0;
-                std::error_code iterator_error;
-                for (std::filesystem::recursive_directory_iterator it(root_path, iterator_error),
-                     end;
-                     it != end && !iterator_error; it.increment(iterator_error)) {
-                    if (discovered >= 128)
-                        break;
-                    if (!it->is_regular_file(iterator_error) || iterator_error ||
-                        it->path().extension() != ".json")
-                        continue;
-                    const auto relative = it->path().lexically_relative(root_).generic_string();
+                const auto add_file = [&](const std::filesystem::path& path) {
+                    const auto relative = path.lexically_relative(root_).generic_string();
                     const auto document_id = "plugin:" + document.type_id + ":" + relative;
+                    if (!external_paths.insert(relative).second)
+                        return false;
                     if (!external_ids.insert(document_id).second)
-                        continue;
+                        return false;
                     external_documents_.push_back(project::DocumentDescriptor{
                         .id = document_id,
                         .path = relative,
@@ -302,10 +449,9 @@ std::vector<project::Diagnostic> EditorSession::LoadPluginEditorAdapters() {
                         .editable = true,
                         .type_id = document.type_id,
                         .category_key = "editor.project.category.plugins"});
-                    ++discovered;
-                }
-                if (iterator_error)
-                    diagnostics.push_back({"editor.document_root.enumeration", root});
+                    return true;
+                };
+                DiscoverPluginDocuments(root_, root, diagnostics, discovered, add_file);
             }
         }
     }
@@ -432,8 +578,13 @@ bool EditorSession::SelectField(std::size_t index) {
 }
 
 bool EditorSession::ApplySelected(nlohmann::json value) {
-    if (!state_.open || state_.form.fields.empty() ||
-        state_.selected_field >= state_.form.fields.size())
+    if (!state_.open)
+        return false;
+    if (IsReadOnlyDocument(state_)) {
+        SetDiagnostics({{"project.edit.document_read_only", state_.form.document_id}});
+        return false;
+    }
+    if (state_.form.fields.empty() || state_.selected_field >= state_.form.fields.size())
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
     if (field.read_only)
@@ -452,7 +603,13 @@ bool EditorSession::ApplySelected(nlohmann::json value) {
 }
 
 bool EditorSession::ApplySelectedText(std::string_view value) {
-    if (!state_.open || IsNavigationCellSelection(state_.selection) || state_.form.fields.empty() ||
+    if (!state_.open)
+        return false;
+    if (IsReadOnlyDocument(state_)) {
+        SetDiagnostics({{"project.edit.document_read_only", state_.form.document_id}});
+        return false;
+    }
+    if (IsNavigationCellSelection(state_.selection) || state_.form.fields.empty() ||
         state_.selected_field >= state_.form.fields.size())
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
@@ -488,7 +645,13 @@ bool EditorSession::ApplySelectedText(std::string_view value) {
 }
 
 bool EditorSession::ApplySelectedComposition(std::string_view value) {
-    if (!state_.open || IsNavigationCellSelection(state_.selection) || state_.form.fields.empty() ||
+    if (!state_.open)
+        return false;
+    if (IsReadOnlyDocument(state_)) {
+        SetDiagnostics({{"project.edit.document_read_only", state_.form.document_id}});
+        return false;
+    }
+    if (IsNavigationCellSelection(state_.selection) || state_.form.fields.empty() ||
         state_.selected_field >= state_.form.fields.size())
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
@@ -503,7 +666,13 @@ bool EditorSession::ApplySelectedComposition(std::string_view value) {
 }
 
 bool EditorSession::ApplySelectedKey(std::string_view key) {
-    if (!state_.open || IsNavigationCellSelection(state_.selection) || state_.form.fields.empty() ||
+    if (!state_.open)
+        return false;
+    if (IsReadOnlyDocument(state_)) {
+        SetDiagnostics({{"project.edit.document_read_only", state_.form.document_id}});
+        return false;
+    }
+    if (IsNavigationCellSelection(state_.selection) || state_.form.fields.empty() ||
         state_.selected_field >= state_.form.fields.size())
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
@@ -530,8 +699,14 @@ bool EditorSession::ApplySelectedKey(std::string_view key) {
 }
 
 bool EditorSession::AdjustSelectedInteger(int delta) {
-    if (!state_.open || state_.form.fields.empty() ||
-        state_.selected_field >= state_.form.fields.size() || (delta != -1 && delta != 1))
+    if (!state_.open)
+        return false;
+    if (IsReadOnlyDocument(state_)) {
+        SetDiagnostics({{"project.edit.document_read_only", state_.form.document_id}});
+        return false;
+    }
+    if (state_.form.fields.empty() || state_.selected_field >= state_.form.fields.size() ||
+        (delta != -1 && delta != 1))
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
     if (field.read_only || field.value_type != "integer" || !field.value.is_number_integer())
@@ -547,8 +722,13 @@ bool EditorSession::AdjustSelectedInteger(int delta) {
 }
 
 bool EditorSession::ToggleSelectedBoolean() {
-    if (!state_.open || state_.form.fields.empty() ||
-        state_.selected_field >= state_.form.fields.size())
+    if (!state_.open)
+        return false;
+    if (IsReadOnlyDocument(state_)) {
+        SetDiagnostics({{"project.edit.document_read_only", state_.form.document_id}});
+        return false;
+    }
+    if (state_.form.fields.empty() || state_.selected_field >= state_.form.fields.size())
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
     if (field.read_only || field.value_type != "boolean" || !field.value.is_boolean())
@@ -557,8 +737,14 @@ bool EditorSession::ToggleSelectedBoolean() {
 }
 
 bool EditorSession::CycleSelectedChoice(int direction) {
-    if (!state_.open || state_.form.fields.empty() ||
-        state_.selected_field >= state_.form.fields.size() || (direction != -1 && direction != 1))
+    if (!state_.open)
+        return false;
+    if (IsReadOnlyDocument(state_)) {
+        SetDiagnostics({{"project.edit.document_read_only", state_.form.document_id}});
+        return false;
+    }
+    if (state_.form.fields.empty() || state_.selected_field >= state_.form.fields.size() ||
+        (direction != -1 && direction != 1))
         return false;
     const auto& field = state_.form.fields[state_.selected_field];
     if (field.read_only || field.value_type != "select" || !field.value.is_string() ||

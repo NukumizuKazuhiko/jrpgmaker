@@ -19,8 +19,56 @@ function Resolve-ExistingDirectory([string]$Path, [string]$Name) {
     return $resolved
 }
 
+function Test-PathWithin([string]$Root, [string]$Candidate) {
+    $relative = [System.IO.Path]::GetRelativePath($Root, $Candidate)
+    return -not [string]::IsNullOrEmpty($relative) -and
+        -not [System.IO.Path]::IsPathRooted($relative) -and
+        $relative -ne '..' -and
+        -not $relative.StartsWith('..' + [System.IO.Path]::DirectorySeparatorChar) -and
+        -not $relative.StartsWith('../') -and
+        -not $relative.StartsWith('..\')
+}
+
+function Resolve-CanonicalPath([string]$Path) {
+    $item = Get-Item -LiteralPath $Path -Force
+    $target = $item.ResolveLinkTarget($true)
+    if ($null -ne $target) {
+        return [System.IO.Path]::GetFullPath($target.FullName)
+    }
+    return [System.IO.Path]::GetFullPath($item.FullName)
+}
+
+function Get-NormalizedManifestRoot([string]$Root) {
+    if ([string]::IsNullOrWhiteSpace($Root) -or
+        $Root -match '(^|[\\/])\.\.([\\/]|$)' -or
+        [System.IO.Path]::IsPathRooted($Root) -or
+        $Root -match '^[A-Za-z]:') {
+        throw "invalid plugin data root: $Root"
+    }
+    $normalized = $Root.Replace('\', '/')
+    if ($normalized.StartsWith('/') -or $normalized.Contains('//')) {
+        throw "invalid plugin data root: $Root"
+    }
+    try {
+        $segments = @($normalized.Split('/') | Where-Object { $_ -ne '.' })
+        if ($segments.Count -eq 0) {
+            throw "invalid plugin data root: $Root"
+        }
+        return ($segments -join '/').TrimEnd('/')
+    } catch {
+        throw "invalid plugin data root: $Root"
+    }
+}
+
+$pathComparer = if ($IsWindows) {
+    [System.StringComparer]::OrdinalIgnoreCase
+} else {
+    [System.StringComparer]::Ordinal
+}
+
 $build = Resolve-ExistingDirectory $BuildRoot 'BuildRoot'
 $project = Resolve-ExistingDirectory $ProjectRoot 'ProjectRoot'
+$canonicalProject = Resolve-CanonicalPath $project
 $output = [System.IO.Path]::GetFullPath($OutputRoot)
 $projectManifest = Join-Path $project 'project.json'
 if (-not (Test-Path -LiteralPath $projectManifest -PathType Leaf)) {
@@ -60,7 +108,10 @@ Copy-Item -LiteralPath (Join-Path $project 'assets') -Destination $output -Recur
 $pluginOutput = Join-Path $output 'plugins'
 New-Item -ItemType Directory -Path $pluginOutput | Out-Null
 $pluginContracts = @()
-$pluginIds = [System.Collections.Generic.HashSet[string]]::new()
+$pluginIds = [System.Collections.Generic.HashSet[string]]::new($pathComparer)
+$pluginOutputDirectories = [System.Collections.Generic.HashSet[string]]::new($pathComparer)
+$packagedDataRoots = @()
+$packagedDataFiles = [System.Collections.Generic.HashSet[string]]::new($pathComparer)
 $pluginManifests = @(Get-ChildItem -LiteralPath (Join-Path $project 'plugins') -Filter plugin.json -File -Recurse |
     Sort-Object FullName)
 if ($pluginManifests.Count -eq 0) {
@@ -96,12 +147,73 @@ foreach ($manifest in $pluginManifests) {
         throw "duplicate plugin id: $($manifestDocument.id)"
     }
     $pluginContracts += [int]$manifestDocument.engine_contract
-    $destination = Join-Path $pluginOutput (Split-Path -Leaf $manifest.Directory.FullName)
+    $destinationName = Split-Path -Leaf $manifest.Directory.FullName
+    if (-not $pluginOutputDirectories.Add($destinationName)) {
+        throw "conflicting plugin output directory: $destinationName"
+    }
+    $destination = Join-Path $pluginOutput $destinationName
+
+    $rootRecords = @()
+    foreach ($rootValue in @($manifestDocument.data_roots)) {
+        $root = Get-NormalizedManifestRoot ([string]$rootValue)
+        $sourceRoot = [System.IO.Path]::GetFullPath((Join-Path $project $root))
+        if (-not (Test-Path -LiteralPath $sourceRoot -PathType Container)) {
+            throw "plugin data root does not exist: $($manifest.FullName): $root"
+        }
+        $canonicalRoot = Resolve-CanonicalPath $sourceRoot
+        if (-not (Test-PathWithin $canonicalProject $canonicalRoot) -or
+            $canonicalRoot -eq $canonicalProject) {
+            throw "plugin data root escapes project directory: $($manifest.FullName): $root"
+        }
+        $destinationRoot = [System.IO.Path]::GetFullPath((Join-Path $output $root))
+        $relativeDestination = [System.IO.Path]::GetRelativePath($output, $destinationRoot)
+        if ([System.IO.Path]::IsPathRooted($relativeDestination) -or
+            $relativeDestination -eq '..' -or
+            $relativeDestination.StartsWith('..' + [System.IO.Path]::DirectorySeparatorChar) -or
+            $relativeDestination -eq '.' -or
+            $destinationRoot -eq [System.IO.Path]::GetFullPath($pluginOutput)) {
+            throw "plugin data root cannot preserve package-relative path: $($manifest.FullName): $root"
+        }
+        foreach ($previous in $packagedDataRoots + $rootRecords) {
+            if ((Test-PathWithin $previous.DestinationRoot $destinationRoot) -or
+                (Test-PathWithin $destinationRoot $previous.DestinationRoot)) {
+                throw "conflicting plugin data root: $($manifest.FullName): $root"
+            }
+        }
+        $sourceFiles = @(Get-ChildItem -LiteralPath $sourceRoot -File -Recurse -Force |
+            Sort-Object FullName)
+        foreach ($sourceFile in $sourceFiles) {
+            $canonicalFile = Resolve-CanonicalPath $sourceFile.FullName
+            if (-not (Test-PathWithin $canonicalRoot $canonicalFile)) {
+                throw "plugin data file escapes declared root: $($manifest.FullName): $($sourceFile.FullName)"
+            }
+            if ([System.IO.Path]::GetFullPath($manifest.FullName) -eq $canonicalFile) {
+                throw "plugin data root includes its manifest: $($manifest.FullName): $root"
+            }
+        }
+        $rootRecords += [pscustomobject]@{
+            Name = $root
+            SourceRoot = $sourceRoot
+            CanonicalRoot = $canonicalRoot
+            DestinationRoot = $destinationRoot
+            SourceFiles = $sourceFiles
+        }
+    }
     New-Item -ItemType Directory -Path $destination | Out-Null
     Copy-Item -LiteralPath $manifest.FullName -Destination $destination
-    $data = Join-Path $manifest.Directory.FullName 'data'
-    if (Test-Path -LiteralPath $data -PathType Container) {
-        Copy-Item -LiteralPath $data -Destination $destination -Recurse
+    foreach ($rootRecord in $rootRecords) {
+        New-Item -ItemType Directory -Force -Path $rootRecord.DestinationRoot | Out-Null
+        foreach ($sourceFile in $rootRecord.SourceFiles) {
+            $relativeFile = [System.IO.Path]::GetRelativePath($rootRecord.SourceRoot, $sourceFile.FullName)
+            $targetFile = Join-Path $rootRecord.DestinationRoot $relativeFile
+            $targetFile = [System.IO.Path]::GetFullPath($targetFile)
+            if ((Test-Path -LiteralPath $targetFile) -or -not $packagedDataFiles.Add($targetFile)) {
+                throw "conflicting plugin data target: $targetFile"
+            }
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetFile) | Out-Null
+            Copy-Item -LiteralPath $sourceFile.FullName -Destination $targetFile
+        }
+        $packagedDataRoots += $rootRecord
     }
 }
 $contracts = @($pluginContracts | Sort-Object -Unique)

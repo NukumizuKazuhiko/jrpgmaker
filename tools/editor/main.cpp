@@ -1,27 +1,44 @@
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 #include <SDL3/SDL.h>
 
+#include "jrpgmaker/editor/editor_user_settings.hpp"
+#include "jrpgmaker/editor/editor_window.hpp"
 #include "jrpgmaker/editor/editor_workspace_controller.hpp"
+#include "jrpgmaker/editor/rmlui_editor_document.hpp"
+#include "jrpgmaker/editor/rmlui_editor_view.hpp"
 #include "jrpgmaker/render/ui_draw_adapter.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
 #include "jrpgmaker/rhi/swapchain.hpp"
 #include "jrpgmaker/ui/editor_resources.hpp"
-#include "jrpgmaker/ui/text_draw.hpp"
 #include "shaders_generated.hpp"
 #include "ui_text_generated.hpp"
-#include <array>
-#include <memory>
-#include <optional>
-#include <stdexcept>
 
 namespace {
 
 void PrintStartupDiagnostics(
     const std::vector<jrpgmaker::ui::EditorStartupDiagnostic>& diagnostics) {
+    for (const auto& diagnostic : diagnostics)
+        std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+}
+
+void PrintProjectDiagnostics(const jrpgmaker::editor::EditorSessionState* state) {
+    if (state == nullptr)
+        return;
+    for (const auto& diagnostic : state->diagnostics)
+        std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+}
+
+void PrintUserSettingsDiagnostics(
+    const std::vector<jrpgmaker::editor::EditorUserSettingsDiagnostic>& diagnostics) {
     for (const auto& diagnostic : diagnostics)
         std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
 }
@@ -66,6 +83,26 @@ void SDLCALL ProjectFolderDialogCallback(void* userdata, const char* const* file
         state.selected_root = std::filesystem::path(filelist[0]);
 }
 
+jrpgmaker::editor::RmlUiInputModifiers CurrentModifiers() {
+    const auto modifiers = SDL_GetModState();
+    return {.control = (modifiers & SDL_KMOD_CTRL) != 0,
+            .shift = (modifiers & SDL_KMOD_SHIFT) != 0,
+            .alt = (modifiers & SDL_KMOD_ALT) != 0,
+            .caps_lock = (modifiers & SDL_KMOD_CAPS) != 0,
+            .num_lock = (modifiers & SDL_KMOD_NUM) != 0};
+}
+
+std::string RmlSourceUrl(const std::filesystem::path& path) {
+    auto result = path.generic_string();
+    std::replace(result.begin(), result.end(), ':', '|');
+    return result;
+}
+
+float WindowDisplayScale(SDL_Window* window) {
+    const float scale = SDL_GetWindowDisplayScale(window);
+    return scale > 0.0f && std::isfinite(scale) ? scale : 1.0f;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -88,20 +125,6 @@ int main(int argc, char** argv) {
         std::cerr << "editor.font.unavailable\n";
         return 1;
     }
-    std::vector<std::unique_ptr<jrpgmaker::ui::Font>> fonts;
-    std::vector<jrpgmaker::ui::Font*> fallback_fonts;
-    for (const auto& font_path : font_paths) {
-        auto font = std::make_unique<jrpgmaker::ui::Font>();
-        if (font->Load(font_path.string())) {
-            fallback_fonts.push_back(font.get());
-            fonts.push_back(std::move(font));
-        }
-    }
-    if (fonts.empty()) {
-        std::cerr << "editor.font.load_failed\n";
-        return 1;
-    }
-    jrpgmaker::ui::GlyphAtlas glyph_atlas(1024, 1024, 512);
 
     const auto form_row_height = resources.bundle->theme.dimensions.at("font.body") +
                                  resources.bundle->theme.dimensions.at("space.sm");
@@ -117,41 +140,91 @@ int main(int argc, char** argv) {
          .runtime_executable = JRPGMAKER_RUNTIME_EXECUTABLE});
     if ((argc == 2 && !smoke) || argc == 3) {
         const auto project_argument = std::filesystem::path(argv[1]);
-        if (!controller.OpenProject(project_argument)) {
-            const auto* state = controller.state();
-            if (state != nullptr)
-                for (const auto& diagnostic : state->diagnostics)
-                    std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
-            return 1;
-        }
+        if (!controller.OpenProject(project_argument))
+            PrintProjectDiagnostics(controller.state());
     }
-    ProjectDialogState project_dialog;
 
     const auto title = resources.bundle->locale.strings.at("editor.window.title");
     if (!SDL_Init(SDL_INIT_VIDEO))
         return 1;
+
+    std::optional<std::filesystem::path> user_settings_path;
+    if (char* preference_path = SDL_GetPrefPath("jrpgmaker", "jrpgmaker-editor");
+        preference_path != nullptr) {
+        user_settings_path = std::filesystem::path(preference_path) / "editor_user_settings.json";
+        SDL_free(preference_path);
+    } else {
+        std::cerr << "editor.settings.preference_path_unavailable\n";
+    }
+    jrpgmaker::editor::EditorUserSettings user_settings;
+    if (user_settings_path) {
+        const auto loaded = jrpgmaker::editor::LoadEditorUserSettings(*user_settings_path);
+        user_settings = loaded.settings;
+        PrintUserSettingsDiagnostics(loaded.diagnostics);
+    }
+
     const SDL_WindowFlags window_flags =
+        static_cast<SDL_WindowFlags>(jrpgmaker::editor::EditorWindowFlags(
 #if defined(_WIN32)
-        SDL_WINDOW_RESIZABLE;
+            false
 #else
-        static_cast<SDL_WindowFlags>(SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN);
+            true
 #endif
-    std::uint32_t window_width = 1280;
-    std::uint32_t window_height = 720;
-    SDL_Window* window = SDL_CreateWindow(title.c_str(), window_width, window_height, window_flags);
+            ));
+    SDL_Window* window = SDL_CreateWindow(title.c_str(), 1280, 720, window_flags);
     if (window == nullptr) {
         SDL_Quit();
         return 1;
     }
+    int pixel_width = 0;
+    int pixel_height = 0;
+    if (!SDL_GetWindowSizeInPixels(window, &pixel_width, &pixel_height) || pixel_width <= 0 ||
+        pixel_height <= 0) {
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    }
+    std::uint32_t window_width = static_cast<std::uint32_t>(pixel_width);
+    std::uint32_t window_height = static_cast<std::uint32_t>(pixel_height);
+    float display_scale = WindowDisplayScale(window);
     SDL_StartTextInput(window);
 
+    ProjectDialogState project_dialog;
     std::unique_ptr<jrpgmaker::rhi::IDevice> device;
     jrpgmaker::rhi::ISwapchain* swapchain = nullptr;
     jrpgmaker::rhi::ICommandList* command_list = nullptr;
     jrpgmaker::rhi::PipelineHandle pipeline = jrpgmaker::rhi::PipelineHandle::kInvalid;
     jrpgmaker::rhi::PipelineHandle text_pipeline = jrpgmaker::rhi::PipelineHandle::kInvalid;
-    jrpgmaker::render::UiGpuBatch gpu_batch;
-    jrpgmaker::render::UiTextGpuBatch text_gpu_batch;
+    jrpgmaker::editor::RmlUiEditorView view;
+    bool ui_dirty = true;
+    auto persisted_user_settings = user_settings;
+    const auto persist_user_settings = [&] {
+        if (!user_settings_path)
+            return;
+        const auto current = view.ExportSplitterRatios();
+        if (current == persisted_user_settings)
+            return;
+        const auto saved = jrpgmaker::editor::SaveEditorUserSettings(*user_settings_path, current);
+        PrintUserSettingsDiagnostics(saved.diagnostics);
+        if (saved.ok)
+            persisted_user_settings = current;
+    };
+
+    const auto open_project_dialog = [&] {
+        std::lock_guard lock(project_dialog.mutex);
+        if (!project_dialog.pending) {
+            project_dialog.pending = true;
+            SDL_ShowOpenFolderDialog(ProjectFolderDialogCallback, &project_dialog, window, nullptr,
+                                     false);
+        }
+    };
+    const auto rebuild_markup = [&] {
+        return jrpgmaker::editor::BuildRmlUiEditorDocument(
+            controller.state(), resources.bundle->locale, "editor_workspace.rcss",
+            controller.project_filter(), view.ExportSettings(), view.focused_panel(),
+            view.panel_maximized());
+    };
+
     try {
 #if defined(_WIN32)
         device = jrpgmaker::rhi::CreateDevice(jrpgmaker::rhi::Backend::kD3D12);
@@ -172,26 +245,26 @@ int main(int argc, char** argv) {
              .offset_bytes = sizeof(float) * 3,
              .semantic_name = "COLOR"},
         };
-        jrpgmaker::rhi::GraphicsPipelineDesc pipeline_desc{
-            .vertex_shader =
-                {
+        pipeline = device->CreatePipeline(
+            {.vertex_shader =
+                 {
 #if defined(_WIN32)
-                    jrpgmaker::shaders::kUiVsDxil, jrpgmaker::shaders::kUiVsDxil_size
+                     jrpgmaker::shaders::kUiVsDxil, jrpgmaker::shaders::kUiVsDxil_size
 #else
-                    jrpgmaker::shaders::kUiVsSpv, jrpgmaker::shaders::kUiVsSpv_size
+                     jrpgmaker::shaders::kUiVsSpv, jrpgmaker::shaders::kUiVsSpv_size
 #endif
-                },
-            .pixel_shader =
-                {
+                 },
+             .pixel_shader =
+                 {
 #if defined(_WIN32)
-                    jrpgmaker::shaders::kUiPsDxil, jrpgmaker::shaders::kUiPsDxil_size
+                     jrpgmaker::shaders::kUiPsDxil, jrpgmaker::shaders::kUiPsDxil_size
 #else
-                    jrpgmaker::shaders::kUiPsSpv, jrpgmaker::shaders::kUiPsSpv_size
+                     jrpgmaker::shaders::kUiPsSpv, jrpgmaker::shaders::kUiPsSpv_size
 #endif
-                },
-            .color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm,
-            .vertex_input = {attributes, 2, sizeof(jrpgmaker::render::UiVertex)}};
-        pipeline = device->CreatePipeline(pipeline_desc);
+                 },
+             .color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm,
+             .vertex_input = {attributes, 2, sizeof(jrpgmaker::render::UiVertex)},
+             .blend_mode = jrpgmaker::rhi::BlendMode::kAlpha});
         const jrpgmaker::rhi::VertexAttribute text_attributes[] = {
             {.location = 0,
              .format = jrpgmaker::rhi::VertexAttributeFormat::kFloat3,
@@ -206,55 +279,76 @@ int main(int argc, char** argv) {
              .offset_bytes = sizeof(float) * 5,
              .semantic_name = "COLOR"},
         };
-        jrpgmaker::rhi::GraphicsPipelineDesc text_pipeline_desc{
-            .vertex_shader =
-                {
+        text_pipeline = device->CreatePipeline(
+            {.vertex_shader =
+                 {
 #if defined(_WIN32)
-                    jrpgmaker::shaders::kUiTextVsDxil, jrpgmaker::shaders::kUiTextVsDxil_size
+                     jrpgmaker::shaders::kUiTextVsDxil, jrpgmaker::shaders::kUiTextVsDxil_size
 #else
-                    jrpgmaker::shaders::kUiTextVsSpv, jrpgmaker::shaders::kUiTextVsSpv_size
+                     jrpgmaker::shaders::kUiTextVsSpv, jrpgmaker::shaders::kUiTextVsSpv_size
 #endif
-                },
-            .pixel_shader =
-                {
+                 },
+             .pixel_shader =
+                 {
 #if defined(_WIN32)
-                    jrpgmaker::shaders::kUiTextPsDxil, jrpgmaker::shaders::kUiTextPsDxil_size
+                     jrpgmaker::shaders::kUiTextPsDxil, jrpgmaker::shaders::kUiTextPsDxil_size
 #else
-                    jrpgmaker::shaders::kUiTextPsSpv, jrpgmaker::shaders::kUiTextPsSpv_size
+                     jrpgmaker::shaders::kUiTextPsSpv, jrpgmaker::shaders::kUiTextPsSpv_size
 #endif
-                },
-            .color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm,
-            .vertex_input = {text_attributes, 3, sizeof(jrpgmaker::render::UiTextVertex)},
-            .sample_slot = 1,
-            .blend_mode = jrpgmaker::rhi::BlendMode::kAlpha};
-        text_pipeline = device->CreatePipeline(text_pipeline_desc);
-        if (text_pipeline == jrpgmaker::rhi::PipelineHandle::kInvalid)
-            throw std::runtime_error("editor.ui.text_pipeline_creation_failed");
+                 },
+             .color_format = jrpgmaker::rhi::Format::kB8G8R8A8Unorm,
+             .vertex_input = {text_attributes, 3, sizeof(jrpgmaker::render::UiTextVertex)},
+             .sample_slot = 1,
+             .blend_mode = jrpgmaker::rhi::BlendMode::kAlpha});
+        if (pipeline == jrpgmaker::rhi::PipelineHandle::kInvalid ||
+            text_pipeline == jrpgmaker::rhi::PipelineHandle::kInvalid)
+            throw std::runtime_error("editor.rmlui.pipeline_creation_failed");
         if (!controller.Resize(static_cast<float>(window_width), static_cast<float>(window_height)))
             throw std::runtime_error("editor.ui.layout_invalid");
-        const auto draw_list = controller.BuildDrawList();
-        const auto text_draw = jrpgmaker::ui::BuildTextDrawList(
-            draw_list, resources.bundle->locale, *fonts.front(), fallback_fonts, glyph_atlas,
-            static_cast<std::uint32_t>(resources.bundle->theme.dimensions.at("font.body")));
-        if (!text_draw.ok()) {
-            for (const auto& diagnostic : text_draw.diagnostics)
-                std::cerr << diagnostic.code << '\t' << diagnostic.primitive_index << '\n';
-            throw std::runtime_error("editor.ui.text_draw_invalid");
-        }
-        const auto packet = jrpgmaker::render::BuildUiDrawPacket(
-            text_draw.draw_list, resources.bundle->theme,
-            {static_cast<float>(window_width), static_cast<float>(window_height)});
-        if (!packet.ok())
-            throw std::runtime_error("editor.ui.draw_packet_invalid");
-        gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
-        const auto text_packet = jrpgmaker::render::BuildUiTextDrawPacket(
-            text_draw.draw_list,
-            {static_cast<float>(window_width), static_cast<float>(window_height)});
-        if (!text_packet.ok())
-            throw std::runtime_error("editor.ui.text_packet_invalid");
-        text_gpu_batch =
-            jrpgmaker::render::UploadUiTextDrawPacket(*device, text_packet, glyph_atlas);
+        if (!view.Initialize(
+                *device,
+                {.resource_root = JRPGMAKER_EDITOR_RESOURCE_ROOT, .font_paths = font_paths},
+                [&](const jrpgmaker::editor::RmlUiCommand& command) {
+                    if (command.name == "layout.reset_default") {
+                        view.ImportSplitterRatios(jrpgmaker::editor::EditorUserSettings{});
+                        ui_dirty = true;
+                        persist_user_settings();
+                        return;
+                    }
+                    if (command.name == "panel.toggle") {
+                        if (view.TogglePanel(command.argument)) {
+                            ui_dirty = true;
+                            persist_user_settings();
+                        }
+                        return;
+                    }
+                    if (command.name == "dock.activate") {
+                        persist_user_settings();
+                        return;
+                    }
+                    if (command.name == "window.toggle_maximize") {
+                        if (view.ToggleFocusedPanelMaximize())
+                            ui_dirty = true;
+                        return;
+                    }
+                    const auto result = controller.DispatchCommand(command.name, command.argument);
+                    ui_dirty = ui_dirty || result.changed;
+                    if (result.host_request ==
+                        jrpgmaker::editor::EditorHostRequest::kOpenProjectDialog)
+                        open_project_dialog();
+                },
+                window_width, window_height))
+            throw std::runtime_error("editor.rmlui.initialise_failed");
+        view.ImportSplitterRatios(user_settings);
+        if (!view.SetDensityIndependentPixelRatio(display_scale))
+            throw std::runtime_error("editor.rmlui.density_ratio_invalid");
+        if (!view.SetMarkup(rebuild_markup(),
+                            RmlSourceUrl(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_ROOT) /
+                                         "rml/editor_workspace.rml")))
+            throw std::runtime_error("editor.rmlui.document_load_failed");
         command_list = device->CreateCommandList();
+        if (command_list == nullptr)
+            throw std::runtime_error("editor.rhi.command_list_creation_failed");
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         if (command_list != nullptr)
@@ -263,10 +357,6 @@ int main(int argc, char** argv) {
             device->DestroyPipeline(pipeline);
         if (text_pipeline != jrpgmaker::rhi::PipelineHandle::kInvalid)
             device->DestroyPipeline(text_pipeline);
-        if (device != nullptr)
-            jrpgmaker::render::DestroyUiGpuBatch(*device, gpu_batch);
-        if (device != nullptr)
-            jrpgmaker::render::DestroyUiTextGpuBatch(*device, text_gpu_batch);
         if (swapchain != nullptr)
             device->DestroySwapchain(swapchain);
         SDL_DestroyWindow(window);
@@ -275,86 +365,73 @@ int main(int argc, char** argv) {
     }
 
     bool running = true;
-    bool ui_dirty = false;
+    persisted_user_settings = view.ExportSplitterRatios();
     SDL_Event event{};
     while (running) {
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+            if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
                 running = false;
-            else if (event.type == SDL_EVENT_MOUSE_MOTION) {
-                const auto result = controller.PointerMove(event.motion.x, event.motion.y);
-                ui_dirty = result.changed || ui_dirty;
+            } else if (event.type == SDL_EVENT_MOUSE_MOTION) {
+                (void) view.ProcessMouseMove(event.motion.x, event.motion.y, CurrentModifiers());
             } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
-                const auto result = controller.PointerDown(event.button.x, event.button.y);
-                ui_dirty = result.changed || ui_dirty;
-                if (result.host_request ==
-                    jrpgmaker::editor::EditorHostRequest::kOpenProjectDialog) {
-                    std::lock_guard lock(project_dialog.mutex);
-                    if (!project_dialog.pending) {
-                        project_dialog.pending = true;
-                        SDL_ShowOpenFolderDialog(ProjectFolderDialogCallback, &project_dialog,
-                                                 window, nullptr, false);
-                    }
-                }
+                ui_dirty = view.ProcessMouseButtonDown(event.button.x, event.button.y,
+                                                       static_cast<int>(event.button.button - 1),
+                                                       CurrentModifiers()) ||
+                           ui_dirty;
+            } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+                (void) view.ProcessMouseButtonUp(static_cast<int>(event.button.button - 1),
+                                                 CurrentModifiers());
+                persist_user_settings();
+            } else if (event.type == SDL_EVENT_MOUSE_WHEEL) {
+                (void) view.ProcessMouseWheel(event.wheel.x, event.wheel.y, CurrentModifiers());
             } else if (event.type == SDL_EVENT_KEY_DOWN) {
                 const auto key_name = std::string(SDL_GetKeyName(event.key.key));
-                if (controller.menu_open() || key_name == "Alt") {
-                    const auto result = controller.KeyDown(key_name);
-                    ui_dirty = result.changed || ui_dirty;
-                    if (result.host_request ==
-                        jrpgmaker::editor::EditorHostRequest::kOpenProjectDialog) {
-                        std::lock_guard lock(project_dialog.mutex);
-                        if (!project_dialog.pending) {
-                            project_dialog.pending = true;
-                            SDL_ShowOpenFolderDialog(ProjectFolderDialogCallback, &project_dialog,
-                                                     window, nullptr, false);
-                        }
-                    }
-                    continue;
-                }
-                if (controller.state() != nullptr) {
-                    if (key_name == "Left" || key_name == "Right" || key_name == "Backspace") {
-                        if (controller.ApplyTextKey(key_name)) {
-                            ui_dirty = true;
-                            continue;
-                        }
+                const bool panel_was_maximized = view.panel_maximized();
+                if (view.ProcessKeyDown(key_name, CurrentModifiers())) {
+                    const auto modifiers = SDL_GetModState();
+                    const auto action = input_map.Translate(
+                        key_name, true, (modifiers & SDL_KMOD_CTRL) != 0,
+                        (modifiers & SDL_KMOD_SHIFT) != 0, (modifiers & SDL_KMOD_ALT) != 0);
+                    if (action) {
+                        const auto result = controller.Dispatch(*action);
+                        ui_dirty = ui_dirty || result.changed;
+                        if (result.host_request ==
+                            jrpgmaker::editor::EditorHostRequest::kOpenProjectDialog)
+                            open_project_dialog();
                     }
                 }
-                const auto modifiers = SDL_GetModState();
-                const auto action = input_map.Translate(
-                    SDL_GetKeyName(event.key.key), true, (modifiers & SDL_KMOD_CTRL) != 0,
-                    (modifiers & SDL_KMOD_SHIFT) != 0, (modifiers & SDL_KMOD_ALT) != 0);
-                if (!action)
-                    continue;
-                const auto result = controller.Dispatch(*action);
-                ui_dirty = result.changed || ui_dirty;
-                if (result.host_request ==
-                    jrpgmaker::editor::EditorHostRequest::kOpenProjectDialog) {
-                    std::lock_guard lock(project_dialog.mutex);
-                    if (!project_dialog.pending) {
-                        project_dialog.pending = true;
-                        SDL_ShowOpenFolderDialog(ProjectFolderDialogCallback, &project_dialog,
-                                                 window, nullptr, false);
-                    }
+                ui_dirty = ui_dirty || panel_was_maximized != view.panel_maximized();
+            } else if (event.type == SDL_EVENT_KEY_UP) {
+                (void) view.ProcessKeyUp(std::string(SDL_GetKeyName(event.key.key)),
+                                         CurrentModifiers());
+            } else if (event.type == SDL_EVENT_TEXT_INPUT) {
+                if (view.ProcessTextInput(event.text.text) && controller.state() != nullptr) {
+                    if (controller.ApplyText(event.text.text))
+                        ui_dirty = true;
                 }
-            } else if (event.type == SDL_EVENT_TEXT_INPUT && controller.state() != nullptr) {
-                if (!controller.ApplyText(event.text.text))
-                    for (const auto& diagnostic : controller.state()->diagnostics)
-                        std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
-                else
-                    ui_dirty = true;
-            } else if (event.type == SDL_EVENT_TEXT_EDITING && controller.state() != nullptr) {
-                (void) controller.ApplyComposition(event.edit.text);
+            } else if (event.type == SDL_EVENT_TEXT_EDITING) {
+                (void) view.ProcessTextEditing(event.edit.text, event.edit.start,
+                                               event.edit.length);
             } else if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
                 window_width = static_cast<std::uint32_t>(std::max(1, event.window.data1));
                 window_height = static_cast<std::uint32_t>(std::max(1, event.window.data2));
+                display_scale = WindowDisplayScale(window);
                 device->WaitForGpuIdle();
                 swapchain->Resize(window_width, window_height);
-                (void) controller.Resize(static_cast<float>(window_width),
-                                         static_cast<float>(window_height));
-                ui_dirty = true;
+                if (!controller.Resize(static_cast<float>(window_width),
+                                       static_cast<float>(window_height))) {
+                    std::cerr << "editor.ui.layout_invalid\n";
+                    running = false;
+                } else {
+                    (void) view.Resize(window_width, window_height);
+                    (void) view.SetDensityIndependentPixelRatio(display_scale);
+                }
+            } else if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
+                display_scale = WindowDisplayScale(window);
+                (void) view.SetDensityIndependentPixelRatio(display_scale);
             }
         }
+
         std::optional<std::filesystem::path> selected_root;
         {
             std::lock_guard lock(project_dialog.mutex);
@@ -362,43 +439,28 @@ int main(int argc, char** argv) {
             project_dialog.selected_root.reset();
         }
         if (selected_root) {
-            if (!controller.OpenProject(*selected_root) && controller.state() != nullptr)
-                for (const auto& diagnostic : controller.state()->diagnostics)
-                    std::cerr << diagnostic.code << '\t' << diagnostic.path << '\n';
+            if (!controller.OpenProject(*selected_root))
+                PrintProjectDiagnostics(controller.state());
             ui_dirty = true;
         }
         if (controller.Poll())
             ui_dirty = true;
         if (ui_dirty) {
-            device->WaitForGpuIdle();
-            jrpgmaker::render::DestroyUiGpuBatch(*device, gpu_batch);
-            jrpgmaker::render::DestroyUiTextGpuBatch(*device, text_gpu_batch);
-            const auto draw_list = controller.BuildDrawList();
-            const auto text_draw = jrpgmaker::ui::BuildTextDrawList(
-                draw_list, resources.bundle->locale, *fonts.front(), fallback_fonts, glyph_atlas,
-                static_cast<std::uint32_t>(resources.bundle->theme.dimensions.at("font.body")));
-            if (!text_draw.ok())
-                throw std::runtime_error("editor.ui.text_draw_invalid");
-            const auto packet = jrpgmaker::render::BuildUiDrawPacket(
-                text_draw.draw_list, resources.bundle->theme,
-                {static_cast<float>(window_width), static_cast<float>(window_height)});
-            if (!packet.ok())
-                throw std::runtime_error("editor.ui.draw_packet_invalid");
-            gpu_batch = jrpgmaker::render::UploadUiDrawPacket(*device, packet);
-            const auto text_packet = jrpgmaker::render::BuildUiTextDrawPacket(
-                text_draw.draw_list,
-                {static_cast<float>(window_width), static_cast<float>(window_height)});
-            if (!text_packet.ok())
-                throw std::runtime_error("editor.ui.text_packet_invalid");
-            text_gpu_batch =
-                jrpgmaker::render::UploadUiTextDrawPacket(*device, text_packet, glyph_atlas);
+            if (!view.SetMarkup(rebuild_markup(),
+                                RmlSourceUrl(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_ROOT) /
+                                             "rml/editor_workspace.rml")))
+                std::cerr << "editor.rmlui.document_refresh_failed\n";
             ui_dirty = false;
         }
+
+        device->WaitForGpuIdle();
+        (void) view.Update();
+        (void) view.Render();
         const auto target = swapchain->AcquireTexture();
         command_list->Begin();
         command_list->BeginRendering(target, ThemeClearColor(resources.bundle->theme));
-        jrpgmaker::render::RecordUiDrawPacket(*command_list, pipeline, gpu_batch);
-        jrpgmaker::render::RecordUiTextDrawPacket(*command_list, text_pipeline, text_gpu_batch);
+        if (!view.Record(*command_list, pipeline, text_pipeline))
+            std::cerr << "editor.rmlui.record_failed\n";
         command_list->EndRendering();
         command_list->End();
         device->Submit(*command_list);
@@ -408,12 +470,12 @@ int main(int argc, char** argv) {
             break;
         SDL_Delay(8);
     }
+
     device->WaitForGpuIdle();
+    persist_user_settings();
     device->DestroyCommandList(command_list);
     device->DestroyPipeline(pipeline);
     device->DestroyPipeline(text_pipeline);
-    jrpgmaker::render::DestroyUiGpuBatch(*device, gpu_batch);
-    jrpgmaker::render::DestroyUiTextGpuBatch(*device, text_gpu_batch);
     device->DestroySwapchain(swapchain);
     SDL_DestroyWindow(window);
     SDL_Quit();

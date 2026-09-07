@@ -63,7 +63,9 @@ std::wstring QuoteArgument(const std::wstring& value) {
 } // namespace
 #endif
 
-PreviewProcess::~PreviewProcess() { Stop(); }
+PreviewProcess::~PreviewProcess() {
+    Stop();
+}
 
 bool PreviewProcess::Start(const std::filesystem::path& executable,
                            const std::filesystem::path& project_root) {
@@ -100,8 +102,8 @@ bool PreviewProcess::Start(const std::filesystem::path& executable,
         state_.error = "editor.preview.output_pipe_failed";
         return false;
     }
-    const auto command = QuoteArgument(NativePath(executable)) + L" " +
-                         QuoteArgument(NativePath(project_root));
+    const auto command =
+        QuoteArgument(NativePath(executable)) + L" " + QuoteArgument(NativePath(project_root));
     std::wstring mutable_command = command;
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
@@ -150,8 +152,8 @@ bool PreviewProcess::Start(const std::filesystem::path& executable,
     const std::string root_string = project_root.string();
     char* arguments[] = {const_cast<char*>(executable_string.c_str()),
                          const_cast<char*>(root_string.c_str()), nullptr};
-    const auto spawn_result = posix_spawn(&impl_->pid, executable_string.c_str(), &actions, nullptr,
-                                         arguments, environ);
+    const auto spawn_result =
+        posix_spawn(&impl_->pid, executable_string.c_str(), &actions, nullptr, arguments, environ);
     posix_spawn_file_actions_destroy(&actions);
     close(output_pipe[1]);
     close(error_pipe[1]);
@@ -180,8 +182,9 @@ void PreviewProcess::Poll() {
         while (PeekNamedPipe(handle, nullptr, 0, nullptr, &available, nullptr) && available > 0) {
             DWORD read = 0;
             if (!ReadFile(handle, buffer.data(),
-                          static_cast<DWORD>((std::min<std::size_t>)(buffer.size(), available)), &read,
-                          nullptr) || read == 0)
+                          static_cast<DWORD>((std::min<std::size_t>) (buffer.size(), available)),
+                          &read, nullptr) ||
+                read == 0)
                 break;
             AppendBounded(destination, buffer.data(), read);
         }

@@ -73,6 +73,7 @@ public:
 
 private:
     void SetDiagnostics(std::vector<project::Diagnostic> diagnostics);
+    void RebuildDiagnostics();
     void RebuildProjection();
     void PublishTextFieldState();
     void SyncTextField(bool select_all);
@@ -88,6 +89,8 @@ private:
     std::optional<project::ProjectSnapshot> snapshot_;
     EditorSessionState state_;
     std::vector<project::DocumentDescriptor> external_documents_;
+    std::vector<project::Diagnostic> startup_plugin_diagnostics_;
+    std::vector<project::Diagnostic> operation_diagnostics_;
 };
 
 } // namespace jrpgmaker::editor

@@ -10,8 +10,8 @@ jrpgmaker::ui::EditorTheme Theme() {
     jrpgmaker::ui::EditorTheme theme;
     theme.colors.emplace("accent", jrpgmaker::ui::EditorColor{255, 0, 128, 255});
     theme.semantic_tokens.emplace("button.normal", "accent");
-    theme.recipes.emplace("button", jrpgmaker::ui::EditorThemeRecipe{
-                                      {{"normal", "button.normal"}}});
+    theme.recipes.emplace("button",
+                          jrpgmaker::ui::EditorThemeRecipe{{{"normal", "button.normal"}}});
     return theme;
 }
 
@@ -20,8 +20,8 @@ jrpgmaker::ui::EditorTheme Theme() {
 TEST_CASE("ui draw adapter builds ordered ndc geometry", "[render][ui]") {
     jrpgmaker::ui::DrawList list;
     REQUIRE(list.Add(jrpgmaker::ui::DrawRect{{10.0f, 20.0f, 30.0f, 40.0f}, "button"}));
-    REQUIRE(list.Add(jrpgmaker::ui::DrawText{{0.0f, 0.0f, 10.0f, 10.0f}, "editor.title", {},
-                                             std::nullopt}));
+    REQUIRE(list.Add(
+        jrpgmaker::ui::DrawText{{0.0f, 0.0f, 10.0f, 10.0f}, "editor.title", {}, std::nullopt}));
 
     const auto packet = jrpgmaker::render::BuildUiDrawPacket(list, Theme(), {100.0f, 100.0f});
     REQUIRE(packet.ok());
@@ -68,9 +68,8 @@ TEST_CASE("ui draw adapter rejects invalid viewport", "[render][ui]") {
 
 TEST_CASE("ui text adapter converts glyph quads to ndc", "[render][ui][text]") {
     jrpgmaker::ui::DrawList list;
-    REQUIRE(list.Add(jrpgmaker::ui::DrawGlyph{{10.0f, 20.0f, 8.0f, 12.0f},
-                                              {0.1f, 0.2f, 0.25f, 0.5f},
-                                              {1.0f, 0.5f, 0.25f, 1.0f}}));
+    REQUIRE(list.Add(jrpgmaker::ui::DrawGlyph{
+        {10.0f, 20.0f, 8.0f, 12.0f}, {0.1f, 0.2f, 0.25f, 0.5f}, {1.0f, 0.5f, 0.25f, 1.0f}}));
     const auto packet = jrpgmaker::render::BuildUiTextDrawPacket(list, {100.0f, 100.0f});
     REQUIRE(packet.ok());
     REQUIRE(packet.vertices.size() == 4);

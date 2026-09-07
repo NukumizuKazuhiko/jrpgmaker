@@ -214,6 +214,26 @@ TEST_CASE("runtime overlay CJK dialog renders through both sampled-text and RHI 
     auto background_batch = jrpgmaker::render::UploadUiDrawPacket(*device, background_packet);
     jrpgmaker::render::UiTextGpuBatch text_batch;
     jrpgmaker::render::UpdateUiTextGpuBatch(*device, text_batch, text_packet, atlas);
+
+    std::vector<std::uint8_t> edge_class_pixels(atlas.pixels().size() * 4u, 0u);
+    for (std::size_t index = 0; index < atlas.pixels().size(); ++index) {
+        const auto coverage = atlas.pixels()[index];
+        const auto is_partial = coverage > 0u && coverage < 255u;
+        const auto is_nonzero = coverage > 0u;
+        edge_class_pixels[index * 4u + 0u] = is_partial ? 255u : 0u;
+        edge_class_pixels[index * 4u + 1u] = is_partial ? 255u : 0u;
+        edge_class_pixels[index * 4u + 2u] = is_partial ? 255u : 0u;
+        edge_class_pixels[index * 4u + 3u] = is_nonzero ? 255u : 0u;
+    }
+    const auto edge_class_texture = device->CreateTexture(
+        {atlas.width(), atlas.height(), Format::kR8G8B8A8Unorm, TextureUsage::kSampled});
+    REQUIRE(edge_class_texture != TextureHandle::kInvalid);
+    device->UploadTexture(edge_class_texture, edge_class_pixels.data(),
+                          static_cast<std::uint64_t>(atlas.width()) * 4u);
+    const auto edge_class_target =
+        device->CreateTexture({kWidth, kHeight, Format::kR8G8B8A8Unorm,
+                               TextureUsage::kRenderTarget | TextureUsage::kReadBack});
+    REQUIRE(edge_class_target != TextureHandle::kInvalid);
     auto* command_list = device->CreateCommandList();
     REQUIRE(command_list != nullptr);
     command_list->Begin();
@@ -226,8 +246,24 @@ TEST_CASE("runtime overlay CJK dialog renders through both sampled-text and RHI 
     device->WaitForGpuIdle();
     device->DestroyCommandList(command_list);
 
+    auto edge_class_batch = text_batch;
+    edge_class_batch.texture = edge_class_texture;
+    auto* edge_class_command_list = device->CreateCommandList();
+    REQUIRE(edge_class_command_list != nullptr);
+    edge_class_command_list->Begin();
+    edge_class_command_list->BeginRendering(edge_class_target, {0.0f, 0.0f, 0.0f, 0.0f});
+    jrpgmaker::render::RecordUiTextDrawPacket(*edge_class_command_list, text_pipeline,
+                                              edge_class_batch);
+    edge_class_command_list->EndRendering();
+    edge_class_command_list->End();
+    device->Submit(*edge_class_command_list);
+    device->WaitForGpuIdle();
+    device->DestroyCommandList(edge_class_command_list);
+
     const auto mapped = device->MapReadBack(target);
     REQUIRE(mapped.data != nullptr);
+    const auto edge_class_mapped = device->MapReadBack(edge_class_target);
+    REQUIRE(edge_class_mapped.data != nullptr);
     std::string golden_write_path;
 #if defined(_WIN32)
     char* owned_output_path = nullptr;
@@ -241,23 +277,49 @@ TEST_CASE("runtime overlay CJK dialog renders through both sampled-text and RHI 
     if (const char* output_path = std::getenv("JRPGMAKER_GOLDEN_WRITE"); output_path != nullptr)
         golden_write_path = output_path;
 #endif
+    std::string edge_class_write_path;
+#if defined(_WIN32)
+    char* owned_edge_class_output_path = nullptr;
+    std::size_t edge_class_output_path_size = 0;
+    if (_dupenv_s(&owned_edge_class_output_path, &edge_class_output_path_size,
+                  "JRPGMAKER_GOLDEN_EDGE_CLASS_WRITE") == 0 &&
+        owned_edge_class_output_path != nullptr) {
+        edge_class_write_path = owned_edge_class_output_path;
+        free(owned_edge_class_output_path);
+    }
+#else
+    if (const char* output_path = std::getenv("JRPGMAKER_GOLDEN_EDGE_CLASS_WRITE");
+        output_path != nullptr)
+        edge_class_write_path = output_path;
+#endif
+    REQUIRE(golden_write_path.empty() == edge_class_write_path.empty());
+    if (!golden_write_path.empty())
+        REQUIRE(golden_write_path != edge_class_write_path);
     if (!golden_write_path.empty()) {
-        golden::Image generated{.width = kWidth,
+        const auto readback_to_image = [](const jrpgmaker::rhi::MappedTexture& readback) {
+            golden::Image image{.width = kWidth,
                                 .height = kHeight,
                                 .rgb = std::vector<std::uint8_t>(kWidth * kHeight * 3u)};
-        for (std::uint32_t y = 0; y < kHeight; ++y) {
-            const auto* source = reinterpret_cast<const std::uint8_t*>(mapped.data) +
-                                 static_cast<std::uint64_t>(y) * mapped.row_pitch_bytes;
-            auto* destination = generated.rgb.data() + static_cast<std::size_t>(y) * kWidth * 3u;
-            for (std::uint32_t x = 0; x < kWidth; ++x) {
-                destination[x * 3u + 0u] = source[x * 4u + 0u];
-                destination[x * 3u + 1u] = source[x * 4u + 1u];
-                destination[x * 3u + 2u] = source[x * 4u + 2u];
+            for (std::uint32_t y = 0; y < kHeight; ++y) {
+                const auto* source = reinterpret_cast<const std::uint8_t*>(readback.data) +
+                                     static_cast<std::uint64_t>(y) * readback.row_pitch_bytes;
+                auto* destination = image.rgb.data() + static_cast<std::size_t>(y) * kWidth * 3u;
+                for (std::uint32_t x = 0; x < kWidth; ++x) {
+                    destination[x * 3u + 0u] = source[x * 4u + 0u];
+                    destination[x * 3u + 1u] = source[x * 4u + 1u];
+                    destination[x * 3u + 2u] = source[x * 4u + 2u];
+                }
             }
-        }
+            return image;
+        };
+        const auto generated = readback_to_image(mapped);
+        const auto generated_edge_class = readback_to_image(edge_class_mapped);
         std::string write_error;
         REQUIRE(golden::WritePpm(golden_write_path, generated, write_error));
+        REQUIRE(golden::WritePpm(edge_class_write_path, generated_edge_class, write_error));
         device->WaitForGpuIdle();
+        device->DestroyTexture(edge_class_target);
+        device->DestroyTexture(edge_class_texture);
         jrpgmaker::render::DestroyUiTextGpuBatch(*device, text_batch);
         jrpgmaker::render::DestroyUiGpuBatch(*device, background_batch);
         device->DestroyPipeline(text_pipeline);
@@ -268,13 +330,62 @@ TEST_CASE("runtime overlay CJK dialog renders through both sampled-text and RHI 
     golden::Image reference;
     std::string error;
     REQUIRE(golden::ReadPpm(GoldenPath("runtime_overlay_cjk_256x160.ppm"), reference, error));
-    const auto result = golden::CompareRgba8(reinterpret_cast<const std::uint8_t*>(mapped.data),
+    golden::Image edge_class_reference;
+    REQUIRE(golden::ReadPpm(GoldenPath("runtime_overlay_cjk_256x160_edge_class.ppm"),
+                            edge_class_reference, error));
+    const auto edge_class_result =
+        golden::CompareRgba8(reinterpret_cast<const std::uint8_t*>(edge_class_mapped.data),
+                             edge_class_mapped.row_pitch_bytes, edge_class_reference, 0);
+    INFO("edge-class max channel delta: "
+         << edge_class_result.max_channel_delta << ", differing pixels: "
+         << edge_class_result.pixels_differing << " / " << edge_class_result.pixels_compared);
+    CHECK(edge_class_result.passed);
+    const auto strict = golden::CompareRgba8(reinterpret_cast<const std::uint8_t*>(mapped.data),
                                              mapped.row_pitch_bytes, reference, 0);
-    INFO("max channel delta: " << result.max_channel_delta << ", differing pixels: "
-                               << result.pixels_differing << " / " << result.pixels_compared);
-    CHECK(result.passed);
+    const auto tolerant = golden::CompareRgba8(reinterpret_cast<const std::uint8_t*>(mapped.data),
+                                               mapped.row_pitch_bytes, reference, 1);
+    INFO("max channel delta: " << strict.max_channel_delta << ", differing pixels: "
+                               << strict.pixels_differing << " / " << strict.pixels_compared);
+    CHECK(tolerant.passed);
+    std::size_t mismatches_outside_partial_coverage = 0;
+    std::size_t partial_coverage_pixels = 0;
+    std::size_t non_partial_coverage_pixels = 0;
+    std::size_t invalid_edge_class_pixels = 0;
+    for (std::uint32_t y = 0; y < kHeight; ++y) {
+        const auto* actual = reinterpret_cast<const std::uint8_t*>(mapped.data) +
+                             static_cast<std::uint64_t>(y) * mapped.row_pitch_bytes;
+        const auto* expected = reference.rgb.data() + static_cast<std::size_t>(y) * kWidth * 3u;
+        const auto* expected_edge_class =
+            edge_class_reference.rgb.data() + static_cast<std::size_t>(y) * kWidth * 3u;
+        for (std::uint32_t x = 0; x < kWidth; ++x) {
+            const bool is_partial = expected_edge_class[x * 3u + 0u] == 255u &&
+                                    expected_edge_class[x * 3u + 1u] == 255u &&
+                                    expected_edge_class[x * 3u + 2u] == 255u;
+            const bool is_non_partial = expected_edge_class[x * 3u + 0u] == 0u &&
+                                        expected_edge_class[x * 3u + 1u] == 0u &&
+                                        expected_edge_class[x * 3u + 2u] == 0u;
+            partial_coverage_pixels += is_partial ? 1u : 0u;
+            non_partial_coverage_pixels += is_non_partial ? 1u : 0u;
+            invalid_edge_class_pixels += !is_partial && !is_non_partial ? 1u : 0u;
+            const bool differs = actual[x * 4u + 0u] != expected[x * 3u + 0u] ||
+                                 actual[x * 4u + 1u] != expected[x * 3u + 1u] ||
+                                 actual[x * 4u + 2u] != expected[x * 3u + 2u];
+            if (differs && !is_partial)
+                ++mismatches_outside_partial_coverage;
+        }
+    }
+    INFO("partial glyph coverage pixels: " << partial_coverage_pixels);
+    INFO("non-partial glyph coverage pixels: " << non_partial_coverage_pixels);
+    INFO("invalid edge-class pixels: " << invalid_edge_class_pixels);
+    CHECK(partial_coverage_pixels > 0u);
+    CHECK(non_partial_coverage_pixels > 0u);
+    CHECK(invalid_edge_class_pixels == 0u);
+    INFO("mismatches outside partial glyph coverage: " << mismatches_outside_partial_coverage);
+    CHECK(mismatches_outside_partial_coverage == 0u);
 
     device->WaitForGpuIdle();
+    device->DestroyTexture(edge_class_target);
+    device->DestroyTexture(edge_class_texture);
     jrpgmaker::render::DestroyUiTextGpuBatch(*device, text_batch);
     jrpgmaker::render::DestroyUiGpuBatch(*device, background_batch);
     device->DestroyPipeline(text_pipeline);

@@ -36,11 +36,13 @@
           {"type": "MenuItem", "id": "menu.run.stop", "label_key": "editor.action.stop_preview", "command": "run.stop"}
         ]},
         {"type": "Menu", "id": "menu.window", "label_key": "editor.menu.window", "recipe": "button", "children": [
-          {"type": "MenuItem", "id": "menu.window.project", "label_key": "editor.workspace.project", "command": "window.focus.workspace.project"},
-          {"type": "MenuItem", "id": "menu.window.hierarchy", "label_key": "editor.workspace.hierarchy", "command": "window.focus.workspace.hierarchy"},
-          {"type": "MenuItem", "id": "menu.window.scene", "label_key": "editor.workspace.scene", "command": "window.focus.workspace.scene"},
-          {"type": "MenuItem", "id": "menu.window.inspector", "label_key": "editor.workspace.inspector", "command": "window.focus.workspace.form"},
-          {"type": "MenuItem", "id": "menu.window.diagnostics", "label_key": "editor.workspace.diagnostics", "command": "window.focus.workspace.diagnostics"}
+          {"type": "MenuItem", "id": "menu.window.project", "label_key": "editor.workspace.project", "command": "panel.toggle", "argument": "workspace.project", "role": "menuitemcheckbox"},
+          {"type": "MenuItem", "id": "menu.window.hierarchy", "label_key": "editor.workspace.hierarchy", "command": "panel.toggle", "argument": "workspace.hierarchy", "role": "menuitemcheckbox"},
+          {"type": "MenuItem", "id": "menu.window.inspector", "label_key": "editor.workspace.inspector", "command": "panel.toggle", "argument": "workspace.inspector", "role": "menuitemcheckbox"},
+          {"type": "MenuItem", "id": "menu.window.diagnostics", "label_key": "editor.workspace.diagnostics", "command": "panel.toggle", "argument": "workspace.diagnostics", "role": "menuitemcheckbox"},
+          {"type": "Menu", "id": "menu.window.layout", "label_key": "editor.menu.layout", "recipe": "button", "children": [
+            {"type": "MenuItem", "id": "menu.window.layout.reset_default", "label_key": "editor.menu.reset_layout", "command": "layout.reset_default"}
+          ]}
         ]}
       ]},
       {"type": "Toolbar", "id": "workspace.toolbar", "label_key": "", "recipe": "button", "bounds": {"x": 0, "y": 28, "width": 1280, "height": 34}},

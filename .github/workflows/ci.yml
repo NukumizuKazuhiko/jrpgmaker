@@ -67,6 +67,31 @@ jobs:
           echo "VK_DRIVER_FILES=$RUNNER_TEMP/lavapipe-macos-arm64/lvp_icd.aarch64.json" >> "$GITHUB_ENV"
           echo "DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib" >> "$GITHUB_ENV"
 
+      - name: Stage MSVC runtime for test discovery
+        if: startsWith(matrix.preset, 'win-')
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $installRoot = & $vswhere -latest -property installationPath
+          $releaseCrt = Get-ChildItem -LiteralPath (Join-Path $installRoot 'VC\Redist\MSVC') -Recurse -Filter 'msvcp140.dll' -File |
+            Where-Object { $_.FullName -like '*\x64\Microsoft.VC*.CRT\msvcp140.dll' -and $_.FullName -notlike '*\onecore\*' } |
+            Sort-Object { $_.VersionInfo.FileVersionRaw } -Descending |
+            Select-Object -First 1
+          $debugCrt = Get-ChildItem -LiteralPath (Join-Path $installRoot 'VC\Redist\MSVC') -Recurse -Filter 'msvcp140d.dll' -File |
+            Where-Object { $_.FullName -like '*\debug_nonredist\x64\Microsoft.VC*.DebugCRT\msvcp140d.dll' -and $_.FullName -notlike '*\onecore\*' } |
+            Sort-Object { $_.VersionInfo.FileVersionRaw } -Descending |
+            Select-Object -First 1
+          $debugUcrt = Get-ChildItem -LiteralPath (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Recurse -Filter 'ucrtbased.dll' -File |
+            Where-Object { $_.FullName -like '*\x64\ucrt\ucrtbased.dll' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if ($null -eq $releaseCrt -or $null -eq $debugCrt -or $null -eq $debugUcrt) {
+            throw 'MSVC runtime required by Catch2 test discovery was not found'
+          }
+          "JRPGMAKER_MSVC_CRT_DIR=$($releaseCrt.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "JRPGMAKER_MSVC_DEBUG_CRT_DIR=$($debugCrt.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "JRPGMAKER_MSVC_DEBUG_UCRT_DIR=$($debugUcrt.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Configure, build and test
         uses: lukka/run-cmake@v10
         with:
@@ -99,6 +124,7 @@ jobs:
       - name: Assemble deterministic release package
         shell: pwsh
         run: |
+          pwsh ./tools/ci/selftest_package_release.ps1
           $one = Join-Path $env:RUNNER_TEMP "jrpgmaker-release-one-${{ matrix.preset }}"
           $two = Join-Path $env:RUNNER_TEMP "jrpgmaker-release-two-${{ matrix.preset }}"
           pwsh ./tools/ci/package_release.ps1 -BuildRoot "./build/${{ matrix.preset }}" -ProjectRoot . -OutputRoot $one
@@ -117,6 +143,15 @@ jobs:
         run: |
           clang-format --version
           git ls-files '*.cpp' '*.hpp' '*.h' | xargs -r clang-format --dry-run --Werror
+
+  docs-index:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Documentation index links and Git tracking
+        run: pwsh ./tools/ci/check_docs_index.ps1
 
   shader-sync:
     timeout-minutes: 30
@@ -213,6 +248,7 @@ jobs:
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-skin ./tests/golden/skin_bind_64x64.ppm ./assets/art/meshes/arm_skinned.gltf 0.0 0.0
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-skin ./tests/golden/skin_wave_64x64.ppm ./assets/art/meshes/arm_skinned.gltf 1.0 1.0
           ./build/linux-debug/tools/goldenimage/jrpgmaker_goldenimage generate-skin ./tests/golden/skin_blend_64x64.ppm ./assets/art/meshes/arm_skinned.gltf 1.0 0.5
+          pwsh ./tools/ci/generate_runtime_overlay_golden.ps1 -BuildRoot ./build/linux-debug -OutputPath ./tests/golden/runtime_overlay_cjk_256x160.ppm -EdgeClassOutputPath ./tests/golden/runtime_overlay_cjk_256x160_edge_class.ppm
           git diff --exit-code -- tests/golden
 
       - name: Upload golden screenshots as artifacts
@@ -227,6 +263,8 @@ jobs:
             tests/golden/skin_bind_64x64.ppm
             tests/golden/skin_wave_64x64.ppm
             tests/golden/skin_blend_64x64.ppm
+            tests/golden/runtime_overlay_cjk_256x160.ppm
+            tests/golden/runtime_overlay_cjk_256x160_edge_class.ppm
 
   private-headers:
     timeout-minutes: 30
