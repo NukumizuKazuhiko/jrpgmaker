@@ -83,12 +83,8 @@ jobs:
           if ($null -eq $debugCrt -or $null -eq $debugUcrt) {
             throw 'MSVC debug runtime required by Catch2 test discovery was not found'
           }
-          $testRuntimeDir = Join-Path $env:GITHUB_WORKSPACE 'build\win-debug\tests\unit'
-          New-Item -ItemType Directory -Path $testRuntimeDir -Force | Out-Null
-          Copy-Item -Path (Join-Path $debugCrt.DirectoryName '*.dll') -Destination $testRuntimeDir
-          Copy-Item -Path (Join-Path $debugUcrt.DirectoryName '*.dll') -Destination $testRuntimeDir
-          $debugCrt.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          $debugUcrt.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "JRPGMAKER_MSVC_DEBUG_CRT_DIR=$($debugCrt.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "JRPGMAKER_MSVC_DEBUG_UCRT_DIR=$($debugUcrt.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Configure, build and test
         uses: lukka/run-cmake@v10

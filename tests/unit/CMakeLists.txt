@@ -49,6 +49,17 @@ target_compile_definitions(jrpgmaker_unit_tests PRIVATE
                            JRPGMAKER_RUNTIME_EXECUTABLE="$<TARGET_FILE:jrpgmaker_app>")
 add_dependencies(jrpgmaker_unit_tests jrpgmaker_app)
 
+if(MSVC AND DEFINED ENV{JRPGMAKER_MSVC_DEBUG_CRT_DIR} AND
+   DEFINED ENV{JRPGMAKER_MSVC_DEBUG_UCRT_DIR})
+  add_custom_command(
+    TARGET jrpgmaker_unit_tests POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory_if_different
+            "$ENV{JRPGMAKER_MSVC_DEBUG_CRT_DIR}" "$<TARGET_FILE_DIR:jrpgmaker_unit_tests>"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory_if_different
+            "$ENV{JRPGMAKER_MSVC_DEBUG_UCRT_DIR}" "$<TARGET_FILE_DIR:jrpgmaker_unit_tests>"
+    COMMENT "Deploying the MSVC debug runtime for Catch2 test discovery")
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${Catch2_DIR}")
 include(Catch)
 catch_discover_tests(jrpgmaker_unit_tests)
