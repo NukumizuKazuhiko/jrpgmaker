@@ -67,22 +67,28 @@ jobs:
           echo "VK_DRIVER_FILES=$RUNNER_TEMP/lavapipe-macos-arm64/lvp_icd.aarch64.json" >> "$GITHUB_ENV"
           echo "DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib" >> "$GITHUB_ENV"
 
-      - name: Stage MSVC debug runtime for test discovery
-        if: matrix.preset == 'win-debug'
+      - name: Stage MSVC runtime for test discovery
+        if: startsWith(matrix.preset, 'win-')
         shell: pwsh
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           $installRoot = & $vswhere -latest -property installationPath
+          $releaseCrt = Get-ChildItem -LiteralPath (Join-Path $installRoot 'VC\Redist\MSVC') -Recurse -Filter 'msvcp140.dll' -File |
+            Where-Object { $_.FullName -like '*\x64\Microsoft.VC*.CRT\msvcp140.dll' -and $_.FullName -notlike '*\onecore\*' } |
+            Sort-Object { $_.VersionInfo.FileVersionRaw } -Descending |
+            Select-Object -First 1
           $debugCrt = Get-ChildItem -LiteralPath (Join-Path $installRoot 'VC\Redist\MSVC') -Recurse -Filter 'msvcp140d.dll' -File |
-            Where-Object { $_.FullName -like '*\debug_nonredist\x64\Microsoft.VC*.DebugCRT\msvcp140d.dll' } |
+            Where-Object { $_.FullName -like '*\debug_nonredist\x64\Microsoft.VC*.DebugCRT\msvcp140d.dll' -and $_.FullName -notlike '*\onecore\*' } |
+            Sort-Object { $_.VersionInfo.FileVersionRaw } -Descending |
             Select-Object -First 1
           $debugUcrt = Get-ChildItem -LiteralPath (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Recurse -Filter 'ucrtbased.dll' -File |
             Where-Object { $_.FullName -like '*\x64\ucrt\ucrtbased.dll' } |
             Sort-Object FullName -Descending |
             Select-Object -First 1
-          if ($null -eq $debugCrt -or $null -eq $debugUcrt) {
-            throw 'MSVC debug runtime required by Catch2 test discovery was not found'
+          if ($null -eq $releaseCrt -or $null -eq $debugCrt -or $null -eq $debugUcrt) {
+            throw 'MSVC runtime required by Catch2 test discovery was not found'
           }
+          "JRPGMAKER_MSVC_CRT_DIR=$($releaseCrt.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "JRPGMAKER_MSVC_DEBUG_CRT_DIR=$($debugCrt.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "JRPGMAKER_MSVC_DEBUG_UCRT_DIR=$($debugUcrt.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
