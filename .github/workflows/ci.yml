@@ -67,7 +67,7 @@ jobs:
           echo "VK_DRIVER_FILES=$RUNNER_TEMP/lavapipe-macos-arm64/lvp_icd.aarch64.json" >> "$GITHUB_ENV"
           echo "DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib" >> "$GITHUB_ENV"
 
-      - name: Expose MSVC debug runtime for test discovery
+      - name: Stage MSVC debug runtime for test discovery
         if: matrix.preset == 'win-debug'
         shell: pwsh
         run: |
@@ -83,6 +83,10 @@ jobs:
           if ($null -eq $debugCrt -or $null -eq $debugUcrt) {
             throw 'MSVC debug runtime required by Catch2 test discovery was not found'
           }
+          $testRuntimeDir = Join-Path $env:GITHUB_WORKSPACE 'build\win-debug\tests\unit'
+          New-Item -ItemType Directory -Path $testRuntimeDir -Force | Out-Null
+          Copy-Item -Path (Join-Path $debugCrt.DirectoryName '*.dll') -Destination $testRuntimeDir
+          Copy-Item -Path (Join-Path $debugUcrt.DirectoryName '*.dll') -Destination $testRuntimeDir
           $debugCrt.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           $debugUcrt.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
