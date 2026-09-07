@@ -329,17 +329,18 @@ TEST_CASE("plugin editor sidecar validates its manifest and data roots", "[plugi
     REQUIRE(parsed);
     const auto validation = jrpgmaker::plugin::ValidateEditorExtension(
         *parsed.extension, jrpgmaker::plugin::PluginManifest{
-            .schema = 1,
-            .id = "sample.style",
-            .type = jrpgmaker::plugin::PluginType::kRenderStyle,
-            .version = 1,
-            .engine_contract = jrpgmaker::plugin::kPluginEngineContract,
-            .data_roots = {"data"},
-            .capabilities = {}});
+                               .schema = 1,
+                               .id = "sample.style",
+                               .type = jrpgmaker::plugin::PluginType::kRenderStyle,
+                               .version = 1,
+                               .engine_contract = jrpgmaker::plugin::kPluginEngineContract,
+                               .data_roots = {"data"},
+                               .capabilities = {}});
     REQUIRE_FALSE(validation.has_value());
 }
 
-TEST_CASE("plugin editor sidecar rejects unsafe roots and duplicate documents", "[plugin][editor][p13]") {
+TEST_CASE("plugin editor sidecar rejects unsafe roots and duplicate documents",
+          "[plugin][editor][p13]") {
     const auto parsed = jrpgmaker::plugin::ParseEditorExtension(nlohmann::json::parse(R"json(
         {"schema":1,"plugin_id":"sample.style","editor_contract":1,
          "documents":[{"type_id":"sample.style.document.material.v1",
@@ -368,21 +369,26 @@ TEST_CASE("plugin editor descriptor parses bounded typed fields", "[plugin][edit
     REQUIRE(parsed.descriptor->fields[1].choices == std::vector<std::string>{"unlit", "toon"});
 }
 
-TEST_CASE("plugin editor descriptor rejects unsafe paths and invalid choices", "[plugin][editor][p13]") {
+TEST_CASE("plugin editor descriptor rejects unsafe paths and invalid choices",
+          "[plugin][editor][p13]") {
     auto document = nlohmann::json{
         {"schema", 1},
         {"type_id", "sample.style.document.material.v1"},
-        {"fields", nlohmann::json::array({nlohmann::json{
-             {"path", "/value"}, {"value_type", "select"}, {"role", "select"},
-             {"label_key", "plugin.sample.style.value"}, {"recipe", "select"},
-             {"choices", nlohmann::json::array({"unlit", "unlit"})}}})}};
+        {"fields", nlohmann::json::array(
+                       {nlohmann::json{{"path", "/value"},
+                                       {"value_type", "select"},
+                                       {"role", "select"},
+                                       {"label_key", "plugin.sample.style.value"},
+                                       {"recipe", "select"},
+                                       {"choices", nlohmann::json::array({"unlit", "unlit"})}}})}};
     REQUIRE_FALSE(jrpgmaker::plugin::ParseEditorDescriptor(document));
     document["fields"][0]["choices"] = nlohmann::json::array({"unlit"});
     document["fields"][0]["path"] = "../value";
     REQUIRE_FALSE(jrpgmaker::plugin::ParseEditorDescriptor(document));
 }
 
-TEST_CASE("plugin editor resources are checked within bounded plugin roots", "[plugin][editor][p13]") {
+TEST_CASE("plugin editor resources are checked within bounded plugin roots",
+          "[plugin][editor][p13]") {
     const auto root = std::filesystem::temp_directory_path() / "jrpgmaker_editor_sidecar_fixture";
     std::error_code error;
     std::filesystem::remove_all(root, error);

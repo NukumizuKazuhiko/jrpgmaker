@@ -145,16 +145,18 @@ EditorExtensionParseResult ParseEditorExtension(const nlohmann::json& document) 
     if (!document.contains("schema") || !IsPositiveInteger(document["schema"]) ||
         document["schema"] != 1u)
         return {.extension = std::nullopt,
-                .error = PluginError{"editor.schema", "unsupported editor extension schema", "schema"}};
+                .error =
+                    PluginError{"editor.schema", "unsupported editor extension schema", "schema"}};
     for (const char* field : {"plugin_id", "editor_contract", "documents", "locales", "icons"}) {
         if (!document.contains(field))
             return {.extension = std::nullopt,
-                    .error = PluginError{"editor.required", "missing editor extension field", field}};
+                    .error =
+                        PluginError{"editor.required", "missing editor extension field", field}};
     }
     if (!document["plugin_id"].is_string() || document["plugin_id"].get<std::string>().empty() ||
-        !IsPositiveInteger(document["editor_contract"]) || document["editor_contract"] != kPluginEditorContract ||
-        !document["documents"].is_array() || !document["locales"].is_object() ||
-        !document["icons"].is_string())
+        !IsPositiveInteger(document["editor_contract"]) ||
+        document["editor_contract"] != kPluginEditorContract || !document["documents"].is_array() ||
+        !document["locales"].is_object() || !document["icons"].is_string())
         return {.extension = std::nullopt,
                 .error = PluginError{"editor.field", "invalid editor extension field", "$"}};
 
@@ -164,8 +166,8 @@ EditorExtensionParseResult ParseEditorExtension(const nlohmann::json& document) 
                               .documents = {},
                               .locales = {},
                               .icons = document["icons"].get<std::string>()};
-    if (extension.icons.empty() || document["documents"].empty() || document["documents"].size() > 64 ||
-        document["locales"].size() > 16)
+    if (extension.icons.empty() || document["documents"].empty() ||
+        document["documents"].size() > 64 || document["locales"].size() > 16)
         return {.extension = std::nullopt,
                 .error = PluginError{"editor.bounds", "editor extension exceeds its bounds", "$"}};
     std::unordered_set<std::string> document_ids;
@@ -177,7 +179,8 @@ EditorExtensionParseResult ParseEditorExtension(const nlohmann::json& document) 
             value["descriptor"].get<std::string>().empty() ||
             !document_ids.insert(value["type_id"].get<std::string>()).second)
             return {.extension = std::nullopt,
-                    .error = PluginError{"editor.document", "invalid or duplicate editor document", "documents"}};
+                    .error = PluginError{"editor.document", "invalid or duplicate editor document",
+                                         "documents"}};
         EditorDocumentExtension descriptor{.type_id = value["type_id"].get<std::string>(),
                                            .roots = {},
                                            .descriptor = value["descriptor"].get<std::string>()};
@@ -186,19 +189,22 @@ EditorExtensionParseResult ParseEditorExtension(const nlohmann::json& document) 
             if (!root.is_string() || !IsSafeRelativePath(root.get<std::string>()) ||
                 !roots.insert(root.get<std::string>()).second)
                 return {.extension = std::nullopt,
-                        .error = PluginError{"editor.root", "invalid or duplicate editor root", "documents"}};
+                        .error = PluginError{"editor.root", "invalid or duplicate editor root",
+                                             "documents"}};
             descriptor.roots.push_back(root.get<std::string>());
         }
         if (!IsSafeRelativePath(descriptor.descriptor))
             return {.extension = std::nullopt,
-                    .error = PluginError{"editor.descriptor", "descriptor must be a safe relative path", "documents"}};
+                    .error = PluginError{"editor.descriptor",
+                                         "descriptor must be a safe relative path", "documents"}};
         extension.documents.push_back(std::move(descriptor));
     }
     for (const auto& [locale, path] : document["locales"].items()) {
         if (locale.empty() || !path.is_string() || !IsSafeRelativePath(path.get<std::string>()) ||
             !extension.locales.emplace(locale, path.get<std::string>()).second)
             return {.extension = std::nullopt,
-                    .error = PluginError{"editor.locale", "invalid editor locale resource", "locales"}};
+                    .error =
+                        PluginError{"editor.locale", "invalid editor locale resource", "locales"}};
     }
     return {.extension = std::move(extension), .error = std::nullopt};
 }
@@ -221,15 +227,15 @@ EditorDescriptorParseResult ParseEditorDescriptor(const nlohmann::json& document
         document["fields"].empty() || document["fields"].size() > 256)
         return fail("editor_descriptor.fields", "fields must contain 1 to 256 entries", "fields");
 
-    EditorDescriptor descriptor{.schema = 1,
-                                .type_id = document["type_id"].get<std::string>(),
-                                .fields = {}};
+    EditorDescriptor descriptor{
+        .schema = 1, .type_id = document["type_id"].get<std::string>(), .fields = {}};
     std::unordered_set<std::string> paths;
     for (const auto& value : document["fields"]) {
         if (!value.is_object())
             return fail("editor_descriptor.field", "field must be an object", "fields");
         for (const char* field : {"path", "value_type", "role", "label_key", "recipe"}) {
-            if (!value.contains(field) || !value[field].is_string() || value[field].get<std::string>().empty())
+            if (!value.contains(field) || !value[field].is_string() ||
+                value[field].get<std::string>().empty())
                 return fail("editor_descriptor.required", "missing required field property", field);
         }
         const std::string path = value["path"].get<std::string>();
@@ -242,7 +248,8 @@ EditorDescriptorParseResult ParseEditorDescriptor(const nlohmann::json& document
         if (value_type == "select" && role != "select")
             return fail("editor_descriptor.kind", "select fields must use the select role", "role");
         if (role == "select" && value_type != "select")
-            return fail("editor_descriptor.kind", "select role requires select value type", "value_type");
+            return fail("editor_descriptor.kind", "select role requires select value type",
+                        "value_type");
 
         EditorFieldDescriptor field{.path = path,
                                     .value_type = value_type,
@@ -263,14 +270,16 @@ EditorDescriptorParseResult ParseEditorDescriptor(const nlohmann::json& document
             field.read_only = value["read_only"].get<bool>();
         }
         if (value.contains("choices")) {
-            if (value_type != "select" || !value["choices"].is_array() || value["choices"].empty() ||
-                value["choices"].size() > 64)
-                return fail("editor_descriptor.choices", "select choices are invalid or out of bounds", "choices");
+            if (value_type != "select" || !value["choices"].is_array() ||
+                value["choices"].empty() || value["choices"].size() > 64)
+                return fail("editor_descriptor.choices",
+                            "select choices are invalid or out of bounds", "choices");
             std::unordered_set<std::string> choices;
             for (const auto& choice : value["choices"]) {
                 if (!choice.is_string() || choice.get<std::string>().empty() ||
                     !choices.insert(choice.get<std::string>()).second)
-                    return fail("editor_descriptor.choices", "choices must be non-empty and unique", "choices");
+                    return fail("editor_descriptor.choices", "choices must be non-empty and unique",
+                                "choices");
                 field.choices.push_back(choice.get<std::string>());
             }
         } else if (value_type == "select") {
@@ -284,9 +293,11 @@ EditorDescriptorParseResult ParseEditorDescriptor(const nlohmann::json& document
 std::optional<PluginError> ValidateEditorExtension(const EditorExtension& extension,
                                                    const PluginManifest& manifest) {
     if (extension.schema != 1 || extension.editor_contract != kPluginEditorContract)
-        return PluginError{"editor.contract", "unsupported editor extension contract", "editor_contract"};
+        return PluginError{"editor.contract", "unsupported editor extension contract",
+                           "editor_contract"};
     if (extension.plugin_id != manifest.id)
-        return PluginError{"editor.plugin_id", "editor extension plugin_id does not match manifest", "plugin_id"};
+        return PluginError{"editor.plugin_id", "editor extension plugin_id does not match manifest",
+                           "plugin_id"};
     for (const auto& document : extension.documents) {
         for (const auto& root : document.roots) {
             bool contained = false;
@@ -296,15 +307,16 @@ std::optional<PluginError> ValidateEditorExtension(const EditorExtension& extens
                     break;
                 }
             if (!contained)
-                return PluginError{"editor.root", "editor root exceeds plugin data roots", "documents"};
+                return PluginError{"editor.root", "editor root exceeds plugin data roots",
+                                   "documents"};
         }
     }
     return std::nullopt;
 }
 
-std::vector<PluginError> ValidateEditorExtensionResources(const EditorExtension& extension,
-                                                          const PluginManifest& manifest,
-                                                          const std::filesystem::path& plugin_root) {
+std::vector<PluginError>
+ValidateEditorExtensionResources(const EditorExtension& extension, const PluginManifest& manifest,
+                                 const std::filesystem::path& plugin_root) {
     std::vector<PluginError> issues;
     const auto append = [&issues](PluginError issue) {
         if (issues.size() < 128u)
@@ -340,8 +352,8 @@ std::vector<PluginError> ValidateEditorExtensionResources(const EditorExtension&
         }
         const auto size = std::filesystem::file_size(canonical_path, error);
         if (error || size > kMaxPluginValidationFileBytes) {
-            append(PluginError{"editor.resource.file_size",
-                               "editor resource exceeds 256 KiB", relative});
+            append(PluginError{"editor.resource.file_size", "editor resource exceeds 256 KiB",
+                               relative});
             return;
         }
         if (total_bytes > kMaxPluginValidationTotalBytes - static_cast<std::size_t>(size))

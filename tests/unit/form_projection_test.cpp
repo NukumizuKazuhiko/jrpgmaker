@@ -9,8 +9,8 @@ TEST_CASE("form projection exposes adapter metadata and current values", "[edito
                    {"/missing", "integer", "editor.test.missing", "number", false, true, {}}},
         .validate = {},
         .normalize_edit = {}};
-    const auto projection = jrpgmaker::editor::BuildFormProjection(
-        adapter, nlohmann::json{{"name", "sample"}});
+    const auto projection =
+        jrpgmaker::editor::BuildFormProjection(adapter, nlohmann::json{{"name", "sample"}});
 
     REQUIRE(projection.document_id == "test.document");
     REQUIRE(projection.fields.size() == 2);
@@ -23,25 +23,31 @@ TEST_CASE("form projection exposes adapter metadata and current values", "[edito
 TEST_CASE("form projection preserves adapter choices", "[editor]") {
     const jrpgmaker::project::DocumentAdapter adapter{
         .type_id = "test.select",
-        .fields = {{"/style", "string", "editor.test.style", "select", true, false,
+        .fields = {{"/style",
+                    "string",
+                    "editor.test.style",
+                    "select",
+                    true,
+                    false,
                     {"sample.unlit", "sample.style"}}},
         .validate = {},
         .normalize_edit = {}};
-    const auto projection = jrpgmaker::editor::BuildFormProjection(
-        adapter, nlohmann::json{{"style", "sample.unlit"}});
+    const auto projection =
+        jrpgmaker::editor::BuildFormProjection(adapter, nlohmann::json{{"style", "sample.unlit"}});
 
     REQUIRE(projection.fields.size() == 1);
-    REQUIRE(projection.fields[0].choices == std::vector<std::string>{"sample.unlit", "sample.style"});
+    REQUIRE(projection.fields[0].choices ==
+            std::vector<std::string>{"sample.unlit", "sample.style"});
 }
 
 TEST_CASE("workspace preview exposes only structured diagnosis metrics", "[editor]") {
     const jrpgmaker::project::DiagnosticSet diagnosis{.diagnostics = {},
-                                                       .event_count = 2,
-                                                       .interaction_count = 1,
-                                                       .collision_count = 3,
-                                                       .navigation_width = 8,
-                                                       .navigation_height = 6,
-                                                       .camera_region_count = 2};
+                                                      .event_count = 2,
+                                                      .interaction_count = 1,
+                                                      .collision_count = 3,
+                                                      .navigation_width = 8,
+                                                      .navigation_height = 6,
+                                                      .camera_region_count = 2};
     const auto preview = jrpgmaker::editor::BuildWorkspacePreview(diagnosis);
     REQUIRE(preview.valid);
     REQUIRE(preview.diagnostics.empty());
