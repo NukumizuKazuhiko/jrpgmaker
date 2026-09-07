@@ -597,8 +597,9 @@ TEST_CASE("editor session keeps plugin documents read-only when the sidecar is m
         document << R"json({"schema":1,"name":"before"})json";
         auto depth = root / "plugin_data";
         for (int index = 0; index < 17; ++index) {
-            depth /= "nested" + std::to_string(index);
-            std::filesystem::create_directory(depth, error);
+            depth /= std::to_string(index);
+            REQUIRE(std::filesystem::create_directory(depth, error));
+            REQUIRE_FALSE(error);
         }
     }
 
