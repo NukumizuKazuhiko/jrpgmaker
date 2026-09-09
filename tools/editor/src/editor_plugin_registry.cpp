@@ -25,15 +25,6 @@ bool IsSafeRelativePath(const std::filesystem::path& path) {
     return true;
 }
 
-bool IsCanonicalPathWithin(const std::filesystem::path& root,
-                           const std::filesystem::path& candidate) {
-    const auto relative = candidate.lexically_relative(root);
-    if (relative.empty() || relative.is_absolute())
-        return relative.empty();
-    return std::none_of(relative.begin(), relative.end(),
-                        [](const auto& component) { return component == ".."; });
-}
-
 std::optional<nlohmann::json> ReadJson(const std::filesystem::path& root,
                                        const std::filesystem::path& relative,
                                        std::vector<project::Diagnostic>& diagnostics,
@@ -50,7 +41,7 @@ std::optional<nlohmann::json> ReadJson(const std::filesystem::path& root,
         return std::nullopt;
     }
     const auto canonical_path = std::filesystem::weakly_canonical(path, error);
-    if (error || !IsCanonicalPathWithin(canonical_root, canonical_path)) {
+    if (error || !plugin::IsCanonicalPathWithin(canonical_root, canonical_path)) {
         Add(diagnostics, std::string(prefix) + ".path", relative.generic_string());
         return std::nullopt;
     }

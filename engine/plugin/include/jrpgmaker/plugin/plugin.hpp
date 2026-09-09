@@ -27,6 +27,9 @@ struct PluginError {
     std::string path;
 };
 
+[[nodiscard]] bool IsCanonicalPathWithin(const std::filesystem::path& root,
+                                         const std::filesystem::path& candidate);
+
 struct PluginManifest {
     std::uint32_t schema = 1;
     std::string id;
