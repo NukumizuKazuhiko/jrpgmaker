@@ -819,6 +819,17 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
         if (!result.diagnostics.empty())
             return result;
     }
+    for (const auto& operation : nlohmann::json::diff(working_document_, candidate)) {
+        const auto path = operation.value("path", std::string{});
+        const auto declared =
+            std::any_of(adapter->fields.begin(), adapter->fields.end(), [&path](const auto& field) {
+                return path == field.path || path.rfind(field.path + "/", 0) == 0;
+            });
+        if (!declared) {
+            Add(result.diagnostics, "project.edit.normalizer_out_of_contract", path);
+            return result;
+        }
+    }
     const auto validation = adapters_.Validate(adapter_id, candidate);
     result.diagnostics = validation.diagnostics;
     if (!result.diagnostics.empty())
@@ -859,6 +870,120 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
         pending_changes_.push_back(change);
         result.changes.push_back(std::move(change));
     }
+    return result;
+}
+
+EditResult ProjectWorkspace::ApplyObjectPatch(std::string_view document_id,
+                                              const nlohmann::json& patch) {
+    EditResult result{.revision = revision_};
+    if (!snapshot_) {
+        Add(result.diagnostics, "project.workspace.not_open", "workspace");
+        return result;
+    }
+    if (!patch.is_object() || patch.empty() || patch.size() > kMaxObjectPatchKeys) {
+        Add(result.diagnostics, "project.edit.object_patch_invalid", std::string(document_id));
+        return result;
+    }
+    const auto documents = DescribeDocuments(*snapshot_);
+    const auto current =
+        std::find_if(documents.begin(), documents.end(),
+                     [document_id](const auto& item) { return item.id == document_id; });
+    if (current == documents.end()) {
+        Add(result.diagnostics, "project.edit.document_unknown", std::string(document_id));
+        return result;
+    }
+    if (document_id != current_document_id_) {
+        Add(result.diagnostics, "project.edit.document_not_selected", std::string(document_id));
+        return result;
+    }
+    if (!current->editable) {
+        Add(result.diagnostics, "project.edit.document_read_only", std::string(document_id));
+        return result;
+    }
+    const auto adapter_id = current->type_id.empty() ? current->id : current->type_id;
+    const auto* adapter = adapters_.Find(adapter_id);
+    if (!adapter) {
+        Add(result.diagnostics, "project.adapter.unknown_type", adapter_id);
+        return result;
+    }
+    const auto escape = [](std::string key) {
+        for (std::size_t offset = 0; (offset = key.find('~', offset)) != std::string::npos;
+             offset += 2)
+            key.replace(offset, 1, "~0");
+        for (std::size_t offset = 0; (offset = key.find('/', offset)) != std::string::npos;
+             offset += 2)
+            key.replace(offset, 1, "~1");
+        return "/" + key;
+    };
+    nlohmann::json candidate = working_document_;
+    for (auto it = patch.begin(); it != patch.end(); ++it) {
+        const auto path = escape(it.key());
+        const auto field = std::find_if(adapter->fields.begin(), adapter->fields.end(),
+                                        [&path](const auto& item) { return item.path == path; });
+        if (field == adapter->fields.end()) {
+            Add(result.diagnostics, "project.edit.field_not_editable", path);
+            return result;
+        }
+        if (field->read_only) {
+            Add(result.diagnostics, "project.edit.field_read_only", path);
+            return result;
+        }
+        candidate[it.key()] = it.value();
+    }
+    if (adapter->normalize_edit) {
+        for (auto it = patch.begin(); it != patch.end(); ++it) {
+            const auto normalized = adapter->normalize_edit(escape(it.key()), candidate);
+            result.diagnostics.insert(result.diagnostics.end(), normalized.begin(),
+                                      normalized.end());
+        }
+        if (!result.diagnostics.empty())
+            return result;
+    }
+    for (const auto& operation : nlohmann::json::diff(working_document_, candidate)) {
+        const auto path = operation.value("path", std::string{});
+        const auto declared =
+            std::any_of(adapter->fields.begin(), adapter->fields.end(), [&path](const auto& field) {
+                return path == field.path || path.rfind(field.path + "/", 0) == 0;
+            });
+        if (!declared) {
+            Add(result.diagnostics, "project.edit.normalizer_out_of_contract", path);
+            return result;
+        }
+    }
+    result.diagnostics = adapters_.Validate(adapter_id, candidate).diagnostics;
+    if (!result.diagnostics.empty())
+        return result;
+    if (current->id == "core.material" &&
+        candidate.value("style_plugin_id", std::string{}) != snapshot_->manifest.render_style) {
+        Add(result.diagnostics, "project.material.style_mismatch", "style_plugin_id");
+        return result;
+    }
+    plugin::ProjectManifest manifest;
+    if (current->id == "project.manifest" &&
+        !ValidateManifestDocument(root_, candidate, manifest, result.diagnostics))
+        return result;
+    if (candidate == working_document_)
+        return result;
+    std::vector<FieldDescriptor> fields = adapter->fields;
+    std::sort(fields.begin(), fields.end(),
+              [](const auto& left, const auto& right) { return left.path < right.path; });
+    for (const auto& field : fields) {
+        const auto pointer = nlohmann::json::json_pointer(field.path);
+        const auto before =
+            working_document_.contains(pointer) ? working_document_.at(pointer) : nlohmann::json();
+        const auto after = candidate.contains(pointer) ? candidate.at(pointer) : nlohmann::json();
+        if (before != after)
+            result.changes.push_back({std::string(document_id), field.path, before, after,
+                                      pending_changes_.size() + result.changes.size()});
+    }
+    working_document_ = std::move(candidate);
+    working_documents_[current_document_id_] = working_document_;
+    ++revision_;
+    if (current->id == "project.manifest")
+        snapshot_->manifest = std::move(manifest);
+    snapshot_->revision = revision_;
+    result.revision = revision_;
+    pending_changes_.insert(pending_changes_.end(), result.changes.begin(), result.changes.end());
     return result;
 }
 

@@ -794,3 +794,116 @@ TEST_CASE("external document registration enforces its cumulative budget atomica
     std::error_code error;
     std::filesystem::remove_all(root, error);
 }
+
+TEST_CASE("workspace applies an object patch against the final candidate once",
+          "[project][object-patch]") {
+    const auto root = MakeFixture();
+    std::ofstream(root / "assets/data/range.json")
+        << R"({"low":5,"high":5,"a/b":1,"c~d":1,"locked":1})";
+    const auto validations = std::make_shared<int>(0);
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    REQUIRE(adapters.Register({.type_id = "test.range",
+                               .fields = {{"/low", "integer", {}, {}, true, false, {}},
+                                          {"/high", "integer", {}, {}, true, false, {}},
+                                          {"/a~1b", "integer", {}, {}, true, false, {}},
+                                          {"/c~0d", "integer", {}, {}, true, false, {}},
+                                          {"/locked", "integer", {}, {}, true, true, {}}},
+                               .validate =
+                                   [validations](const nlohmann::json& document) {
+                                       ++*validations;
+                                       if (document.value("low", 0) <= document.value("high", 0))
+                                           return std::vector<jrpgmaker::project::Diagnostic>{};
+                                       return std::vector<jrpgmaker::project::Diagnostic>{
+                                           {"test.range.invalid", "range"}};
+                                   },
+                               .normalize_edit = {}}));
+    jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
+    REQUIRE(workspace
+                .RegisterExternalDocuments({{.id = "test.range.document",
+                                             .path = "assets/data/range.json",
+                                             .label_key = {},
+                                             .editable = true,
+                                             .type_id = "test.range",
+                                             .category_key = {}}})
+                .empty());
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.SelectDocument("test.range.document").empty());
+    const int validations_before_edit = *validations;
+    const auto initial = workspace.CurrentDocument();
+    const auto initial_revision = opened.snapshot->revision;
+    REQUIRE_FALSE(workspace.ApplyObjectPatch("test.range.document", nlohmann::json::array()));
+    REQUIRE_FALSE(workspace.ApplyObjectPatch("test.range.document", nlohmann::json::object()));
+    nlohmann::json oversized = nlohmann::json::object();
+    for (std::size_t index = 0; index <= jrpgmaker::project::ProjectWorkspace::kMaxObjectPatchKeys;
+         ++index)
+        oversized["key" + std::to_string(index)] = index;
+    REQUIRE_FALSE(workspace.ApplyObjectPatch("test.range.document", oversized));
+    const auto unknown = workspace.ApplyObjectPatch("test.range.document", {{"missing", 1}});
+    REQUIRE_FALSE(unknown);
+    REQUIRE(unknown.diagnostics.front().code == "project.edit.field_not_editable");
+    const auto read_only = workspace.ApplyObjectPatch("test.range.document", {{"locked", 2}});
+    REQUIRE_FALSE(read_only);
+    REQUIRE(read_only.diagnostics.front().code == "project.edit.field_read_only");
+    REQUIRE(workspace.CurrentDocument() == initial);
+    REQUIRE(workspace.PendingChanges().empty());
+    REQUIRE(initial_revision == opened.snapshot->revision);
+
+    const auto edited = workspace.ApplyObjectPatch(
+        "test.range.document", nlohmann::json{{"low", 0}, {"high", 0}, {"a/b", 2}, {"c~d", 2}});
+
+    REQUIRE(edited);
+    REQUIRE(*validations == validations_before_edit + 1);
+    REQUIRE(edited.revision == opened.snapshot->revision + 1);
+    REQUIRE(edited.changes.size() == 4);
+    REQUIRE(workspace.CurrentDocument()["a/b"] == 2);
+    REQUIRE(workspace.CurrentDocument()["c~d"] == 2);
+    const auto pending_before_noop = workspace.PendingChanges().size();
+    const auto noop = workspace.ApplyObjectPatch(
+        "test.range.document", nlohmann::json{{"low", 0}, {"high", 0}, {"a/b", 2}, {"c~d", 2}});
+    REQUIRE(noop);
+    REQUIRE(noop.changes.empty());
+    REQUIRE(noop.revision == edited.revision);
+    REQUIRE(workspace.PendingChanges().size() == pending_before_noop);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("workspace rejects object patch normalizer changes outside declared fields",
+          "[project][object-patch]") {
+    const auto root = MakeFixture();
+    std::ofstream(root / "assets/data/normalized.json") << R"({"name":"before"})";
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    REQUIRE(adapters.Register(
+        {.type_id = "test.normalized",
+         .fields = {{"/name", "string", {}, {}, true, false, {}}},
+         .validate =
+             [](const nlohmann::json&) { return std::vector<jrpgmaker::project::Diagnostic>{}; },
+         .normalize_edit =
+             [](std::string_view, nlohmann::json& candidate) {
+                 candidate["hidden"] = true;
+                 return std::vector<jrpgmaker::project::Diagnostic>{};
+             }}));
+    jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
+    REQUIRE(workspace
+                .RegisterExternalDocuments({{.id = "test.normalized.document",
+                                             .path = "assets/data/normalized.json",
+                                             .label_key = {},
+                                             .editable = true,
+                                             .type_id = "test.normalized",
+                                             .category_key = {}}})
+                .empty());
+    REQUIRE(workspace.Open());
+    REQUIRE(workspace.SelectDocument("test.normalized.document").empty());
+    const auto before = workspace.CurrentDocument();
+
+    const auto edit = workspace.ApplyObjectPatch("test.normalized.document", {{"name", "after"}});
+
+    REQUIRE_FALSE(edit);
+    REQUIRE(edit.diagnostics.size() == 1);
+    REQUIRE(edit.diagnostics.front().code == "project.edit.normalizer_out_of_contract");
+    REQUIRE(workspace.CurrentDocument() == before);
+    REQUIRE(workspace.PendingChanges().empty());
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}

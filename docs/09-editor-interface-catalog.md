@@ -37,7 +37,7 @@ engine/{core,domain,plugin,render,ui}/       # 既有语义 owner
 | `ProjectWorkspace::Open` | root、只读选项、插件 registry | `WorkspaceOpenResult` | canonical 路径、安全相对路径、文件/总字节预算、manifest 解析、文档发现 |
 | `Snapshot` | 无 | `ProjectSnapshot` | 项目 id、schema、所选插件、排序后的 `DocumentDescriptor`、当前 revision |
 | `Diagnose` | 可选文档/严重度过滤 | `DiagnosticSet` | parser、lint、跨文件引用、插件私有 validator、资源依赖和预算聚合 |
-| `Apply` | `EditCommand{document_id, field_path, value}` | `EditResult{revision, changes, diagnostics}` | JSON pointer 安全、字段可编辑性、类型/范围验证、内存快照与撤销边界 |
+| `Apply` / `ApplyObjectPatch` | 单字段 `EditCommand{document_id, field_path, value}` 或有界顶层 object patch | `EditResult{revision, changes, diagnostics}` | JSON pointer 安全、字段可编辑性、类型/范围验证；object patch 先形成完整 candidate、仅执行一次 adapter 校验并只递增一次 revision，避免合法最终态被中间态拒绝 |
 | `PrepareSave` | expected revision | `SavePlan{token, changes, diagnostics}` | 检查工作区已打开和 revision 一致后，调用同源 `Diagnose` 校验完整项目 working copy；已注册 adapter/plugin validator 以及 editor descriptor 声明的 required、字段类型和 select choices 约束均可阻断 token，插件 sidecar working copy 通过有界 overlay reader 进入运行时 plugin validator。有诊断 error 时不签发 token |
 | `Commit` | `SaveToken` | `CommitResult` | 临时文件、备份、rename、失败恢复、禁止覆盖已有临时/备份、revision 更新 |
 | `Migrate` | 目标 schema 或 current | `MigrationPlan`/`CommitResult` | 迁移链、预览、验证与同一原子写回路径 |
@@ -50,6 +50,7 @@ interface 规则：
 - `SaveToken` 证明 revision 未冲突且 `PrepareSave` 已通过当前完整项目 working copy 的 `Diagnose`，其中包含已注册 adapter/plugin validator、插件 sidecar overlay reader 与无专用 validator 时的 editor descriptor 声明约束；调用方仍不得绕过该 token 或直接写文件。
 - `Diagnostic` 固定字段为 `code`、`severity`、`document_id`、`file_path`、`field_path`、`message_key`、命名参数和可选 source span。自然语言不进入工作区模块。
 - `Change` 固定字段为 document/field path、before/after JSON value 和稳定序号；排序规则为规范化相对路径，再按 JSON pointer。
+- `DocumentEditNormalizer` 只能修改 adapter 已声明 field 或其子路径；越界修改返回 `project.edit.normalizer_out_of_contract`，不得进入 working copy 或保存计划。
 - 工作区内存、文件数、单文件大小、诊断数和变更数均有显式上界；达到上界返回 error，不截断后伪装为 clean。
 - 只读打开和 `Diagnose` 不创建目录、不写缓存、不轮换备份。
 
