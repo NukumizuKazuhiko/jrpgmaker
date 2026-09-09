@@ -875,7 +875,7 @@ EditResult ProjectWorkspace::Apply(const EditCommand& command) {
 
 EditResult ProjectWorkspace::ApplyObjectPatch(std::string_view document_id,
                                               const nlohmann::json& patch) {
-    EditResult result{.revision = revision_};
+    EditResult result{.revision = revision_, .changes = {}, .diagnostics = {}};
     if (!snapshot_) {
         Add(result.diagnostics, "project.workspace.not_open", "workspace");
         return result;
