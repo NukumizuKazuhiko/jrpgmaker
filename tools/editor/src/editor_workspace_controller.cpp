@@ -132,7 +132,7 @@ bool EditorWorkspaceController::Resize(float width, float height) {
 bool EditorWorkspaceController::OpenProject(const std::filesystem::path& root) {
     if (root.empty())
         return false;
-    const auto assembly = AssembleEditorPluginRegistry(root, config_.plugin_factories);
+    const auto assembly = project::AssembleProjectPluginRegistry(root, config_.plugin_factories);
     if (!assembly) {
         plugin_registry_.reset();
         session_ = std::make_unique<EditorSession>(root);

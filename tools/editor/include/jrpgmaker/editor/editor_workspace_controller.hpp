@@ -5,9 +5,9 @@
 #include <optional>
 #include <string_view>
 
-#include "jrpgmaker/editor/editor_plugin_registry.hpp"
 #include "jrpgmaker/editor/editor_session.hpp"
 #include "jrpgmaker/editor/editor_shell.hpp"
+#include "jrpgmaker/project/plugin_registry.hpp"
 #include "jrpgmaker/ui/editor_resources.hpp"
 
 namespace jrpgmaker::editor {
@@ -25,7 +25,7 @@ struct EditorWorkspaceConfig {
     float diagnostic_row_height = 16.0f;
     ui::MenuLayoutConfig menu;
     std::filesystem::path runtime_executable;
-    std::vector<EditorPluginFactoryBinding> plugin_factories;
+    std::vector<plugin::CompiledPluginFactory> plugin_factories;
 };
 
 class EditorWorkspaceController final {

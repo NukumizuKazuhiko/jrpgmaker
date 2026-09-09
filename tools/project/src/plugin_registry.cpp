@@ -1,4 +1,4 @@
-#include "jrpgmaker/editor/editor_plugin_registry.hpp"
+#include "jrpgmaker/project/plugin_registry.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -7,7 +7,7 @@
 
 #include <nlohmann/json.hpp>
 
-namespace jrpgmaker::editor {
+namespace jrpgmaker::project {
 namespace {
 
 constexpr std::uintmax_t kMaxManifestBytes = 256u * 1024u;
@@ -67,18 +67,18 @@ std::optional<nlohmann::json> ReadJson(const std::filesystem::path& root,
 
 } // namespace
 
-EditorPluginRegistryAssembly
-AssembleEditorPluginRegistry(const std::filesystem::path& project_root,
-                             std::span<const EditorPluginFactoryBinding> compiled_factories) {
-    EditorPluginRegistryAssembly result;
+PluginRegistryAssembly
+AssembleProjectPluginRegistry(const std::filesystem::path& project_root,
+                              std::span<const plugin::CompiledPluginFactory> compiled_factories) {
+    PluginRegistryAssembly result;
     if (compiled_factories.size() > plugin::PluginRegistry::kMaxPlugins) {
-        Add(result.diagnostics, "editor.plugin.factory_catalog_limit", "plugins");
+        Add(result.diagnostics, "project.plugin.factory_catalog_limit", "plugins");
         return result;
     }
     std::unordered_set<std::string> factory_ids;
     for (const auto& binding : compiled_factories) {
         if (binding.id.empty() || !factory_ids.insert(binding.id).second) {
-            Add(result.diagnostics, "editor.plugin.factory_catalog_invalid", binding.id);
+            Add(result.diagnostics, "project.plugin.factory_catalog_invalid", binding.id);
             return result;
         }
     }
@@ -113,7 +113,7 @@ AssembleEditorPluginRegistry(const std::filesystem::path& project_root,
             continue;
         }
         if (parsed_manifest.manifest->id != plugin_id) {
-            Add(result.diagnostics, "editor.plugin.manifest_id_mismatch",
+            Add(result.diagnostics, "project.plugin.manifest_id_mismatch",
                 binding->manifest_path.generic_string());
             continue;
         }
@@ -132,4 +132,4 @@ AssembleEditorPluginRegistry(const std::filesystem::path& project_root,
     return result;
 }
 
-} // namespace jrpgmaker::editor
+} // namespace jrpgmaker::project

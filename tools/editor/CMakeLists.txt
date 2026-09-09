@@ -2,14 +2,13 @@ find_package(SDL3 CONFIG REQUIRED)
 
 include(${CMAKE_SOURCE_DIR}/cmake/rmlui.cmake)
 
-add_library(jrpgmaker_editor_host STATIC src/editor_shell.cpp src/form_projection.cpp src/editor_session.cpp src/editor_workspace_controller.cpp src/editor_plugin_registry.cpp src/preview_process.cpp src/editor_window.cpp src/editor_user_settings.cpp src/rmlui_input.cpp src/rmlui_editor_view.cpp src/rmlui_editor_document.cpp)
+add_library(jrpgmaker_editor_host STATIC src/editor_shell.cpp src/form_projection.cpp src/editor_session.cpp src/editor_workspace_controller.cpp src/preview_process.cpp src/editor_window.cpp src/editor_user_settings.cpp src/rmlui_input.cpp src/rmlui_editor_view.cpp src/rmlui_editor_document.cpp)
 add_library(jrpgmaker::editor_host ALIAS jrpgmaker_editor_host)
 target_sources(
   jrpgmaker_editor_host
   PUBLIC FILE_SET HEADERS BASE_DIRS include FILES include/jrpgmaker/editor/editor_shell.hpp
          include/jrpgmaker/editor/form_projection.hpp include/jrpgmaker/editor/editor_session.hpp
          include/jrpgmaker/editor/editor_workspace_controller.hpp
-         include/jrpgmaker/editor/editor_plugin_registry.hpp
          include/jrpgmaker/editor/editor_window.hpp
          include/jrpgmaker/editor/editor_user_settings.hpp
          include/jrpgmaker/editor/preview_process.hpp

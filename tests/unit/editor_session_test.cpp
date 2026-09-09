@@ -36,7 +36,7 @@ private:
 
 class NoopEditorPlugin final : public jrpgmaker::plugin::IPlugin {};
 
-std::vector<jrpgmaker::editor::EditorPluginFactoryBinding>
+std::vector<jrpgmaker::plugin::CompiledPluginFactory>
 MakeEditorPluginFactories(std::shared_ptr<int> mode = {}) {
     if (!mode)
         mode = std::make_shared<int>(0);
@@ -92,7 +92,7 @@ MakeEditorPluginRegistry(const std::filesystem::path& root) {
                  .factory = [] { return std::make_unique<NoopEditorPlugin>(); }});
         }
     }
-    const auto assembly = jrpgmaker::editor::AssembleEditorPluginRegistry(root, factories);
+    const auto assembly = jrpgmaker::project::AssembleProjectPluginRegistry(root, factories);
     std::string assembly_diagnostics;
     for (const auto& diagnostic : assembly.diagnostics)
         assembly_diagnostics += diagnostic.code + ":" + diagnostic.path + "|";

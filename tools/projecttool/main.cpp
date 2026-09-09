@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -20,12 +21,39 @@
 #include "jrpgmaker/domain/schedule.hpp"
 #include "jrpgmaker/domain/vertical_slice.hpp"
 #include "jrpgmaker/plugin/plugin.hpp"
+#include "jrpgmaker/plugins/register.hpp"
+#include "jrpgmaker/project/plugin_registry.hpp"
 #include "jrpgmaker/project/workspace.hpp"
 
 namespace {
 
 constexpr std::size_t kMaxFiles = 4096;
 constexpr std::uintmax_t kMaxBytes = 64u * 1024u * 1024u;
+
+void PrintDiagnostics(const std::filesystem::path& root,
+                      const std::vector<jrpgmaker::project::Diagnostic>& diagnostics) {
+    for (const auto& diagnostic : diagnostics)
+        std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+}
+
+struct ProjectContext {
+    std::shared_ptr<const jrpgmaker::plugin::PluginRegistry> plugins;
+    std::unique_ptr<jrpgmaker::project::ProjectWorkspace> workspace;
+};
+
+std::optional<ProjectContext> CreateProjectContext(const std::filesystem::path& root) {
+    auto assembled = jrpgmaker::project::AssembleProjectPluginRegistry(
+        root, jrpgmaker::plugins::CompiledSamplePlugins());
+    if (!assembled) {
+        PrintDiagnostics(root, assembled.diagnostics);
+        return std::nullopt;
+    }
+    ProjectContext context;
+    context.plugins = std::move(assembled.registry);
+    context.workspace = std::make_unique<jrpgmaker::project::ProjectWorkspace>(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), context.plugins.get());
+    return context;
+}
 
 bool CopyTreeBounded(const std::filesystem::path& source, const std::filesystem::path& target,
                      std::size_t& file_count, std::uintmax_t& total_bytes) {
@@ -133,11 +161,13 @@ bool CreateProject(const std::filesystem::path& output,
 }
 
 bool OpenProject(const std::filesystem::path& root, bool validate) {
-    jrpgmaker::project::ProjectWorkspace workspace(root);
+    auto context = CreateProjectContext(root);
+    if (!context)
+        return false;
+    auto& workspace = *context->workspace;
     const auto opened = workspace.Open();
     if (!opened) {
-        for (const auto& diagnostic : opened.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, opened.diagnostics);
         return false;
     }
     const auto& snapshot = *opened.snapshot;
@@ -147,8 +177,7 @@ bool OpenProject(const std::filesystem::path& root, bool validate) {
         return true;
     const auto diagnosed = workspace.Diagnose(snapshot);
     if (!diagnosed) {
-        for (const auto& diagnostic : diagnosed.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, diagnosed.diagnostics);
         return false;
     }
     std::cout << root.string() << ": project manifest clean (id=" << snapshot.manifest.id
@@ -178,11 +207,13 @@ bool EditProject(const std::filesystem::path& root, const std::filesystem::path&
         std::cerr << "manifest patch must be a non-empty object\n";
         return false;
     }
-    jrpgmaker::project::ProjectWorkspace workspace(root);
+    auto context = CreateProjectContext(root);
+    if (!context)
+        return false;
+    auto& workspace = *context->workspace;
     const auto opened = workspace.Open();
     if (!opened) {
-        for (const auto& diagnostic : opened.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, opened.diagnostics);
         return false;
     }
     std::vector<jrpgmaker::project::Change> changes;
@@ -190,8 +221,7 @@ bool EditProject(const std::filesystem::path& root, const std::filesystem::path&
     for (auto it = patch.begin(); it != patch.end(); ++it) {
         const auto edit = workspace.Apply({"project.manifest", "/" + it.key(), it.value()});
         if (!edit) {
-            for (const auto& diagnostic : edit.diagnostics)
-                std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+            PrintDiagnostics(root, edit.diagnostics);
             return false;
         }
         current_revision = edit.revision;
@@ -208,14 +238,12 @@ bool EditProject(const std::filesystem::path& root, const std::filesystem::path&
         return true;
     const auto plan = workspace.PrepareSave(current_revision);
     if (!plan) {
-        for (const auto& diagnostic : plan.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, plan.diagnostics);
         return false;
     }
     const auto committed = workspace.Commit(*plan.token);
     if (!committed) {
-        for (const auto& diagnostic : committed.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, committed.diagnostics);
         return false;
     }
     std::cout << (root / "project.json").string()
@@ -224,17 +252,18 @@ bool EditProject(const std::filesystem::path& root, const std::filesystem::path&
 }
 
 bool MigrateProject(const std::filesystem::path& root) {
-    jrpgmaker::project::ProjectWorkspace workspace(root);
+    auto context = CreateProjectContext(root);
+    if (!context)
+        return false;
+    auto& workspace = *context->workspace;
     const auto opened = workspace.Open();
     if (!opened) {
-        for (const auto& diagnostic : opened.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, opened.diagnostics);
         return false;
     }
     const auto migration = workspace.Migrate();
     if (!migration) {
-        for (const auto& diagnostic : migration.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, migration.diagnostics);
         return false;
     }
     std::cout << root.string() << ": schema 1 requires no migration\n";
@@ -242,17 +271,18 @@ bool MigrateProject(const std::filesystem::path& root) {
 }
 
 bool DiagnoseProject(const std::filesystem::path& root) {
-    jrpgmaker::project::ProjectWorkspace workspace(root);
+    auto context = CreateProjectContext(root);
+    if (!context)
+        return false;
+    auto& workspace = *context->workspace;
     const auto opened = workspace.Open();
     if (!opened) {
-        for (const auto& diagnostic : opened.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, opened.diagnostics);
         return false;
     }
     const auto diagnosed = workspace.Diagnose(*opened.snapshot);
     if (!diagnosed) {
-        for (const auto& diagnostic : diagnosed.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, diagnosed.diagnostics);
         return false;
     }
     std::cout << root.string() << ": diagnostic snapshot events=" << diagnosed.event_count
