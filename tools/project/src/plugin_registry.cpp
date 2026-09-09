@@ -120,6 +120,9 @@ AssembleProjectPluginRegistry(const std::filesystem::path& project_root,
         if (const auto error = registry->Register(*parsed_manifest.manifest, binding->factory);
             error.has_value())
             Add(result.diagnostics, error->code, error->path);
+        else
+            for (const auto& data_root : parsed_manifest.manifest->data_roots)
+                result.data_roots.emplace_back(data_root);
     }
     if (!result.diagnostics.empty())
         return result;

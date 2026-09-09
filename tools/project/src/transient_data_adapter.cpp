@@ -1,5 +1,6 @@
 #include "jrpgmaker/project/transient_data_adapter.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <string>
 
@@ -22,6 +23,23 @@ bool IsSafeRelativePath(const std::filesystem::path& path) {
             return false;
     }
     return true;
+}
+
+bool IsDeclaredPluginDataPath(const std::filesystem::path& path,
+                              std::span<const std::filesystem::path> roots) {
+    const auto normalized_path = path.lexically_normal();
+    return std::any_of(roots.begin(), roots.end(), [&normalized_path](const auto& root) {
+        if (!IsSafeRelativePath(root))
+            return false;
+        const auto normalized_root = root.lexically_normal();
+        auto path_part = normalized_path.begin();
+        for (auto root_part = normalized_root.begin(); root_part != normalized_root.end();
+             ++root_part, ++path_part) {
+            if (path_part == normalized_path.end() || *path_part != *root_part)
+                return false;
+        }
+        return path_part != normalized_path.end();
+    });
 }
 
 std::string EscapeJsonPointerToken(std::string_view token) {
@@ -57,9 +75,9 @@ jrpgmaker::project::DocumentValidator BuildValidator(std::string diagnostic_path
 
 namespace jrpgmaker::project {
 
-TransientDataAdapterResult CreateTransientDataAdapter(const std::filesystem::path& project_root,
-                                                      const std::filesystem::path& relative_path,
-                                                      const nlohmann::json& object_patch) {
+TransientDataAdapterResult CreateTransientDataAdapter(
+    const std::filesystem::path& project_root, const std::filesystem::path& relative_path,
+    const nlohmann::json& object_patch, std::span<const std::filesystem::path> plugin_data_roots) {
     const auto diagnostic = [&relative_path](std::string code) {
         return TransientDataAdapterResult{
             .adapter = std::nullopt,
@@ -84,6 +102,11 @@ TransientDataAdapterResult CreateTransientDataAdapter(const std::filesystem::pat
     }
     const auto diagnostic_path = relative_path.generic_string();
     const auto name = relative_path.filename().string();
+    if (IsDeclaredPluginDataPath(relative_path, plugin_data_roots)) {
+        adapter.validate = BuildValidator(
+            diagnostic_path, [](const auto& document) { return document.is_object(); });
+        return {.adapter = std::move(adapter), .diagnostics = {}};
+    }
     if (name == "events_demo.json") {
         adapter.validate = BuildValidator(diagnostic_path, [](const auto& document) {
             (void) domain::ParseEventScript(document);

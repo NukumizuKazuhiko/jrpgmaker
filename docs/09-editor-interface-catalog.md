@@ -106,10 +106,10 @@ interface 规则：
 | `ValidateSnapshot` | 只聚合 bool，缺文件和材质交叉检查不可定位复用 | diagnostic pipeline |
 | `EditableFields`/`ApplyManifestPatch` | 字段许可与 CLI patch 耦合 | manifest document adapter |
 | `BuildEditedDocument`/`PrintManifestDiff` | diff 与终端输出耦合 | `ChangeSet` + CLI formatter |
-| `WriteEditedManifest`/`EditData` | 原子写回实现重复，数据 patch 仍按文件名路由 | 单一 transactional writer + document registry |
+| `WriteEditedManifest`/`EditData` | 已收口：manifest 与数据 patch 均经 `ProjectWorkspace` 的 `PrepareSave`/`Commit` 写回；CLI 不再拥有 raw writer | 单一 transactional writer + document registry |
 | `MigrateProject` | 迁移没有结构化 plan | migration pipeline |
 | `DiagnoseProject` | 只产生终端摘要 | `PreviewSnapshot`/`DiagnosticSet` |
-| `LoadJsonDocument`/`ValidateDataDocument` | I/O、异常、类型路由混合 | bounded document store + adapters |
+| `LoadJsonDocument`/`ValidateDataDocument` | parser 路由已移入 `CreateTransientDataAdapter` 并返回结构化诊断；CLI 仅保留 patch 文件输入与诊断格式化 | bounded document store + adapters |
 
 抽取时先做行为保持测试，再移动实现；CLI 的命令名、退出码和稳定文本输出保持兼容，但文本 formatter 不进入公共 interface。
 

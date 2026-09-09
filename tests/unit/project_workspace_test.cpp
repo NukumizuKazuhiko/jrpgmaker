@@ -978,6 +978,32 @@ TEST_CASE("transient data adapters reject invalid candidates with structured dia
     std::filesystem::remove_all(root, error);
 }
 
+TEST_CASE("transient data adapter recognizes only declared plugin data roots",
+          "[project][transient-data]") {
+    const auto root = MakeFixture();
+    const auto path = std::filesystem::path("mods/sample/content/document.json");
+    const std::array plugin_roots = {std::filesystem::path("mods/sample/content")};
+
+    const auto undeclared =
+        jrpgmaker::project::CreateTransientDataAdapter(root, path, {{"value", 1}});
+    REQUIRE_FALSE(undeclared);
+    REQUIRE(undeclared.diagnostics.front().code == "project.transient_data.unknown_file");
+    const auto declared =
+        jrpgmaker::project::CreateTransientDataAdapter(root, path, {{"value", 1}}, plugin_roots);
+    REQUIRE(declared);
+    REQUIRE(declared.adapter->validate(nlohmann::json::object()).empty());
+    REQUIRE_FALSE(declared.adapter->validate(nlohmann::json::array()).empty());
+    const auto root_itself = jrpgmaker::project::CreateTransientDataAdapter(
+        root, "mods/sample/content", {{"value", 1}}, plugin_roots);
+    REQUIRE_FALSE(root_itself);
+    REQUIRE(root_itself.diagnostics.front().code == "project.transient_data.unknown_file");
+    const auto name_collision = jrpgmaker::project::CreateTransientDataAdapter(
+        root, "mods/sample/content/calendar_demo.json", {{"value", 1}}, plugin_roots);
+    REQUIRE(name_collision);
+    REQUIRE(name_collision.adapter->validate(nlohmann::json::object()).empty());
+    REQUIRE_FALSE(name_collision.adapter->validate(nlohmann::json::array()).empty());
+}
+
 #if defined(_WIN32)
 TEST_CASE("transient data adapter rejects drive-relative Windows paths",
           "[project][transient-data]") {

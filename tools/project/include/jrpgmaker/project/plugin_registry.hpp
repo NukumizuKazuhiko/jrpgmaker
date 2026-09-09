@@ -13,6 +13,7 @@ namespace jrpgmaker::project {
 
 struct PluginRegistryAssembly {
     std::shared_ptr<const plugin::PluginRegistry> registry;
+    std::vector<std::filesystem::path> data_roots;
     std::vector<project::Diagnostic> diagnostics;
     explicit operator bool() const { return registry != nullptr && diagnostics.empty(); }
 };
