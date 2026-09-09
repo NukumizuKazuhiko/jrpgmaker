@@ -23,6 +23,13 @@ bool SafeRelative(const std::string& path) {
            path.front() != '\\';
 }
 
+bool SafeRelativePath(const std::filesystem::path& path) {
+    if (path.empty() || path.is_absolute() || path.has_root_name())
+        return false;
+    return std::none_of(path.begin(), path.end(),
+                        [](const auto& component) { return component == ".."; });
+}
+
 bool MatchesEditorValueType(const plugin::EditorFieldDescriptor& field,
                             const nlohmann::json& value) {
     const auto matches_scalar = [&value](std::string_view value_type) {
@@ -441,8 +448,83 @@ ProjectWorkspace::ProjectWorkspace(std::filesystem::path root, DocumentAdapterRe
                                    const plugin::PluginRegistry* plugins)
     : root_(std::move(root)), adapters_(std::move(adapters)), plugins_(plugins) {}
 
-void ProjectWorkspace::SetExternalDocuments(std::vector<DocumentDescriptor> documents) {
-    external_documents_ = std::move(documents);
+std::vector<Diagnostic>
+ProjectWorkspace::RegisterExternalDocuments(std::vector<DocumentDescriptor> documents) {
+    std::vector<Diagnostic> diagnostics;
+    if (snapshot_) {
+        Add(diagnostics, "project.external_document.workspace_open", "workspace");
+        return diagnostics;
+    }
+    if (documents.size() >
+        kMaxExternalDocuments - std::min(external_documents_.size(), kMaxExternalDocuments)) {
+        Add(diagnostics, "project.external_document.limit", "documents");
+        return diagnostics;
+    }
+    nlohmann::json manifest_document;
+    if (!Read(root_ / "project.json", manifest_document, diagnostics))
+        return diagnostics;
+    const auto parsed_manifest = plugin::ParseProjectManifest(manifest_document);
+    if (!parsed_manifest) {
+        Add(diagnostics, parsed_manifest.error->code, parsed_manifest.error->path);
+        return diagnostics;
+    }
+    const auto& manifest = *parsed_manifest.manifest;
+    const std::array built_in_ids = {
+        "project.manifest",    "domain.event_script", "core.navigation", "core.collision",
+        "core.camera",         "domain.interaction",  "core.material",   "app.input_actions",
+        "domain.localization", "project.resources"};
+    const std::array built_in_paths = {
+        std::string("project.json"), manifest.event_script,  manifest.navigation,
+        manifest.collision,          manifest.camera,        manifest.interaction,
+        manifest.material_document,  manifest.input_actions, manifest.localization,
+        manifest.resource_manifest};
+    std::error_code error;
+    const auto canonical_root = std::filesystem::weakly_canonical(root_, error);
+    if (error) {
+        Add(diagnostics, "project.external_document.root", root_.string());
+        return diagnostics;
+    }
+    for (std::size_t index = 0; index < documents.size(); ++index) {
+        const auto& document = documents[index];
+        if (document.id.empty() || document.type_id.empty() || !SafeRelativePath(document.path)) {
+            Add(diagnostics, "project.external_document.invalid", document.path.generic_string());
+            continue;
+        }
+        if (adapters_.Find(document.type_id) == nullptr)
+            Add(diagnostics, "project.adapter.unknown_type", document.type_id);
+        const auto duplicate_id = [&document](const DocumentDescriptor& candidate) {
+            return candidate.id == document.id;
+        };
+        if (std::any_of(external_documents_.begin(), external_documents_.end(), duplicate_id) ||
+            std::any_of(documents.begin(), documents.begin() + static_cast<std::ptrdiff_t>(index),
+                        duplicate_id))
+            Add(diagnostics, "project.external_document.duplicate", document.id);
+        const auto canonical_path = std::filesystem::weakly_canonical(root_ / document.path, error);
+        if (error || !plugin::IsCanonicalPathWithin(canonical_root, canonical_path) ||
+            !std::filesystem::is_regular_file(canonical_path, error)) {
+            Add(diagnostics, "project.external_document.path", document.path.generic_string());
+            continue;
+        }
+        const auto same_file = [&canonical_path, &error, this](const auto& relative) {
+            error.clear();
+            return std::filesystem::equivalent(canonical_path, root_ / relative, error) && !error;
+        };
+        if (std::any_of(
+                external_documents_.begin(), external_documents_.end(),
+                [&same_file](const auto& candidate) { return same_file(candidate.path); }) ||
+            std::any_of(documents.begin(), documents.begin() + static_cast<std::ptrdiff_t>(index),
+                        [&same_file](const auto& candidate) { return same_file(candidate.path); }))
+            Add(diagnostics, "project.external_document.duplicate", document.id);
+        if (std::find(built_in_ids.begin(), built_in_ids.end(), document.id) !=
+                built_in_ids.end() ||
+            std::any_of(built_in_paths.begin(), built_in_paths.end(), same_file))
+            Add(diagnostics, "project.external_document.builtin_conflict", document.id);
+    }
+    if (diagnostics.empty())
+        external_documents_.insert(external_documents_.end(),
+                                   std::make_move_iterator(documents.begin()),
+                                   std::make_move_iterator(documents.end()));
+    return diagnostics;
 }
 
 std::vector<DocumentDescriptor>

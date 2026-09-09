@@ -150,13 +150,16 @@ struct MigrationResult {
 
 class ProjectWorkspace final {
 public:
+    static constexpr std::size_t kMaxExternalDocuments = 128;
+
     explicit ProjectWorkspace(std::filesystem::path root,
                               DocumentAdapterRegistry adapters = CreateDefaultDocumentAdapters(),
                               const plugin::PluginRegistry* plugins = nullptr);
 
     [[nodiscard]] WorkspaceResult Open();
     [[nodiscard]] std::vector<Diagnostic> SelectDocument(std::string_view document_id);
-    void SetExternalDocuments(std::vector<DocumentDescriptor> documents);
+    [[nodiscard]] std::vector<Diagnostic>
+    RegisterExternalDocuments(std::vector<DocumentDescriptor> documents);
     [[nodiscard]] std::string_view CurrentDocumentId() const { return current_document_id_; }
     [[nodiscard]] std::vector<DocumentDescriptor>
     DescribeDocuments(const ProjectSnapshot& snapshot) const;

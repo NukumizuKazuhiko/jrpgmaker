@@ -74,6 +74,8 @@ std::filesystem::path MakeFixture() {
     std::filesystem::copy_file(
         std::filesystem::path(JRPGMAKER_ASSET_DIR) / "data/project_demo.json",
         root / "project.json", std::filesystem::copy_options::overwrite_existing, error);
+    std::ofstream(root / "assets/data/transient.json")
+        << R"({"width":1,"height":1,"walkable":[true]})";
     return root;
 }
 
@@ -444,7 +446,7 @@ TEST_CASE("workspace edits and saves an external plugin document", "[project][pl
             return std::vector<jrpgmaker::project::Diagnostic>{{"test.invalid", "schema"}};
         }));
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
-    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+    (void) workspace.RegisterExternalDocuments({jrpgmaker::project::DocumentDescriptor{
         .id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
         .path = "assets/data/plugin_doc.json",
         .label_key = "plugin.example.document",
@@ -514,7 +516,7 @@ TEST_CASE("workspace plugin validator sees the sidecar working copy before save"
         adapters, *parsed.descriptor,
         [](const nlohmann::json&) { return std::vector<jrpgmaker::project::Diagnostic>{}; }));
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters), &registry);
-    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+    (void) workspace.RegisterExternalDocuments({jrpgmaker::project::DocumentDescriptor{
         .id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
         .path = "assets/data/plugin_doc.json",
         .label_key = "plugin.example.document",
@@ -567,7 +569,7 @@ TEST_CASE("workspace blocks save when a sidecar plugin validator throws",
         [](const nlohmann::json&) { return std::vector<jrpgmaker::project::Diagnostic>{}; }));
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters), &registry);
     const auto document_id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json";
-    workspace.SetExternalDocuments(
+    (void) workspace.RegisterExternalDocuments(
         {jrpgmaker::project::DocumentDescriptor{.id = document_id,
                                                 .path = "assets/data/plugin_doc.json",
                                                 .label_key = "plugin.example.document",
@@ -614,7 +616,7 @@ TEST_CASE("project workspace validates an external descriptor before save",
     auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
     REQUIRE(jrpgmaker::project::RegisterEditorDescriptor(adapters, *parsed.descriptor, {}));
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
-    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+    (void) workspace.RegisterExternalDocuments({jrpgmaker::project::DocumentDescriptor{
         .id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
         .path = "assets/data/plugin_doc.json",
         .label_key = "plugin.example.document",
@@ -660,7 +662,7 @@ TEST_CASE("project workspace rejects edits to read-only external documents",
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
     const auto document_id =
         "plugin:readonly:vendor.example.read_only.v1:assets/data/plugin_doc.json";
-    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+    (void) workspace.RegisterExternalDocuments({jrpgmaker::project::DocumentDescriptor{
         .id = document_id,
         .path = "assets/data/plugin_doc.json",
         .label_key = "plugin.example.document",
@@ -696,4 +698,99 @@ TEST_CASE("default document adapters cover the domain workspace documents", "[pr
     REQUIRE(registry.Find("app.input_actions") != nullptr);
     REQUIRE(registry.Find("domain.localization") != nullptr);
     REQUIRE(registry.Find("project.resources") != nullptr);
+}
+
+TEST_CASE("external document registration rejects path escapes atomically",
+          "[project][external-document][security]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto diagnostics =
+        workspace.RegisterExternalDocuments({{.id = "cli.valid",
+                                              .path = "assets/data/transient.json",
+                                              .label_key = {},
+                                              .editable = true,
+                                              .type_id = "core.navigation",
+                                              .category_key = {}},
+                                             {.id = "cli.escape",
+                                              .path = "../outside.json",
+                                              .label_key = {},
+                                              .editable = true,
+                                              .type_id = "core.navigation",
+                                              .category_key = {}}});
+
+    REQUIRE(diagnostics.size() == 1);
+    REQUIRE(diagnostics.front().code == "project.external_document.invalid");
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.DescribeDocuments(*opened.snapshot).size() == 10);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("external document registration rejects built-in catalog conflicts",
+          "[project][external-document]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto diagnostics =
+        workspace.RegisterExternalDocuments({{.id = "core.navigation",
+                                              .path = "assets/data/transient.json",
+                                              .label_key = {},
+                                              .editable = true,
+                                              .type_id = "core.navigation",
+                                              .category_key = {}}});
+    REQUIRE(diagnostics.size() == 1);
+    REQUIRE(diagnostics.front().code == "project.external_document.builtin_conflict");
+
+    jrpgmaker::project::ProjectWorkspace path_workspace(root);
+    const auto path_diagnostics =
+        path_workspace.RegisterExternalDocuments({{.id = "cli.navigation.alias",
+                                                   .path = "assets/data/./navigation_demo.json",
+                                                   .label_key = {},
+                                                   .editable = true,
+                                                   .type_id = "core.navigation",
+                                                   .category_key = {}}});
+    REQUIRE(path_diagnostics.size() == 1);
+    REQUIRE(path_diagnostics.front().code == "project.external_document.builtin_conflict");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("external document registration rejects an over-budget batch atomically",
+          "[project][external-document]") {
+    const auto root = MakeFixture();
+    std::vector<jrpgmaker::project::DocumentDescriptor> documents(
+        jrpgmaker::project::ProjectWorkspace::kMaxExternalDocuments + 1);
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto diagnostics = workspace.RegisterExternalDocuments(std::move(documents));
+    REQUIRE(diagnostics.size() == 1);
+    REQUIRE(diagnostics.front().code == "project.external_document.limit");
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.DescribeDocuments(*opened.snapshot).size() == 10);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("external document registration enforces its cumulative budget atomically",
+          "[project][external-document]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    REQUIRE(workspace
+                .RegisterExternalDocuments({{.id = "cli.valid",
+                                             .path = "assets/data/transient.json",
+                                             .label_key = {},
+                                             .editable = true,
+                                             .type_id = "core.navigation",
+                                             .category_key = {}}})
+                .empty());
+    std::vector<jrpgmaker::project::DocumentDescriptor> overflow(
+        jrpgmaker::project::ProjectWorkspace::kMaxExternalDocuments);
+    const auto diagnostics = workspace.RegisterExternalDocuments(std::move(overflow));
+    REQUIRE(diagnostics.size() == 1);
+    REQUIRE(diagnostics.front().code == "project.external_document.limit");
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.DescribeDocuments(*opened.snapshot).size() == 11);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
 }

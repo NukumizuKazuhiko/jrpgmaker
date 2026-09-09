@@ -282,7 +282,11 @@ bool EditorSession::Open() {
     startup_plugin_diagnostics_ = LoadPluginEditorAdapters();
     operation_diagnostics_.clear();
     workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_.get());
-    workspace_.SetExternalDocuments(external_documents_);
+    const auto registration_diagnostics = workspace_.RegisterExternalDocuments(external_documents_);
+    if (!registration_diagnostics.empty()) {
+        SetOpenFailure(root_, registration_diagnostics);
+        return false;
+    }
     const auto result = workspace_.Open();
     if (!result) {
         state_.open = false;
