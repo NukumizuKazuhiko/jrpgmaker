@@ -2,13 +2,14 @@ find_package(SDL3 CONFIG REQUIRED)
 
 include(${CMAKE_SOURCE_DIR}/cmake/rmlui.cmake)
 
-add_library(jrpgmaker_editor_host STATIC src/editor_shell.cpp src/form_projection.cpp src/editor_session.cpp src/editor_workspace_controller.cpp src/preview_process.cpp src/editor_window.cpp src/editor_user_settings.cpp src/rmlui_input.cpp src/rmlui_editor_view.cpp src/rmlui_editor_document.cpp)
+add_library(jrpgmaker_editor_host STATIC src/editor_shell.cpp src/form_projection.cpp src/editor_session.cpp src/editor_workspace_controller.cpp src/editor_plugin_registry.cpp src/preview_process.cpp src/editor_window.cpp src/editor_user_settings.cpp src/rmlui_input.cpp src/rmlui_editor_view.cpp src/rmlui_editor_document.cpp)
 add_library(jrpgmaker::editor_host ALIAS jrpgmaker_editor_host)
 target_sources(
   jrpgmaker_editor_host
   PUBLIC FILE_SET HEADERS BASE_DIRS include FILES include/jrpgmaker/editor/editor_shell.hpp
          include/jrpgmaker/editor/form_projection.hpp include/jrpgmaker/editor/editor_session.hpp
          include/jrpgmaker/editor/editor_workspace_controller.hpp
+         include/jrpgmaker/editor/editor_plugin_registry.hpp
          include/jrpgmaker/editor/editor_window.hpp
          include/jrpgmaker/editor/editor_user_settings.hpp
          include/jrpgmaker/editor/preview_process.hpp
@@ -26,7 +27,8 @@ endif()
 add_executable(jrpgmaker_editor main.cpp)
 target_link_libraries(jrpgmaker_editor PRIVATE jrpgmaker::ui jrpgmaker::project
                                                 jrpgmaker::editor_host jrpgmaker::render
-                                                jrpgmaker::rhi jrpgmaker::shaders SDL3::SDL3)
+                                                jrpgmaker::rhi jrpgmaker::shaders jrpgmaker::plugins
+                                                SDL3::SDL3)
 target_compile_features(jrpgmaker_editor PRIVATE cxx_std_20)
 if(MSVC)
   target_compile_options(jrpgmaker_editor PRIVATE /utf-8)

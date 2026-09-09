@@ -15,6 +15,7 @@
 #include "jrpgmaker/editor/editor_workspace_controller.hpp"
 #include "jrpgmaker/editor/rmlui_editor_document.hpp"
 #include "jrpgmaker/editor/rmlui_editor_view.hpp"
+#include "jrpgmaker/plugins/register.hpp"
 #include "jrpgmaker/render/ui_draw_adapter.hpp"
 #include "jrpgmaker/rhi/device_factory.hpp"
 #include "jrpgmaker/rhi/swapchain.hpp"
@@ -137,7 +138,8 @@ int main(int argc, char** argv) {
          .menu = {.root_width = resources.bundle->theme.dimensions.at("menu.root_width"),
                   .row_height = resources.bundle->theme.dimensions.at("menu.row_height"),
                   .popup_width = resources.bundle->theme.dimensions.at("menu.popup_width")},
-         .runtime_executable = JRPGMAKER_RUNTIME_EXECUTABLE});
+         .runtime_executable = JRPGMAKER_RUNTIME_EXECUTABLE,
+         .plugin_factories = jrpgmaker::plugins::CompiledSamplePlugins()});
     if ((argc == 2 && !smoke) || argc == 3) {
         const auto project_argument = std::filesystem::path(argv[1]);
         if (!controller.OpenProject(project_argument))
