@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "jrpgmaker/project/transient_data_adapter.hpp"
 #include "jrpgmaker/project/workspace.hpp"
 
 namespace {
@@ -907,3 +908,84 @@ TEST_CASE("workspace rejects object patch normalizer changes outside declared fi
     std::error_code error;
     std::filesystem::remove_all(root, error);
 }
+
+TEST_CASE("transient calendar adapter validates the patched document through the calendar parser",
+          "[project][transient-data]") {
+    const auto root = MakeFixture();
+    const auto result = jrpgmaker::project::CreateTransientDataAdapter(
+        root, "assets/data/calendar_demo.json", {{"id", "calendar.edited"}});
+
+    REQUIRE(result);
+    REQUIRE(result.adapter->fields.size() == 1);
+    REQUIRE(result.adapter->fields.front().path == "/id");
+    nlohmann::json valid_document;
+    std::ifstream(root / "assets/data/calendar_demo.json") >> valid_document;
+    valid_document["id"] = "calendar.edited";
+    REQUIRE(result.adapter->validate(valid_document).empty());
+    valid_document["schema"] = 0;
+    const auto diagnostics = result.adapter->validate(valid_document);
+    REQUIRE(diagnostics.size() == 1);
+    REQUIRE(diagnostics.front().code == "project.transient_data.invalid");
+    REQUIRE(diagnostics.front().path == "assets/data/calendar_demo.json");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("transient data adapter supports every schema-aware projecttool document",
+          "[project][transient-data]") {
+    const auto root = MakeFixture();
+    constexpr std::array names = {
+        "events_demo.json",     "navigation_demo.json",    "collision_demo.json",
+        "camera_demo.json",     "interaction_demo.json",   "input_actions.json",
+        "localization_en.json", "material_demo.json",      "material_accent.json",
+        "schedule_demo.json",   "vertical_slice_demo.json"};
+
+    for (const auto* name : names) {
+        const auto relative = std::filesystem::path("assets/data") / name;
+        const auto result =
+            jrpgmaker::project::CreateTransientDataAdapter(root, relative, {{"schema", 1}});
+        CAPTURE(name);
+        REQUIRE(result);
+        nlohmann::json document;
+        std::ifstream(root / relative) >> document;
+        REQUIRE(result.adapter->validate(document).empty());
+    }
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("transient data adapters reject invalid candidates with structured diagnostics",
+          "[project][transient-data]") {
+    const auto root = MakeFixture();
+    constexpr std::array names = {
+        "events_demo.json",     "navigation_demo.json",  "collision_demo.json",
+        "camera_demo.json",     "interaction_demo.json", "input_actions.json",
+        "calendar_demo.json",   "localization_en.json",  "material_demo.json",
+        "material_accent.json", "schedule_demo.json",    "vertical_slice_demo.json"};
+
+    for (const auto* name : names) {
+        const auto relative = std::filesystem::path("assets/data") / name;
+        const auto result =
+            jrpgmaker::project::CreateTransientDataAdapter(root, relative, {{"schema", 1}});
+        CAPTURE(name);
+        REQUIRE(result);
+        const auto diagnostics = result.adapter->validate(nlohmann::json::object());
+        REQUIRE(diagnostics.size() == 1);
+        REQUIRE(diagnostics.front().code == "project.transient_data.invalid");
+        REQUIRE(diagnostics.front().path == relative.generic_string());
+    }
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+#if defined(_WIN32)
+TEST_CASE("transient data adapter rejects drive-relative Windows paths",
+          "[project][transient-data]") {
+    const auto result = jrpgmaker::project::CreateTransientDataAdapter(
+        MakeFixture(), "C:calendar_demo.json", {{"schema", 1}});
+
+    REQUIRE_FALSE(result);
+    REQUIRE(result.diagnostics.size() == 1);
+    REQUIRE(result.diagnostics.front().code == "project.transient_data.unsafe_path");
+}
+#endif
