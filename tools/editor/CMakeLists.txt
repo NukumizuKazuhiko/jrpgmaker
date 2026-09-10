@@ -26,7 +26,8 @@ endif()
 add_executable(jrpgmaker_editor main.cpp)
 target_link_libraries(jrpgmaker_editor PRIVATE jrpgmaker::ui jrpgmaker::project
                                                 jrpgmaker::editor_host jrpgmaker::render
-                                                jrpgmaker::rhi jrpgmaker::shaders SDL3::SDL3)
+                                                jrpgmaker::rhi jrpgmaker::shaders jrpgmaker::plugins
+                                                SDL3::SDL3)
 target_compile_features(jrpgmaker_editor PRIVATE cxx_std_20)
 if(MSVC)
   target_compile_options(jrpgmaker_editor PRIVATE /utf-8)

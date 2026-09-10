@@ -132,13 +132,21 @@ bool EditorWorkspaceController::Resize(float width, float height) {
 bool EditorWorkspaceController::OpenProject(const std::filesystem::path& root) {
     if (root.empty())
         return false;
-    if (!session_)
+    const auto assembly = project::AssembleProjectPluginRegistry(root, config_.plugin_factories);
+    if (!assembly) {
+        plugin_registry_.reset();
         session_ = std::make_unique<EditorSession>(root);
+        session_->SetOpenFailure(root, assembly.diagnostics);
+    } else {
+        plugin_registry_ = assembly.registry;
+        session_ = std::make_unique<EditorSession>(root, project::CreateDefaultDocumentAdapters(),
+                                                   plugin_registry_);
+    }
     project_filter_.clear();
     project_filter_text_.SetText({});
     project_filter_focused_ = false;
     focused_panel_ = "workspace.scene";
-    const auto opened = session_->Open(root);
+    const auto opened = assembly && session_->Open(root);
     RebuildMenuModel();
     return opened;
 }

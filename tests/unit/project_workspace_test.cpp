@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "jrpgmaker/project/transient_data_adapter.hpp"
 #include "jrpgmaker/project/workspace.hpp"
 
 namespace {
@@ -74,6 +75,8 @@ std::filesystem::path MakeFixture() {
     std::filesystem::copy_file(
         std::filesystem::path(JRPGMAKER_ASSET_DIR) / "data/project_demo.json",
         root / "project.json", std::filesystem::copy_options::overwrite_existing, error);
+    std::ofstream(root / "assets/data/transient.json")
+        << R"({"width":1,"height":1,"walkable":[true]})";
     return root;
 }
 
@@ -444,7 +447,7 @@ TEST_CASE("workspace edits and saves an external plugin document", "[project][pl
             return std::vector<jrpgmaker::project::Diagnostic>{{"test.invalid", "schema"}};
         }));
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
-    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+    (void) workspace.RegisterExternalDocuments({jrpgmaker::project::DocumentDescriptor{
         .id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
         .path = "assets/data/plugin_doc.json",
         .label_key = "plugin.example.document",
@@ -514,7 +517,7 @@ TEST_CASE("workspace plugin validator sees the sidecar working copy before save"
         adapters, *parsed.descriptor,
         [](const nlohmann::json&) { return std::vector<jrpgmaker::project::Diagnostic>{}; }));
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters), &registry);
-    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+    (void) workspace.RegisterExternalDocuments({jrpgmaker::project::DocumentDescriptor{
         .id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
         .path = "assets/data/plugin_doc.json",
         .label_key = "plugin.example.document",
@@ -567,7 +570,7 @@ TEST_CASE("workspace blocks save when a sidecar plugin validator throws",
         [](const nlohmann::json&) { return std::vector<jrpgmaker::project::Diagnostic>{}; }));
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters), &registry);
     const auto document_id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json";
-    workspace.SetExternalDocuments(
+    (void) workspace.RegisterExternalDocuments(
         {jrpgmaker::project::DocumentDescriptor{.id = document_id,
                                                 .path = "assets/data/plugin_doc.json",
                                                 .label_key = "plugin.example.document",
@@ -614,7 +617,7 @@ TEST_CASE("project workspace validates an external descriptor before save",
     auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
     REQUIRE(jrpgmaker::project::RegisterEditorDescriptor(adapters, *parsed.descriptor, {}));
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
-    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+    (void) workspace.RegisterExternalDocuments({jrpgmaker::project::DocumentDescriptor{
         .id = "plugin:vendor.example.document.v1:assets/data/plugin_doc.json",
         .path = "assets/data/plugin_doc.json",
         .label_key = "plugin.example.document",
@@ -660,7 +663,7 @@ TEST_CASE("project workspace rejects edits to read-only external documents",
     jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
     const auto document_id =
         "plugin:readonly:vendor.example.read_only.v1:assets/data/plugin_doc.json";
-    workspace.SetExternalDocuments({jrpgmaker::project::DocumentDescriptor{
+    (void) workspace.RegisterExternalDocuments({jrpgmaker::project::DocumentDescriptor{
         .id = document_id,
         .path = "assets/data/plugin_doc.json",
         .label_key = "plugin.example.document",
@@ -697,3 +700,318 @@ TEST_CASE("default document adapters cover the domain workspace documents", "[pr
     REQUIRE(registry.Find("domain.localization") != nullptr);
     REQUIRE(registry.Find("project.resources") != nullptr);
 }
+
+TEST_CASE("external document registration rejects path escapes atomically",
+          "[project][external-document][security]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto diagnostics =
+        workspace.RegisterExternalDocuments({{.id = "cli.valid",
+                                              .path = "assets/data/transient.json",
+                                              .label_key = {},
+                                              .editable = true,
+                                              .type_id = "core.navigation",
+                                              .category_key = {}},
+                                             {.id = "cli.escape",
+                                              .path = "../outside.json",
+                                              .label_key = {},
+                                              .editable = true,
+                                              .type_id = "core.navigation",
+                                              .category_key = {}}});
+
+    REQUIRE(diagnostics.size() == 1);
+    REQUIRE(diagnostics.front().code == "project.external_document.invalid");
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.DescribeDocuments(*opened.snapshot).size() == 10);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("external document registration rejects built-in catalog conflicts",
+          "[project][external-document]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto diagnostics =
+        workspace.RegisterExternalDocuments({{.id = "core.navigation",
+                                              .path = "assets/data/transient.json",
+                                              .label_key = {},
+                                              .editable = true,
+                                              .type_id = "core.navigation",
+                                              .category_key = {}}});
+    REQUIRE(diagnostics.size() == 1);
+    REQUIRE(diagnostics.front().code == "project.external_document.builtin_conflict");
+
+    jrpgmaker::project::ProjectWorkspace path_workspace(root);
+    const auto path_diagnostics =
+        path_workspace.RegisterExternalDocuments({{.id = "cli.navigation.alias",
+                                                   .path = "assets/data/./navigation_demo.json",
+                                                   .label_key = {},
+                                                   .editable = true,
+                                                   .type_id = "core.navigation",
+                                                   .category_key = {}}});
+    REQUIRE(path_diagnostics.size() == 1);
+    REQUIRE(path_diagnostics.front().code == "project.external_document.builtin_conflict");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("external document registration rejects an over-budget batch atomically",
+          "[project][external-document]") {
+    const auto root = MakeFixture();
+    std::vector<jrpgmaker::project::DocumentDescriptor> documents(
+        jrpgmaker::project::ProjectWorkspace::kMaxExternalDocuments + 1);
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    const auto diagnostics = workspace.RegisterExternalDocuments(std::move(documents));
+    REQUIRE(diagnostics.size() == 1);
+    REQUIRE(diagnostics.front().code == "project.external_document.limit");
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.DescribeDocuments(*opened.snapshot).size() == 10);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("external document registration enforces its cumulative budget atomically",
+          "[project][external-document]") {
+    const auto root = MakeFixture();
+    jrpgmaker::project::ProjectWorkspace workspace(root);
+    REQUIRE(workspace
+                .RegisterExternalDocuments({{.id = "cli.valid",
+                                             .path = "assets/data/transient.json",
+                                             .label_key = {},
+                                             .editable = true,
+                                             .type_id = "core.navigation",
+                                             .category_key = {}}})
+                .empty());
+    std::vector<jrpgmaker::project::DocumentDescriptor> overflow(
+        jrpgmaker::project::ProjectWorkspace::kMaxExternalDocuments);
+    const auto diagnostics = workspace.RegisterExternalDocuments(std::move(overflow));
+    REQUIRE(diagnostics.size() == 1);
+    REQUIRE(diagnostics.front().code == "project.external_document.limit");
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.DescribeDocuments(*opened.snapshot).size() == 11);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("workspace applies an object patch against the final candidate once",
+          "[project][object-patch]") {
+    const auto root = MakeFixture();
+    std::ofstream(root / "assets/data/range.json")
+        << R"({"low":5,"high":5,"a/b":1,"c~d":1,"locked":1})";
+    const auto validations = std::make_shared<int>(0);
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    REQUIRE(adapters.Register({.type_id = "test.range",
+                               .fields = {{"/low", "integer", {}, {}, true, false, {}},
+                                          {"/high", "integer", {}, {}, true, false, {}},
+                                          {"/a~1b", "integer", {}, {}, true, false, {}},
+                                          {"/c~0d", "integer", {}, {}, true, false, {}},
+                                          {"/locked", "integer", {}, {}, true, true, {}}},
+                               .validate =
+                                   [validations](const nlohmann::json& document) {
+                                       ++*validations;
+                                       if (document.value("low", 0) <= document.value("high", 0))
+                                           return std::vector<jrpgmaker::project::Diagnostic>{};
+                                       return std::vector<jrpgmaker::project::Diagnostic>{
+                                           {"test.range.invalid", "range"}};
+                                   },
+                               .normalize_edit = {}}));
+    jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
+    REQUIRE(workspace
+                .RegisterExternalDocuments({{.id = "test.range.document",
+                                             .path = "assets/data/range.json",
+                                             .label_key = {},
+                                             .editable = true,
+                                             .type_id = "test.range",
+                                             .category_key = {}}})
+                .empty());
+    const auto opened = workspace.Open();
+    REQUIRE(opened);
+    REQUIRE(workspace.SelectDocument("test.range.document").empty());
+    const int validations_before_edit = *validations;
+    const auto initial = workspace.CurrentDocument();
+    const auto initial_revision = opened.snapshot->revision;
+    REQUIRE_FALSE(workspace.ApplyObjectPatch("test.range.document", nlohmann::json::array()));
+    REQUIRE_FALSE(workspace.ApplyObjectPatch("test.range.document", nlohmann::json::object()));
+    nlohmann::json oversized = nlohmann::json::object();
+    for (std::size_t index = 0; index <= jrpgmaker::project::ProjectWorkspace::kMaxObjectPatchKeys;
+         ++index)
+        oversized["key" + std::to_string(index)] = index;
+    REQUIRE_FALSE(workspace.ApplyObjectPatch("test.range.document", oversized));
+    const auto unknown = workspace.ApplyObjectPatch("test.range.document", {{"missing", 1}});
+    REQUIRE_FALSE(unknown);
+    REQUIRE(unknown.diagnostics.front().code == "project.edit.field_not_editable");
+    const auto read_only = workspace.ApplyObjectPatch("test.range.document", {{"locked", 2}});
+    REQUIRE_FALSE(read_only);
+    REQUIRE(read_only.diagnostics.front().code == "project.edit.field_read_only");
+    REQUIRE(workspace.CurrentDocument() == initial);
+    REQUIRE(workspace.PendingChanges().empty());
+    REQUIRE(initial_revision == opened.snapshot->revision);
+
+    const auto edited = workspace.ApplyObjectPatch(
+        "test.range.document", nlohmann::json{{"low", 0}, {"high", 0}, {"a/b", 2}, {"c~d", 2}});
+
+    REQUIRE(edited);
+    REQUIRE(*validations == validations_before_edit + 1);
+    REQUIRE(edited.revision == opened.snapshot->revision + 1);
+    REQUIRE(edited.changes.size() == 4);
+    REQUIRE(workspace.CurrentDocument()["a/b"] == 2);
+    REQUIRE(workspace.CurrentDocument()["c~d"] == 2);
+    const auto pending_before_noop = workspace.PendingChanges().size();
+    const auto noop = workspace.ApplyObjectPatch(
+        "test.range.document", nlohmann::json{{"low", 0}, {"high", 0}, {"a/b", 2}, {"c~d", 2}});
+    REQUIRE(noop);
+    REQUIRE(noop.changes.empty());
+    REQUIRE(noop.revision == edited.revision);
+    REQUIRE(workspace.PendingChanges().size() == pending_before_noop);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("workspace rejects object patch normalizer changes outside declared fields",
+          "[project][object-patch]") {
+    const auto root = MakeFixture();
+    std::ofstream(root / "assets/data/normalized.json") << R"({"name":"before"})";
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    REQUIRE(adapters.Register(
+        {.type_id = "test.normalized",
+         .fields = {{"/name", "string", {}, {}, true, false, {}}},
+         .validate =
+             [](const nlohmann::json&) { return std::vector<jrpgmaker::project::Diagnostic>{}; },
+         .normalize_edit =
+             [](std::string_view, nlohmann::json& candidate) {
+                 candidate["hidden"] = true;
+                 return std::vector<jrpgmaker::project::Diagnostic>{};
+             }}));
+    jrpgmaker::project::ProjectWorkspace workspace(root, std::move(adapters));
+    REQUIRE(workspace
+                .RegisterExternalDocuments({{.id = "test.normalized.document",
+                                             .path = "assets/data/normalized.json",
+                                             .label_key = {},
+                                             .editable = true,
+                                             .type_id = "test.normalized",
+                                             .category_key = {}}})
+                .empty());
+    REQUIRE(workspace.Open());
+    REQUIRE(workspace.SelectDocument("test.normalized.document").empty());
+    const auto before = workspace.CurrentDocument();
+
+    const auto edit = workspace.ApplyObjectPatch("test.normalized.document", {{"name", "after"}});
+
+    REQUIRE_FALSE(edit);
+    REQUIRE(edit.diagnostics.size() == 1);
+    REQUIRE(edit.diagnostics.front().code == "project.edit.normalizer_out_of_contract");
+    REQUIRE(workspace.CurrentDocument() == before);
+    REQUIRE(workspace.PendingChanges().empty());
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("transient calendar adapter validates the patched document through the calendar parser",
+          "[project][transient-data]") {
+    const auto root = MakeFixture();
+    const auto result = jrpgmaker::project::CreateTransientDataAdapter(
+        root, "assets/data/calendar_demo.json", {{"id", "calendar.edited"}});
+
+    REQUIRE(result);
+    REQUIRE(result.adapter->fields.size() == 1);
+    REQUIRE(result.adapter->fields.front().path == "/id");
+    nlohmann::json valid_document;
+    std::ifstream(root / "assets/data/calendar_demo.json") >> valid_document;
+    valid_document["id"] = "calendar.edited";
+    REQUIRE(result.adapter->validate(valid_document).empty());
+    valid_document["schema"] = 0;
+    const auto diagnostics = result.adapter->validate(valid_document);
+    REQUIRE(diagnostics.size() == 1);
+    REQUIRE(diagnostics.front().code == "project.transient_data.invalid");
+    REQUIRE(diagnostics.front().path == "assets/data/calendar_demo.json");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("transient data adapter supports every schema-aware projecttool document",
+          "[project][transient-data]") {
+    const auto root = MakeFixture();
+    constexpr std::array names = {
+        "events_demo.json",     "navigation_demo.json",    "collision_demo.json",
+        "camera_demo.json",     "interaction_demo.json",   "input_actions.json",
+        "localization_en.json", "material_demo.json",      "material_accent.json",
+        "schedule_demo.json",   "vertical_slice_demo.json"};
+
+    for (const auto* name : names) {
+        const auto relative = std::filesystem::path("assets/data") / name;
+        const auto result =
+            jrpgmaker::project::CreateTransientDataAdapter(root, relative, {{"schema", 1}});
+        CAPTURE(name);
+        REQUIRE(result);
+        nlohmann::json document;
+        std::ifstream(root / relative) >> document;
+        REQUIRE(result.adapter->validate(document).empty());
+    }
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("transient data adapters reject invalid candidates with structured diagnostics",
+          "[project][transient-data]") {
+    const auto root = MakeFixture();
+    constexpr std::array names = {
+        "events_demo.json",     "navigation_demo.json",  "collision_demo.json",
+        "camera_demo.json",     "interaction_demo.json", "input_actions.json",
+        "calendar_demo.json",   "localization_en.json",  "material_demo.json",
+        "material_accent.json", "schedule_demo.json",    "vertical_slice_demo.json"};
+
+    for (const auto* name : names) {
+        const auto relative = std::filesystem::path("assets/data") / name;
+        const auto result =
+            jrpgmaker::project::CreateTransientDataAdapter(root, relative, {{"schema", 1}});
+        CAPTURE(name);
+        REQUIRE(result);
+        const auto diagnostics = result.adapter->validate(nlohmann::json::object());
+        REQUIRE(diagnostics.size() == 1);
+        REQUIRE(diagnostics.front().code == "project.transient_data.invalid");
+        REQUIRE(diagnostics.front().path == relative.generic_string());
+    }
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("transient data adapter recognizes only declared plugin data roots",
+          "[project][transient-data]") {
+    const auto root = MakeFixture();
+    const auto path = std::filesystem::path("mods/sample/content/document.json");
+    const std::array plugin_roots = {std::filesystem::path("mods/sample/content")};
+
+    const auto undeclared =
+        jrpgmaker::project::CreateTransientDataAdapter(root, path, {{"value", 1}});
+    REQUIRE_FALSE(undeclared);
+    REQUIRE(undeclared.diagnostics.front().code == "project.transient_data.unknown_file");
+    const auto declared =
+        jrpgmaker::project::CreateTransientDataAdapter(root, path, {{"value", 1}}, plugin_roots);
+    REQUIRE(declared);
+    REQUIRE(declared.adapter->validate(nlohmann::json::object()).empty());
+    REQUIRE_FALSE(declared.adapter->validate(nlohmann::json::array()).empty());
+    const auto root_itself = jrpgmaker::project::CreateTransientDataAdapter(
+        root, "mods/sample/content", {{"value", 1}}, plugin_roots);
+    REQUIRE_FALSE(root_itself);
+    REQUIRE(root_itself.diagnostics.front().code == "project.transient_data.unknown_file");
+    const auto name_collision = jrpgmaker::project::CreateTransientDataAdapter(
+        root, "mods/sample/content/calendar_demo.json", {{"value", 1}}, plugin_roots);
+    REQUIRE(name_collision);
+    REQUIRE(name_collision.adapter->validate(nlohmann::json::object()).empty());
+    REQUIRE_FALSE(name_collision.adapter->validate(nlohmann::json::array()).empty());
+}
+
+#if defined(_WIN32)
+TEST_CASE("transient data adapter rejects drive-relative Windows paths",
+          "[project][transient-data]") {
+    const auto result = jrpgmaker::project::CreateTransientDataAdapter(
+        MakeFixture(), "C:calendar_demo.json", {{"schema", 1}});
+
+    REQUIRE_FALSE(result);
+    REQUIRE(result.diagnostics.size() == 1);
+    REQUIRE(result.diagnostics.front().code == "project.transient_data.unsafe_path");
+}
+#endif

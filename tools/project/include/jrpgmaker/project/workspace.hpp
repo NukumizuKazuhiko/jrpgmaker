@@ -150,18 +150,24 @@ struct MigrationResult {
 
 class ProjectWorkspace final {
 public:
+    static constexpr std::size_t kMaxExternalDocuments = 128;
+    static constexpr std::size_t kMaxObjectPatchKeys = 64;
+
     explicit ProjectWorkspace(std::filesystem::path root,
                               DocumentAdapterRegistry adapters = CreateDefaultDocumentAdapters(),
                               const plugin::PluginRegistry* plugins = nullptr);
 
     [[nodiscard]] WorkspaceResult Open();
     [[nodiscard]] std::vector<Diagnostic> SelectDocument(std::string_view document_id);
-    void SetExternalDocuments(std::vector<DocumentDescriptor> documents);
+    [[nodiscard]] std::vector<Diagnostic>
+    RegisterExternalDocuments(std::vector<DocumentDescriptor> documents);
     [[nodiscard]] std::string_view CurrentDocumentId() const { return current_document_id_; }
     [[nodiscard]] std::vector<DocumentDescriptor>
     DescribeDocuments(const ProjectSnapshot& snapshot) const;
     [[nodiscard]] DiagnosticSet Diagnose(const ProjectSnapshot& snapshot) const;
     [[nodiscard]] EditResult Apply(const EditCommand& command);
+    [[nodiscard]] EditResult ApplyObjectPatch(std::string_view document_id,
+                                              const nlohmann::json& patch);
     [[nodiscard]] const nlohmann::json& CurrentDocument() const { return working_document_; }
     [[nodiscard]] const std::vector<Change>& PendingChanges() const { return pending_changes_; }
     [[nodiscard]] SavePlan PrepareSave(std::uint64_t expected_revision) const;

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string_view>
 
@@ -44,10 +45,11 @@ class EditorSession final {
 public:
     explicit EditorSession(std::filesystem::path root);
     EditorSession(std::filesystem::path root, project::DocumentAdapterRegistry adapters,
-                  const plugin::PluginRegistry* plugins = nullptr);
+                  std::shared_ptr<const plugin::PluginRegistry> plugins);
 
     [[nodiscard]] bool Open();
     [[nodiscard]] bool Open(std::filesystem::path root);
+    void SetOpenFailure(std::filesystem::path root, std::vector<project::Diagnostic> diagnostics);
     [[nodiscard]] bool Refresh();
     [[nodiscard]] bool SelectDocument(std::string_view document_id);
     [[nodiscard]] bool SetDiagnosticFilter(std::string_view filter);
@@ -80,7 +82,7 @@ private:
     [[nodiscard]] std::vector<project::Diagnostic> LoadPluginEditorAdapters();
 
     project::DocumentAdapterRegistry adapters_ = project::CreateDefaultDocumentAdapters();
-    const plugin::PluginRegistry* plugins_ = nullptr;
+    std::shared_ptr<const plugin::PluginRegistry> plugins_;
     std::filesystem::path root_;
     project::ProjectWorkspace workspace_;
     ui::UiContext focus_context_;

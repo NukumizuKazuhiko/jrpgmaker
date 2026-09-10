@@ -27,6 +27,9 @@ struct PluginError {
     std::string path;
 };
 
+[[nodiscard]] bool IsCanonicalPathWithin(const std::filesystem::path& root,
+                                         const std::filesystem::path& candidate);
+
 struct PluginManifest {
     std::uint32_t schema = 1;
     std::string id;
@@ -176,6 +179,16 @@ protected:
     IPlugin() = default;
 };
 
+using PluginFactory = std::function<std::unique_ptr<IPlugin>()>;
+
+// Build-time host catalog entry. The manifest path is project-relative; the
+// factory is compiled into the host and never discovered from project data.
+struct CompiledPluginFactory {
+    std::string id;
+    std::filesystem::path manifest_path;
+    PluginFactory factory;
+};
+
 struct PluginCreateResult {
     std::unique_ptr<IPlugin> instance;
     std::optional<PluginError> error;
@@ -184,7 +197,7 @@ struct PluginCreateResult {
 
 class PluginRegistry {
 public:
-    using Factory = std::function<std::unique_ptr<IPlugin>()>;
+    using Factory = PluginFactory;
     static constexpr std::size_t kMaxPlugins = 32;
 
     [[nodiscard]] std::optional<PluginError> Register(PluginManifest manifest, Factory factory);

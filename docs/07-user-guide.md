@@ -47,7 +47,11 @@ ctest --preset linux-debug --output-on-failure
 ./build/win-release/tools/projecttool/jrpgmaker_projecttool.exe validate <project-root>
 ./build/win-release/tools/projecttool/jrpgmaker_projecttool.exe diagnose <project-root>
 ./build/win-release/tools/projecttool/jrpgmaker_projecttool.exe preview <project-root>
+./build/win-release/tools/projecttool/jrpgmaker_projecttool.exe data-diff <project-root> <relative-data-path> <patch.json>
+./build/win-release/tools/projecttool/jrpgmaker_projecttool.exe data-write <project-root> <relative-data-path> <patch.json>
 ```
+
+`data-diff` 只通过所属 adapter 校验目标原文件与候选文档，输出有界顶层 JSON object patch 的变更，不写文件，也不代表完整项目已通过诊断。`data-write` 还会对同一 working copy 执行完整项目诊断和插件 validator，取得保存 token 后才原子写回并保留 `.bak`。目标路径必须是项目内的安全相对路径；内建文档的原文件必须先通过对应 schema adapter，插件私有文档的原文件至少必须是 JSON object，其业务 schema 由插件 validator 在保存闸统一裁决。命令不会绕过工作区合同修复一个原本无效的内建文档。
 
 项目内容位于版本化 JSON 和资源文件中。修改日期、对话、触发点、地图、输入映射、材质实例或插件选择后，应先使用 eventlint 校验：
 

@@ -5,27 +5,55 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
-#include "jrpgmaker/core/calendar.hpp"
-#include "jrpgmaker/core/input_actions.hpp"
-#include "jrpgmaker/core/map_data.hpp"
-#include "jrpgmaker/domain/event_script.hpp"
-#include "jrpgmaker/domain/interaction.hpp"
-#include "jrpgmaker/domain/localization.hpp"
-#include "jrpgmaker/domain/schedule.hpp"
-#include "jrpgmaker/domain/vertical_slice.hpp"
 #include "jrpgmaker/plugin/plugin.hpp"
+#include "jrpgmaker/plugins/register.hpp"
+#include "jrpgmaker/project/plugin_registry.hpp"
+#include "jrpgmaker/project/transient_data_adapter.hpp"
 #include "jrpgmaker/project/workspace.hpp"
 
 namespace {
 
 constexpr std::size_t kMaxFiles = 4096;
 constexpr std::uintmax_t kMaxBytes = 64u * 1024u * 1024u;
+
+void PrintDiagnostics(const std::filesystem::path& root,
+                      const std::vector<jrpgmaker::project::Diagnostic>& diagnostics) {
+    for (const auto& diagnostic : diagnostics)
+        std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+}
+
+struct ProjectContext {
+    std::shared_ptr<const jrpgmaker::plugin::PluginRegistry> plugins;
+    std::unique_ptr<jrpgmaker::project::ProjectWorkspace> workspace;
+};
+
+std::optional<ProjectContext>
+CreateProjectContext(const std::filesystem::path& root,
+                     jrpgmaker::project::DocumentAdapterRegistry adapters =
+                         jrpgmaker::project::CreateDefaultDocumentAdapters(),
+                     std::shared_ptr<const jrpgmaker::plugin::PluginRegistry> plugins = {}) {
+    if (!plugins) {
+        auto assembled = jrpgmaker::project::AssembleProjectPluginRegistry(
+            root, jrpgmaker::plugins::CompiledSamplePlugins());
+        if (!assembled) {
+            PrintDiagnostics(root, assembled.diagnostics);
+            return std::nullopt;
+        }
+        plugins = std::move(assembled.registry);
+    }
+    ProjectContext context;
+    context.plugins = std::move(plugins);
+    context.workspace = std::make_unique<jrpgmaker::project::ProjectWorkspace>(
+        root, std::move(adapters), context.plugins.get());
+    return context;
+}
 
 bool CopyTreeBounded(const std::filesystem::path& source, const std::filesystem::path& target,
                      std::size_t& file_count, std::uintmax_t& total_bytes) {
@@ -133,11 +161,13 @@ bool CreateProject(const std::filesystem::path& output,
 }
 
 bool OpenProject(const std::filesystem::path& root, bool validate) {
-    jrpgmaker::project::ProjectWorkspace workspace(root);
+    auto context = CreateProjectContext(root);
+    if (!context)
+        return false;
+    auto& workspace = *context->workspace;
     const auto opened = workspace.Open();
     if (!opened) {
-        for (const auto& diagnostic : opened.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, opened.diagnostics);
         return false;
     }
     const auto& snapshot = *opened.snapshot;
@@ -147,8 +177,7 @@ bool OpenProject(const std::filesystem::path& root, bool validate) {
         return true;
     const auto diagnosed = workspace.Diagnose(snapshot);
     if (!diagnosed) {
-        for (const auto& diagnostic : diagnosed.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, diagnosed.diagnostics);
         return false;
     }
     std::cout << root.string() << ": project manifest clean (id=" << snapshot.manifest.id
@@ -178,11 +207,13 @@ bool EditProject(const std::filesystem::path& root, const std::filesystem::path&
         std::cerr << "manifest patch must be a non-empty object\n";
         return false;
     }
-    jrpgmaker::project::ProjectWorkspace workspace(root);
+    auto context = CreateProjectContext(root);
+    if (!context)
+        return false;
+    auto& workspace = *context->workspace;
     const auto opened = workspace.Open();
     if (!opened) {
-        for (const auto& diagnostic : opened.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, opened.diagnostics);
         return false;
     }
     std::vector<jrpgmaker::project::Change> changes;
@@ -190,8 +221,7 @@ bool EditProject(const std::filesystem::path& root, const std::filesystem::path&
     for (auto it = patch.begin(); it != patch.end(); ++it) {
         const auto edit = workspace.Apply({"project.manifest", "/" + it.key(), it.value()});
         if (!edit) {
-            for (const auto& diagnostic : edit.diagnostics)
-                std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+            PrintDiagnostics(root, edit.diagnostics);
             return false;
         }
         current_revision = edit.revision;
@@ -208,14 +238,12 @@ bool EditProject(const std::filesystem::path& root, const std::filesystem::path&
         return true;
     const auto plan = workspace.PrepareSave(current_revision);
     if (!plan) {
-        for (const auto& diagnostic : plan.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, plan.diagnostics);
         return false;
     }
     const auto committed = workspace.Commit(*plan.token);
     if (!committed) {
-        for (const auto& diagnostic : committed.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, committed.diagnostics);
         return false;
     }
     std::cout << (root / "project.json").string()
@@ -224,17 +252,18 @@ bool EditProject(const std::filesystem::path& root, const std::filesystem::path&
 }
 
 bool MigrateProject(const std::filesystem::path& root) {
-    jrpgmaker::project::ProjectWorkspace workspace(root);
+    auto context = CreateProjectContext(root);
+    if (!context)
+        return false;
+    auto& workspace = *context->workspace;
     const auto opened = workspace.Open();
     if (!opened) {
-        for (const auto& diagnostic : opened.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, opened.diagnostics);
         return false;
     }
     const auto migration = workspace.Migrate();
     if (!migration) {
-        for (const auto& diagnostic : migration.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, migration.diagnostics);
         return false;
     }
     std::cout << root.string() << ": schema 1 requires no migration\n";
@@ -242,17 +271,18 @@ bool MigrateProject(const std::filesystem::path& root) {
 }
 
 bool DiagnoseProject(const std::filesystem::path& root) {
-    jrpgmaker::project::ProjectWorkspace workspace(root);
+    auto context = CreateProjectContext(root);
+    if (!context)
+        return false;
+    auto& workspace = *context->workspace;
     const auto opened = workspace.Open();
     if (!opened) {
-        for (const auto& diagnostic : opened.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, opened.diagnostics);
         return false;
     }
     const auto diagnosed = workspace.Diagnose(*opened.snapshot);
     if (!diagnosed) {
-        for (const auto& diagnostic : diagnosed.diagnostics)
-            std::cerr << root / diagnostic.path << ": " << diagnostic.code << '\n';
+        PrintDiagnostics(root, diagnosed.diagnostics);
         return false;
     }
     std::cout << root.string() << ": diagnostic snapshot events=" << diagnosed.event_count
@@ -263,118 +293,79 @@ bool DiagnoseProject(const std::filesystem::path& root) {
     return true;
 }
 
-bool ValidateDataDocument(const std::filesystem::path& root, const std::filesystem::path& relative,
-                          const nlohmann::json& document) {
-    const std::string name = relative.filename().string();
-    try {
-        if (name == "events_demo.json") {
-            (void) jrpgmaker::domain::ParseEventScript(document);
-        } else if (name == "navigation_demo.json") {
-            (void) jrpgmaker::core::ParseNavigationGrid(document);
-        } else if (name == "collision_demo.json") {
-            (void) jrpgmaker::core::ParseCollisionAabbs(document);
-        } else if (name == "camera_demo.json") {
-            (void) jrpgmaker::core::ParseCameraRigData(document);
-        } else if (name == "interaction_demo.json") {
-            (void) jrpgmaker::domain::ParseInteractionPoints(document);
-        } else if (name == "input_actions.json") {
-            (void) jrpgmaker::core::ParseInputActionMap(document);
-        } else if (name == "calendar_demo.json") {
-            const auto result = jrpgmaker::core::ParseCalendarDefinition(document);
-            if (!result.ok)
-                throw std::invalid_argument(result.error);
-        } else if (name == "localization_en.json") {
-            const auto result = jrpgmaker::domain::ParseLocalizationTable(document);
-            if (!result)
-                throw std::invalid_argument(result.error);
-        } else if (name == "material_demo.json" || name == "material_accent.json") {
-            if (!document.is_object() || document.value("schema", 0) != 1 ||
-                !document.contains("parameters"))
-                throw std::invalid_argument("material requires schema 1 and parameters");
-        } else if (name == "schedule_demo.json") {
-            nlohmann::json calendar_document;
-            if (!LoadJsonDocument(root / "assets/data/calendar_demo.json", calendar_document))
-                return false;
-            const auto calendar_result =
-                jrpgmaker::core::ParseCalendarDefinition(calendar_document);
-            if (!calendar_result.ok)
-                throw std::invalid_argument(calendar_result.error);
-            (void) jrpgmaker::domain::ParseScheduleTable(document, calendar_result.calendar);
-        } else if (name == "vertical_slice_demo.json") {
-            (void) jrpgmaker::domain::ParseVerticalSliceDefinition(document);
-        } else {
-            throw std::invalid_argument("unsupported schema-aware data file");
-        }
-    } catch (const std::exception& error) {
-        std::cerr << (root / relative).string() << ": data validation error: " << error.what()
-                  << '\n';
-        return false;
-    }
-    return true;
-}
-
 bool EditData(const std::filesystem::path& root, const std::filesystem::path& relative,
               const std::filesystem::path& patch_path, bool write) {
-    if (relative.empty() || relative.is_absolute() ||
-        relative.string().find("..") != std::string::npos) {
-        std::cerr << "data path must be safe and relative\n";
-        return false;
-    }
-    nlohmann::json original;
     nlohmann::json patch;
-    if (!LoadJsonDocument(root / relative, original) || !LoadJsonDocument(patch_path, patch) ||
-        !patch.is_object() || patch.empty()) {
+    if (!LoadJsonDocument(patch_path, patch) || !patch.is_object() || patch.empty()) {
         std::cerr << "data patch must be a non-empty JSON object\n";
         return false;
     }
-    nlohmann::json edited = original;
-    for (auto it = patch.begin(); it != patch.end(); ++it)
-        edited[it.key()] = it.value();
-    if (!ValidateDataDocument(root, relative, edited))
+    auto assembled = jrpgmaker::project::AssembleProjectPluginRegistry(
+        root, jrpgmaker::plugins::CompiledSamplePlugins());
+    if (!assembled) {
+        PrintDiagnostics(root, assembled.diagnostics);
         return false;
-    bool changed = false;
-    for (auto it = patch.begin(); it != patch.end(); ++it) {
-        if (!original.contains(it.key()) || original[it.key()] != it.value()) {
-            std::cout << "/" << it.key() << ": "
-                      << (original.contains(it.key()) ? original[it.key()].dump() : "null")
-                      << " -> " << it.value().dump() << '\n';
-            changed = true;
-        }
     }
-    if (!changed)
+    auto adapter =
+        jrpgmaker::project::CreateTransientDataAdapter(root, relative, patch, assembled.data_roots);
+    if (!adapter) {
+        PrintDiagnostics(root, adapter.diagnostics);
+        return false;
+    }
+    const auto type_id = adapter.adapter->type_id;
+    auto adapters = jrpgmaker::project::CreateDefaultDocumentAdapters();
+    const auto registered_adapter = adapters.Register(std::move(*adapter.adapter));
+    if (!registered_adapter) {
+        PrintDiagnostics(root, registered_adapter.diagnostics);
+        return false;
+    }
+    auto context = CreateProjectContext(root, std::move(adapters), std::move(assembled.registry));
+    if (!context)
+        return false;
+    auto& workspace = *context->workspace;
+    const auto document_id = "transient:" + relative.generic_string();
+    const auto registration =
+        workspace.RegisterExternalDocuments({{document_id, relative, {}, true, type_id, {}}});
+    if (!registration.empty()) {
+        PrintDiagnostics(root, registration);
+        return false;
+    }
+    const auto opened = workspace.Open();
+    if (!opened) {
+        PrintDiagnostics(root, opened.diagnostics);
+        return false;
+    }
+    const auto selected = workspace.SelectDocument(document_id);
+    if (!selected.empty()) {
+        PrintDiagnostics(root, selected);
+        return false;
+    }
+    const auto edit = workspace.ApplyObjectPatch(document_id, patch);
+    if (!edit) {
+        PrintDiagnostics(root, edit.diagnostics);
+        return false;
+    }
+    if (edit.changes.empty()) {
         std::cout << (root / relative).string() << ": no changes\n";
+        return true;
+    }
+    for (const auto& change : edit.changes)
+        std::cout << change.field_path << ": " << change.before.dump() << " -> "
+                  << change.after.dump() << '\n';
     if (!write)
         return true;
-    const auto temporary = root / (relative.string() + ".tmp");
-    std::error_code error;
-    if (std::filesystem::exists(temporary, error)) {
-        std::cerr << "refusing to overwrite existing data temporary file\n";
+    const auto plan = workspace.PrepareSave(edit.revision);
+    if (!plan) {
+        PrintDiagnostics(root, plan.diagnostics);
         return false;
     }
-    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-    if (!output.is_open())
-        return false;
-    output << edited.dump(2) << '\n';
-    output.close();
-    if (!output)
-        return false;
-    const auto backup = root / (relative.string() + ".bak");
-    if (std::filesystem::exists(backup, error)) {
-        std::cerr << "refusing to overwrite existing data backup\n";
-        std::filesystem::remove(temporary, error);
+    const auto committed = workspace.Commit(*plan.token);
+    if (!committed) {
+        PrintDiagnostics(root, committed.diagnostics);
         return false;
     }
-    std::filesystem::rename(root / relative, backup, error);
-    if (error) {
-        std::filesystem::remove(temporary, error);
-        return false;
-    }
-    std::filesystem::rename(temporary, root / relative, error);
-    if (error) {
-        std::filesystem::rename(backup, root / relative, error);
-        return false;
-    }
-    std::cout << (root / relative).string() << ": data written; backup=" << backup.string() << '\n';
+    std::cout << (root / relative).string()
+              << ": data written; backup=" << committed.backup.string() << '\n';
     return true;
 }
 

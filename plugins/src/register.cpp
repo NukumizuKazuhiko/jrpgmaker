@@ -9,6 +9,23 @@
 
 namespace jrpgmaker::plugins {
 
+std::vector<plugin::CompiledPluginFactory> CompiledSamplePlugins() {
+    return {
+        {.id = "sample.unlit",
+         .manifest_path = "plugins/sample_unlit/plugin.json",
+         .factory = [] { return std::make_unique<sample_unlit::Adapter>(); }},
+        {.id = "sample.style",
+         .manifest_path = "plugins/sample_style/plugin.json",
+         .factory = [] { return std::make_unique<sample_style::Adapter>(); }},
+        {.id = "sample.instant",
+         .manifest_path = "plugins/sample_instant/plugin.json",
+         .factory = [] { return std::make_unique<sample_instant::Adapter>(); }},
+        {.id = "sample.turn_based",
+         .manifest_path = "plugins/sample_turn_based/plugin.json",
+         .factory = [] { return std::make_unique<sample_turn_based::Adapter>(); }},
+    };
+}
+
 std::optional<plugin::PluginError>
 RegisterSamplePlugins(plugin::PluginRegistry& registry,
                       const plugin::PluginManifest& unlit_manifest,

@@ -79,19 +79,20 @@
 - **目的**：在 P10 CLI 合同之上提供运行时非必需的本地 GUI，降低直接编辑 JSON 与资源清单的成本；当前尚无 CMake 开关排除 editor，构建层可选性由 DEBT-042 跟踪。
 - **唯一 owner**：GUI 属于 `tools/editor` adapter；项目数据语义仍由 parser、validator、迁移器、插件与运行时合同拥有。
 - **本轮完成边界**：Windows/D3D12 实机完成打开合法项目、真实 Project/Hierarchy/Scene 导航投影、共享 Selection、Inspector 修改 walkable、dirty/revision/diff/diagnostics、`PrepareSave`/`Commit` 原子保存、重开一致和独立 runtime 启停；Linux/Vulkan 保持构建与合同测试。闭合后立即停止，不扩展其他编辑器。
-- **当前状态**：`ProjectWorkspace::PrepareSave` 已在检查 revision 后通过同源 `Diagnose` 对完整 working copy 执行 parser、跨文件引用、资源预算、adapter 与插件 validator；插件 sidecar working copy 经有界 overlay reader 进入同一运行时 validator 输入，任何 error 均不签发 token。DEBT-039 已关闭。2026-09-02 的 Windows 实机操作链、菜单/二级菜单/Project 过滤/窗口聚焦/工具栏反馈已截图文件化（见 `assets/p13/2026-09-02/`，由 [08-editor-plan.md](08-editor-plan.md) 引用）；2026-09-04 集成审查发现的菜单层叠缺陷已修复，2026-09-05 的 Windows 真窗复验确认 Project 弹层位于 Project filter 上方且菜单项可命中。其余阻断审查仍需闭合。
+- **当前状态**：`ProjectWorkspace::PrepareSave` 已在检查 revision 后通过同源 `Diagnose` 对完整 working copy 执行 parser、跨文件引用、资源预算、adapter 与插件 validator；插件 sidecar working copy 经有界 overlay reader 进入同一运行时 validator 输入，任何 error 均不签发 token。DEBT-039 已关闭。2026-09-09 集成审查补齐真实 editor host 的插件 registry 装配：host 先读取项目 manifest，只为项目声明且存在于构建期 catalog 的源码级插件读取 manifest、注册 factory；每次切换项目根都会重建 registry，controller/session 以共享只读生命周期持有它，缺失 registry、manifest 越界、ID 不匹配及 factory 失败均结构化拒绝，不再允许默认空 registry 绕过 GUI 保存期插件 validator。Windows 真窗已补齐插件 validator 拒绝保存、恢复后同会话保存及关闭重开证据；P13-5 与 DEBT-042 仍开放。
 - **非目标**：通用 3D 建模器、DCC、联网协作、云端格式、运行时 GUI 依赖或绕过插件私有校验的自由脚本编辑。
 - **详细合同**：见 [`08-editor-plan.md`](08-editor-plan.md)、[`09-editor-interface-catalog.md`](09-editor-interface-catalog.md) 与 [`10-editor-ui-system.md`](10-editor-ui-system.md)。
 
 ## 最近一次验收快照
 
-> 下列数字只记录 2026-09-02 已执行证据；代码变化后必须重新运行，不能永久视为通过。
+> 下列数字记录 2026-09-09 当前工作树实跑证据；后续代码变化必须重新运行，不能永久视为通过。
 
-- Windows `ctest --preset win-debug --output-on-failure`：387/387。
-- Linux/WSL 全量 `ctest --preset linux-debug --output-on-failure`：388/388，0 失败（2026-09-02，WSL2 + lavapipe 离屏 Vulkan；总数比 Windows 多 1 项为平台专属测试）。
+- Windows `cmake --build --preset win-debug` 无工作且成功；`ctest --preset win-debug --output-on-failure`：399/399，0 失败。
+- Linux/WSL 重新配置并全量重建成功；`ctest --preset linux-debug --output-on-failure`：400/400，0 失败（WSL2 + lavapipe 离屏 Vulkan；总数比 Windows 多 1 项为平台专属测试）。
 - Windows 实机编辑器操作与附加停止条件（菜单开/关、二级菜单、菜单切换、Project 过滤、面板最大化/还原、工具栏预览启停）截图 15 张，存于 `docs/assets/p13/2026-09-02/`；GUI 保存结果经 `projecttool validate` 与数据文件复核（`navigation_demo.json` `walkable[1]=false`）确认与 CLI 同源一致。
-- 私有头审计：210 个文件通过；`git diff --check` 通过。
+- 私有头审计：213 个文件通过；私有头自测 3 条预期诊断通过；`git diff --check` 与本轮全部新增/修改 C++ 文件的 `clang-format --dry-run --Werror` 通过。
 - 文档索引门禁：`pwsh ./tools/ci/check_docs_index.ps1` 通过（19 local links; 16 current targets tracked）。
+- 数据 lint 的 event/trigger/map/project 与 project create→validate→diagnose→preview→data-write→再诊断链通过；release package 自测通过，Windows debug 包两次生成的 manifest SHA-256 均为 `73CD0D0540141E6C96B9B84AC54A60E2AEA4BDE2FEBE7FFF23BED8589E859939`，且包内无 editor。普通 raster golden 重生成无 diff。shader-sync 使用本机 DXC 1.9 时 DXIL 字节漂移，因此该专项门禁未声明通过，生成物已恢复到执行前内容。
 - WSL 无 WSLg，未把 SDL 实窗口路径伪装为本地通过；Linux Vulkan 离屏测试使用 lavapipe。
 
 ## 风险清单

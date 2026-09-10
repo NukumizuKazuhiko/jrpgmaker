@@ -129,22 +129,34 @@ EditorSession::EditorSession(std::filesystem::path root)
     : root_(root), workspace_(std::move(root), adapters_) {}
 
 EditorSession::EditorSession(std::filesystem::path root, project::DocumentAdapterRegistry adapters,
-                             const plugin::PluginRegistry* plugins)
-    : adapters_(std::move(adapters)), plugins_(plugins), root_(root),
-      workspace_(std::move(root), adapters_, plugins_) {}
+                             std::shared_ptr<const plugin::PluginRegistry> plugins)
+    : adapters_(std::move(adapters)), plugins_(std::move(plugins)), root_(root),
+      workspace_(std::move(root), adapters_, plugins_.get()) {}
 
 bool EditorSession::Open(std::filesystem::path root) {
     if (root.empty())
         return false;
     preview_process_.Stop();
     root_ = std::move(root);
-    workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_);
+    workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_.get());
     snapshot_.reset();
     state_ = {};
     startup_plugin_diagnostics_.clear();
     operation_diagnostics_.clear();
     focus_context_.ClearFocusables();
     return Open();
+}
+
+void EditorSession::SetOpenFailure(std::filesystem::path root,
+                                   std::vector<project::Diagnostic> diagnostics) {
+    preview_process_.Stop();
+    root_ = std::move(root);
+    workspace_ = project::ProjectWorkspace(root_, adapters_);
+    snapshot_.reset();
+    state_ = {};
+    startup_plugin_diagnostics_.clear();
+    focus_context_.ClearFocusables();
+    SetDiagnostics(std::move(diagnostics));
 }
 
 void EditorSession::SetDiagnostics(std::vector<project::Diagnostic> diagnostics) {
@@ -259,10 +271,22 @@ void EditorSession::PublishTextFieldState() {
 }
 
 bool EditorSession::Open() {
+    if (!plugins_) {
+        snapshot_.reset();
+        state_ = {};
+        startup_plugin_diagnostics_.clear();
+        external_documents_.clear();
+        SetDiagnostics({{"project.plugin_registry_missing", "plugins"}});
+        return false;
+    }
     startup_plugin_diagnostics_ = LoadPluginEditorAdapters();
     operation_diagnostics_.clear();
-    workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_);
-    workspace_.SetExternalDocuments(external_documents_);
+    workspace_ = project::ProjectWorkspace(root_, adapters_, plugins_.get());
+    const auto registration_diagnostics = workspace_.RegisterExternalDocuments(external_documents_);
+    if (!registration_diagnostics.empty()) {
+        SetOpenFailure(root_, registration_diagnostics);
+        return false;
+    }
     const auto result = workspace_.Open();
     if (!result) {
         state_.open = false;

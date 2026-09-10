@@ -10,7 +10,7 @@ target_sources(
           animation_test.cpp character_controller_test.cpp pathfinding_test.cpp camera_rig_test.cpp
           interaction_test.cpp map_data_test.cpp render_style_test.cpp render_style_adapters_test.cpp
           cutscene_audio_ui_test.cpp dialog_presentation_test.cpp runtime_overlay_test.cpp editor_resources_test.cpp
-          editor_shell_test.cpp editor_session_test.cpp ui_interaction_test.cpp project_workspace_test.cpp form_projection_test.cpp ui_draw_adapter_test.cpp
+          editor_shell_test.cpp editor_session_test.cpp editor_plugin_registry_test.cpp projecttool_cli_test.cpp ui_interaction_test.cpp project_workspace_test.cpp form_projection_test.cpp ui_draw_adapter_test.cpp
           rmlui_editor_document_test.cpp
           editor_user_settings_test.cpp
           plugin_test.cpp battle_plugins_test.cpp calendar_test.cpp save_test.cpp schedule_test.cpp p7_vertical_slice_test.cpp
@@ -47,6 +47,10 @@ target_compile_definitions(jrpgmaker_unit_tests PRIVATE
                            JRPGMAKER_EDITOR_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tools/editor/resources"
                            JRPGMAKER_EDITOR_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tools/editor"
                            JRPGMAKER_RUNTIME_EXECUTABLE="$<TARGET_FILE:jrpgmaker_app>")
+add_dependencies(jrpgmaker_unit_tests jrpgmaker_projecttool)
+target_compile_definitions(
+  jrpgmaker_unit_tests
+  PRIVATE JRPGMAKER_PROJECTTOOL_EXECUTABLE="$<TARGET_FILE:jrpgmaker_projecttool>")
 add_dependencies(jrpgmaker_unit_tests jrpgmaker_app)
 
 if(WIN32)

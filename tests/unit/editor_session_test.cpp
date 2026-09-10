@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -15,6 +17,45 @@
 
 namespace {
 
+class StatefulEditorPlugin final : public jrpgmaker::plugin::IPlugin {
+public:
+    explicit StatefulEditorPlugin(std::shared_ptr<int> mode) : mode_(std::move(mode)) {}
+
+    [[nodiscard]] jrpgmaker::plugin::PluginValidationResult
+    ValidateData(const jrpgmaker::plugin::PluginValidationContext&) const override {
+        if (*mode_ == 2)
+            throw std::runtime_error("test validator failure");
+        if (*mode_ == 1)
+            return {{{"plugin.validator.rejected", "test validator rejected data", "navigation"}}};
+        return {};
+    }
+
+private:
+    std::shared_ptr<int> mode_;
+};
+
+class NoopEditorPlugin final : public jrpgmaker::plugin::IPlugin {};
+
+std::vector<jrpgmaker::plugin::CompiledPluginFactory>
+MakeEditorPluginFactories(std::shared_ptr<int> mode = {}) {
+    if (!mode)
+        mode = std::make_shared<int>(0);
+    return {
+        {.id = "sample.unlit",
+         .manifest_path = "plugins/sample_unlit/plugin.json",
+         .factory = [mode] { return std::make_unique<StatefulEditorPlugin>(mode); }},
+        {.id = "sample.style",
+         .manifest_path = "plugins/sample_style/plugin.json",
+         .factory = [] { return std::make_unique<NoopEditorPlugin>(); }},
+        {.id = "sample.instant",
+         .manifest_path = "plugins/sample_instant/plugin.json",
+         .factory = [] { return std::make_unique<NoopEditorPlugin>(); }},
+        {.id = "sample.turn_based",
+         .manifest_path = "plugins/sample_turn_based/plugin.json",
+         .factory = [] { return std::make_unique<NoopEditorPlugin>(); }},
+    };
+}
+
 std::filesystem::path MakeFixture(std::string_view suffix = {}) {
     const auto root = std::filesystem::temp_directory_path() /
                       ("jrpgmaker_editor_session_fixture" + std::string(suffix));
@@ -26,10 +67,146 @@ std::filesystem::path MakeFixture(std::string_view suffix = {}) {
     std::filesystem::copy_file(
         std::filesystem::path(JRPGMAKER_ASSET_DIR) / "data/project_demo.json",
         root / "project.json", std::filesystem::copy_options::overwrite_existing, error);
+    std::filesystem::copy(std::filesystem::path(JRPGMAKER_ASSET_DIR).parent_path() / "plugins",
+                          root / "plugins", std::filesystem::copy_options::recursive, error);
     return root;
 }
 
+std::shared_ptr<const jrpgmaker::plugin::PluginRegistry>
+MakeEditorPluginRegistry(const std::filesystem::path& root) {
+    auto factories = MakeEditorPluginFactories();
+    for (auto& binding : factories) {
+        const auto id_path = std::filesystem::path("plugins") / binding.id / "plugin.json";
+        if (std::filesystem::exists(root / id_path))
+            binding.manifest_path = id_path;
+    }
+    nlohmann::json project;
+    std::ifstream(root / "project.json") >> project;
+    for (const auto& value : project.value("plugins", nlohmann::json::array())) {
+        const auto id = value.get<std::string>();
+        if (std::none_of(factories.begin(), factories.end(),
+                         [&id](const auto& binding) { return binding.id == id; })) {
+            factories.push_back(
+                {.id = id,
+                 .manifest_path = std::filesystem::path("plugins") / id / "plugin.json",
+                 .factory = [] { return std::make_unique<NoopEditorPlugin>(); }});
+        }
+    }
+    const auto assembly = jrpgmaker::project::AssembleProjectPluginRegistry(root, factories);
+    std::string assembly_diagnostics;
+    for (const auto& diagnostic : assembly.diagnostics)
+        assembly_diagnostics += diagnostic.code + ":" + diagnostic.path + "|";
+    INFO(assembly_diagnostics);
+    REQUIRE(assembly);
+    return assembly.registry;
+}
+
+std::string ReadText(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+std::size_t BackupCount(const std::filesystem::path& path) {
+    std::size_t count = 0;
+    for (std::size_t index = 0; index <= 8; ++index) {
+        const auto backup =
+            index == 0 ? std::filesystem::path(path.string() + ".bak")
+                       : std::filesystem::path(path.string() + ".bak." + std::to_string(index));
+        count += std::filesystem::exists(backup) ? 1u : 0u;
+    }
+    return count;
+}
+
 } // namespace
+
+TEST_CASE("editor session rejects opening a plugin project without a registry",
+          "[editor][plugin][host]") {
+    const auto root = MakeFixture("_missing_registry");
+    jrpgmaker::editor::EditorSession session(root);
+
+    REQUIRE_FALSE(session.Open());
+    REQUIRE_FALSE(session.state().open);
+    REQUIRE(session.state().diagnostics.size() == 1);
+    REQUIRE(session.state().diagnostics.front().code == "project.plugin_registry_missing");
+    REQUIRE(session.state().diagnostics.front().path == "plugins");
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("editor workspace controller gates save through the active plugin registry",
+          "[editor][plugin][p13]") {
+    const auto root = MakeFixture("_plugin_save_gate");
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(resources);
+    auto validator_mode = std::make_shared<int>(0);
+    jrpgmaker::editor::EditorWorkspaceController controller(
+        {.layout = resources.bundle->layout,
+         .menu = {},
+         .runtime_executable = {},
+         .plugin_factories = MakeEditorPluginFactories(validator_mode)});
+    const bool opened = controller.OpenProject(root);
+    if (controller.state() != nullptr)
+        for (const auto& diagnostic : controller.state()->diagnostics)
+            INFO(diagnostic.code << ": " << diagnostic.path);
+    REQUIRE(opened);
+    REQUIRE(controller.DispatchCommand("document.select", "core.navigation").changed);
+    REQUIRE(controller.DispatchCommand("navigation.select", "0").changed);
+    const auto navigation_path = root / "assets/data/navigation_demo.json";
+    const auto original_bytes = ReadText(navigation_path);
+    const auto original_backups = BackupCount(navigation_path);
+    REQUIRE(controller.DispatchCommand("navigation.toggle").changed);
+    const auto edited_revision = controller.state()->revision;
+    const auto edited_diff = controller.state()->diff.changes;
+    const auto require_edited_diff = [&] {
+        REQUIRE(controller.state()->diff.changes.size() == edited_diff.size());
+        REQUIRE(controller.state()->diff.changes.front().document_id ==
+                edited_diff.front().document_id);
+        REQUIRE(controller.state()->diff.changes.front().field_path ==
+                edited_diff.front().field_path);
+        REQUIRE(controller.state()->diff.changes.front().before == edited_diff.front().before);
+        REQUIRE(controller.state()->diff.changes.front().after == edited_diff.front().after);
+        REQUIRE(controller.state()->diff.changes.front().sequence == edited_diff.front().sequence);
+    };
+
+    *validator_mode = 1;
+    REQUIRE_FALSE(controller.Dispatch(jrpgmaker::editor::EditorAction::kSave).changed);
+    REQUIRE(controller.state()->dirty);
+    REQUIRE(controller.state()->revision == edited_revision);
+    require_edited_diff();
+    REQUIRE(ReadText(navigation_path) == original_bytes);
+    REQUIRE_FALSE(std::filesystem::exists(navigation_path.string() + ".tmp"));
+    REQUIRE(BackupCount(navigation_path) == original_backups);
+    REQUIRE(std::any_of(
+        controller.state()->diagnostics.begin(), controller.state()->diagnostics.end(),
+        [](const auto& diagnostic) { return diagnostic.code == "plugin.validator.rejected"; }));
+
+    *validator_mode = 2;
+    REQUIRE_FALSE(controller.Dispatch(jrpgmaker::editor::EditorAction::kSave).changed);
+    REQUIRE(controller.state() != nullptr);
+    REQUIRE(controller.state()->dirty);
+    REQUIRE(controller.state()->revision == edited_revision);
+    require_edited_diff();
+    REQUIRE(ReadText(navigation_path) == original_bytes);
+    REQUIRE_FALSE(std::filesystem::exists(navigation_path.string() + ".tmp"));
+    REQUIRE(BackupCount(navigation_path) == original_backups);
+    REQUIRE(std::any_of(
+        controller.state()->diagnostics.begin(), controller.state()->diagnostics.end(),
+        [](const auto& diagnostic) { return diagnostic.code == "plugin.validator.exception"; }));
+
+    *validator_mode = 0;
+    REQUIRE(controller.Dispatch(jrpgmaker::editor::EditorAction::kSave).changed);
+    REQUIRE_FALSE(controller.state()->dirty);
+    REQUIRE(controller.state()->revision == edited_revision);
+    REQUIRE(controller.state()->diff.changes.empty());
+    REQUIRE(ReadText(navigation_path) != original_bytes);
+    REQUIRE_FALSE(std::filesystem::exists(navigation_path.string() + ".tmp"));
+    REQUIRE(BackupCount(navigation_path) == original_backups + 1);
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
 
 TEST_CASE("editor workspace controller routes toolbar clicks as structured host requests",
           "[editor][ui context][layout]") {
@@ -43,7 +220,8 @@ TEST_CASE("editor workspace controller routes toolbar clicks as structured host 
          .diagnostic_row_height = resources.bundle->theme.dimensions.at("font.caption") +
                                   resources.bundle->theme.dimensions.at("space.xs"),
          .menu = {},
-         .runtime_executable = {}});
+         .runtime_executable = {},
+         .plugin_factories = {}});
     REQUIRE(controller.Resize(1280, 720));
 
     const auto toolbar = controller.panel_bounds("workspace.toolbar");
@@ -60,7 +238,10 @@ TEST_CASE("editor workspace controller routes nested project settings to real do
         jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
     REQUIRE(resources);
     jrpgmaker::editor::EditorWorkspaceController controller(
-        {.layout = resources.bundle->layout, .menu = {}, .runtime_executable = {}});
+        {.layout = resources.bundle->layout,
+         .menu = {},
+         .runtime_executable = {},
+         .plugin_factories = MakeEditorPluginFactories()});
     REQUIRE(controller.Resize(1280, 720));
     REQUIRE(controller.OpenProject(root));
 
@@ -84,7 +265,10 @@ TEST_CASE("editor workspace controller filters project resources through the sha
         jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
     REQUIRE(resources);
     jrpgmaker::editor::EditorWorkspaceController controller(
-        {.layout = resources.bundle->layout, .menu = {}, .runtime_executable = {}});
+        {.layout = resources.bundle->layout,
+         .menu = {},
+         .runtime_executable = {},
+         .plugin_factories = MakeEditorPluginFactories()});
     REQUIRE(controller.Resize(1280, 720));
     REQUIRE(controller.OpenProject(root));
     const auto project = controller.panel_bounds("workspace.project");
@@ -124,11 +308,13 @@ TEST_CASE(
     const auto resources =
         jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
     REQUIRE(resources);
-    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
-                                                             .form_row_height = 24,
-                                                             .diagnostic_row_height = 16,
-                                                             .menu = {},
-                                                             .runtime_executable = {}});
+    jrpgmaker::editor::EditorWorkspaceController controller(
+        {.layout = resources.bundle->layout,
+         .form_row_height = 24,
+         .diagnostic_row_height = 16,
+         .menu = {},
+         .runtime_executable = {},
+         .plugin_factories = MakeEditorPluginFactories()});
     REQUIRE(controller.Resize(1280, 720));
     REQUIRE(controller.OpenProject(root));
 
@@ -180,11 +366,13 @@ TEST_CASE("editor workspace controller bounds large grids without dropping statu
     const auto resources =
         jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
     REQUIRE(resources);
-    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
-                                                             .form_row_height = 24,
-                                                             .diagnostic_row_height = 16,
-                                                             .menu = {},
-                                                             .runtime_executable = {}});
+    jrpgmaker::editor::EditorWorkspaceController controller(
+        {.layout = resources.bundle->layout,
+         .form_row_height = 24,
+         .diagnostic_row_height = 16,
+         .menu = {},
+         .runtime_executable = {},
+         .plugin_factories = MakeEditorPluginFactories()});
     REQUIRE(controller.Resize(1280, 720));
     REQUIRE(controller.OpenProject(root));
     const auto project = controller.panel_bounds("workspace.project");
@@ -207,7 +395,8 @@ TEST_CASE("editor workspace controller bounds large grids without dropping statu
 TEST_CASE("editor session applies selected adapter field and commits through workspace",
           "[editor]") {
     const auto root = MakeFixture();
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE_FALSE(session.state().form.fields.empty());
     REQUIRE(session.ApplySelected("project.session"));
@@ -225,7 +414,9 @@ TEST_CASE("editor session applies selected adapter field and commits through wor
 TEST_CASE("editor session can switch projects through the path open contract", "[editor]") {
     const auto first = MakeFixture("_first");
     const auto second = MakeFixture("_second");
-    jrpgmaker::editor::EditorSession session(first);
+    jrpgmaker::editor::EditorSession session(first,
+                                             jrpgmaker::project::CreateDefaultDocumentAdapters(),
+                                             MakeEditorPluginRegistry(first));
     REQUIRE(session.Open());
     REQUIRE(session.ApplySelected("project.first"));
     REQUIRE(session.Open(second));
@@ -238,7 +429,8 @@ TEST_CASE("editor session can switch projects through the path open contract", "
 
 TEST_CASE("editor session routes string text input through the typed edit contract", "[editor]") {
     const auto root = MakeFixture();
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.ApplySelectedText("project.text"));
     REQUIRE(session.state().form.fields.front().value == "project.text");
@@ -249,7 +441,8 @@ TEST_CASE("editor session routes string text input through the typed edit contra
 
 TEST_CASE("editor session switches to an adapter-backed document", "[editor]") {
     const auto root = MakeFixture();
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.SelectDocument("core.navigation"));
     REQUIRE(session.state().form.document_id == "core.navigation");
@@ -270,7 +463,8 @@ TEST_CASE("editor session switches to an adapter-backed document", "[editor]") {
 TEST_CASE("editor navigation cell selection edits and survives atomic reopen",
           "[editor][selection][navigation]") {
     const auto root = MakeFixture("_navigation_selection");
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.SelectDocument("core.navigation"));
     REQUIRE(session.state().navigation);
@@ -285,7 +479,8 @@ TEST_CASE("editor navigation cell selection edits and survives atomic reopen",
     REQUIRE(session.Save());
     REQUIRE(session.state().diff.changes.empty());
 
-    jrpgmaker::editor::EditorSession reopened(root);
+    jrpgmaker::editor::EditorSession reopened(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(reopened.Open());
     REQUIRE(reopened.SelectDocument("core.navigation"));
     REQUIRE(reopened.state().navigation->cells[0].walkable == !original);
@@ -297,19 +492,20 @@ TEST_CASE("editor session preserves plugin load diagnostics across navigation ed
           "[editor][plugin][p13]") {
     const auto root = MakeFixture("_plugin_diagnostics_persistence");
     std::error_code error;
-    const auto write_manifest = [&root](std::string_view id, std::string_view data_roots) {
+    const auto write_manifest = [&root](std::string_view id, std::string_view type,
+                                        std::string_view data_roots) {
         const auto plugin_root = root / "plugins" / std::string(id);
         std::filesystem::create_directories(plugin_root);
         std::ofstream manifest(plugin_root / "plugin.json");
-        manifest << "{\"schema\":1,\"id\":\"" << id
-                 << "\",\"type\":\"battle\",\"version\":1,"
+        manifest << "{\"schema\":1,\"id\":\"" << id << "\",\"type\":\"" << type
+                 << "\",\"version\":1,"
                     "\"engine_contract\":1,\"data_roots\":"
                  << data_roots << ",\"capabilities\":[]}\n";
     };
-    write_manifest("sample.unlit", "[]");
-    write_manifest("sample.style", "[]");
-    write_manifest("sample.instant", "[\"plugins/sample_instant/data\"]");
-    write_manifest("sample.turn_based", "[\"plugins/sample_turn_based/data\"]");
+    write_manifest("sample.unlit", "render_style", "[]");
+    write_manifest("sample.style", "render_style", "[]");
+    write_manifest("sample.instant", "battle", "[\"plugins/sample_instant/data\"]");
+    write_manifest("sample.turn_based", "battle", "[\"plugins/sample_turn_based/data\"]");
     std::filesystem::create_directories(root / "plugins/sample_instant/data");
     std::filesystem::create_directories(root / "plugins/sample_turn_based/data");
     std::ofstream(root / "plugins/sample_instant/data/encounters_demo.json") << "{}\n";
@@ -327,7 +523,8 @@ TEST_CASE("editor session preserves plugin load diagnostics across navigation ed
          (root / "plugins" / "sample.turn_based" / "plugin.editor.json").string()},
         {"editor.document.read_only", "plugins/sample_turn_based/data/encounters_demo.json"},
     };
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     const auto require_diagnostics =
         [&](const std::vector<std::pair<std::string, std::string>>& expected_diagnostics,
             bool dirty, std::size_t changes) {
@@ -373,7 +570,8 @@ TEST_CASE("editor session preserves plugin load diagnostics across navigation ed
 TEST_CASE("editor navigation selection ignores text input owned by form fields",
           "[editor][selection][navigation][ui text]") {
     const auto root = MakeFixture("_navigation_text_input");
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.SelectDocument("core.navigation"));
     REQUIRE(session.SelectNavigationCell(0));
@@ -394,7 +592,8 @@ TEST_CASE("editor navigation selection ignores text input owned by form fields",
 TEST_CASE("editor navigation selection has stable identity and clears on document switch",
           "[editor][selection][navigation]") {
     const auto root = MakeFixture("_selection_identity");
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.SelectDocument("core.navigation"));
     REQUIRE(session.SelectNavigationCell(7));
@@ -416,11 +615,13 @@ TEST_CASE("editor workspace controller exposes project open failures as structur
     const auto resources =
         jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
     REQUIRE(resources);
-    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
-                                                             .form_row_height = 24,
-                                                             .diagnostic_row_height = 16,
-                                                             .menu = {},
-                                                             .runtime_executable = {}});
+    jrpgmaker::editor::EditorWorkspaceController controller(
+        {.layout = resources.bundle->layout,
+         .form_row_height = 24,
+         .diagnostic_row_height = 16,
+         .menu = {},
+         .runtime_executable = {},
+         .plugin_factories = MakeEditorPluginFactories()});
     REQUIRE(controller.Resize(1280, 720));
     const auto missing =
         std::filesystem::temp_directory_path() / "jrpgmaker_editor_missing_project_for_diagnostics";
@@ -438,6 +639,55 @@ TEST_CASE("editor workspace controller exposes project open failures as structur
     REQUIRE(diagnostic != draw_list.primitives().end());
 }
 
+TEST_CASE("editor workspace controller rebuilds the plugin registry when project roots change",
+          "[editor][plugin][host]") {
+    const auto first = MakeFixture("_registry_switch_first");
+    const auto second = MakeFixture("_registry_switch_second");
+    const auto third = MakeFixture("_registry_switch_partial");
+    std::filesystem::remove(second / "plugins/sample_unlit/plugin.json");
+    {
+        nlohmann::json project;
+        std::ifstream(third / "project.json") >> project;
+        project["plugins"] = nlohmann::json::array({"sample.unlit"});
+        project["render_style"] = "sample.unlit";
+        project["battle_plugin"] = "";
+        std::ofstream(third / "project.json", std::ios::trunc) << project.dump(2);
+    }
+    const auto resources =
+        jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
+    REQUIRE(resources);
+    jrpgmaker::editor::EditorWorkspaceController controller(
+        {.layout = resources.bundle->layout,
+         .menu = {},
+         .runtime_executable = {},
+         .plugin_factories = MakeEditorPluginFactories()});
+
+    REQUIRE(controller.OpenProject(first));
+    REQUIRE(controller.state()->open);
+    REQUIRE_FALSE(controller.OpenProject(second));
+    REQUIRE_FALSE(controller.state()->open);
+    REQUIRE(controller.state()->diagnostics.size() == 1);
+    REQUIRE(controller.state()->diagnostics.front().code == "plugin.manifest.open");
+    REQUIRE(controller.state()->diagnostics.front().path == "plugins/sample_unlit/plugin.json");
+    REQUIRE(controller.OpenProject(first));
+    REQUIRE(controller.state()->open);
+    REQUIRE(std::none_of(
+        controller.state()->diagnostics.begin(), controller.state()->diagnostics.end(),
+        [](const auto& diagnostic) { return diagnostic.code == "plugin.manifest.open"; }));
+    REQUIRE(controller.OpenProject(third));
+    REQUIRE(controller.state()->open);
+    REQUIRE(std::none_of(controller.state()->diagnostics.begin(),
+                         controller.state()->diagnostics.end(), [](const auto& diagnostic) {
+                             return diagnostic.code == "project.plugin_missing" ||
+                                    diagnostic.code == "plugin.manifest.open";
+                         }));
+
+    std::error_code error;
+    std::filesystem::remove_all(first, error);
+    std::filesystem::remove_all(second, error);
+    std::filesystem::remove_all(third, error);
+}
+
 TEST_CASE("editor workspace controller redraws after a rejected document command",
           "[editor][diagnostics][menu]") {
     const auto root = MakeFixture("_document_command_failure");
@@ -445,11 +695,13 @@ TEST_CASE("editor workspace controller redraws after a rejected document command
     const auto resources =
         jrpgmaker::ui::LoadEditorResources(std::filesystem::path(JRPGMAKER_EDITOR_RESOURCE_DIR));
     REQUIRE(resources);
-    jrpgmaker::editor::EditorWorkspaceController controller({.layout = resources.bundle->layout,
-                                                             .form_row_height = 24,
-                                                             .diagnostic_row_height = 16,
-                                                             .menu = {},
-                                                             .runtime_executable = {}});
+    jrpgmaker::editor::EditorWorkspaceController controller(
+        {.layout = resources.bundle->layout,
+         .form_row_height = 24,
+         .diagnostic_row_height = 16,
+         .menu = {},
+         .runtime_executable = {},
+         .plugin_factories = MakeEditorPluginFactories()});
     REQUIRE(controller.Resize(1280, 720));
     REQUIRE(controller.OpenProject(root));
     std::filesystem::remove(root / "assets/data/material_demo.json", error);
@@ -496,7 +748,8 @@ TEST_CASE("editor session discovers and edits a plugin sidecar document",
         document << R"json({"schema":1,"name":"before"})json";
     }
 
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(std::any_of(session.state().diagnostics.begin(), session.state().diagnostics.end(),
                         [](const auto& diagnostic) {
@@ -547,7 +800,8 @@ TEST_CASE("editor session keeps plugin documents read-only when the descriptor i
         document << R"json({"schema":1,"name":"before"})json";
     }
 
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     const auto tab =
         std::find_if(session.state().tabs.tabs.begin(), session.state().tabs.tabs.end(),
@@ -603,7 +857,8 @@ TEST_CASE("editor session keeps plugin documents read-only when the sidecar is m
         }
     }
 
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(std::any_of(session.state().diagnostics.begin(), session.state().diagnostics.end(),
                         [](const auto& diagnostic) {
@@ -657,7 +912,8 @@ TEST_CASE("editor session keeps plugin documents read-only when the descriptor i
         document << R"json({"schema":1,"name":"before"})json";
     }
 
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     const auto tab =
         std::find_if(session.state().tabs.tabs.begin(), session.state().tabs.tabs.end(),
@@ -678,7 +934,8 @@ TEST_CASE("editor session keeps plugin documents read-only when the descriptor i
 
 TEST_CASE("editor session atomically adjusts navigation dimensions", "[editor]") {
     const auto root = MakeFixture();
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.SelectDocument("core.navigation"));
     REQUIRE(session.SelectField(0));
@@ -701,7 +958,8 @@ TEST_CASE("editor session atomically adjusts navigation dimensions", "[editor]")
 
 TEST_CASE("editor session commits integer text through the adapter contract", "[editor]") {
     const auto root = MakeFixture();
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.SelectDocument("core.navigation"));
     REQUIRE(session.SelectField(0));
@@ -715,7 +973,8 @@ TEST_CASE("editor session commits integer text through the adapter contract", "[
 
 TEST_CASE("editor session appends text after the initial field selection is replaced", "[editor]") {
     const auto root = MakeFixture();
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.ApplySelectedText("project"));
     REQUIRE(session.ApplySelectedText(".text"));
@@ -726,7 +985,8 @@ TEST_CASE("editor session appends text after the initial field selection is repl
 
 TEST_CASE("editor session forwards IME composition without committing project data", "[editor]") {
     const auto root = MakeFixture();
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.ApplySelectedComposition("かな"));
     REQUIRE(session.state().form.fields.front().value == "project.demo");
@@ -737,7 +997,8 @@ TEST_CASE("editor session forwards IME composition without committing project da
 
 TEST_CASE("editor session treats an unchanged save as successful", "[editor]") {
     const auto root = MakeFixture();
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.Save());
     REQUIRE_FALSE(session.state().dirty);
@@ -747,7 +1008,8 @@ TEST_CASE("editor session treats an unchanged save as successful", "[editor]") {
 
 TEST_CASE("editor session field navigation wraps deterministically", "[editor]") {
     const auto root = MakeFixture();
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.state().selected_field == 0);
     REQUIRE(session.SelectPrevious());
@@ -760,7 +1022,8 @@ TEST_CASE("editor session field navigation wraps deterministically", "[editor]")
 
 TEST_CASE("editor session selects a valid field from a layout hit test", "[editor]") {
     const auto root = MakeFixture();
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.SelectField(1));
     REQUIRE(session.state().selected_field == 1);
@@ -777,7 +1040,8 @@ TEST_CASE("editor session cycles an adapter-provided select field", "[editor]") 
     REQUIRE(manifest->fields.size() >= 3);
     manifest->fields[2].value_type = "select";
     manifest->fields[2].choices = {"sample.instant", "sample.turn_based"};
-    jrpgmaker::editor::EditorSession session(root, std::move(adapters));
+    jrpgmaker::editor::EditorSession session(root, std::move(adapters),
+                                             MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.SelectField(2));
     REQUIRE(session.CycleSelectedChoice(1));
@@ -796,7 +1060,8 @@ TEST_CASE("editor preview process rejects unsafe launch inputs", "[editor]") {
 TEST_CASE("editor session stop preview synchronizes the projected process state",
           "[editor][preview]") {
     const auto root = MakeFixture("_preview_stop");
-    jrpgmaker::editor::EditorSession session(root);
+    jrpgmaker::editor::EditorSession session(
+        root, jrpgmaker::project::CreateDefaultDocumentAdapters(), MakeEditorPluginRegistry(root));
     REQUIRE(session.Open());
     REQUIRE(session.StartPreview(std::filesystem::path(JRPGMAKER_RUNTIME_EXECUTABLE)));
     REQUIRE(session.state().preview.process_running);

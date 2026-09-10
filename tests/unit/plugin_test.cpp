@@ -12,6 +12,20 @@
 #include "jrpgmaker/plugin/plugin.hpp"
 #include "minimal.hpp"
 
+#if defined(_WIN32)
+TEST_CASE("canonical containment rejects a candidate on another Windows volume",
+          "[plugin][security][windows]") {
+    const std::filesystem::path root{R"(C:\jrpgmaker\plugin-root)"};
+    const std::filesystem::path child{R"(C:\jrpgmaker\plugin-root\data\file.json)"};
+    const std::filesystem::path other_volume{R"(D:\untrusted\file.json)"};
+
+    REQUIRE(root.root_name() == "C:");
+    REQUIRE(other_volume.root_name() == "D:");
+    REQUIRE(jrpgmaker::plugin::IsCanonicalPathWithin(root, child));
+    REQUIRE_FALSE(jrpgmaker::plugin::IsCanonicalPathWithin(root, other_volume));
+}
+#endif
+
 namespace {
 class TestPlugin final : public jrpgmaker::plugin::IPlugin {};
 

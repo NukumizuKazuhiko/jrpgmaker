@@ -56,19 +56,24 @@ bool IsInDataRoot(std::string_view path, std::string_view root) {
     return path.size() > root.size() && path.starts_with(root) && path[root.size()] == '/';
 }
 
+} // namespace
+
 bool IsCanonicalPathWithin(const std::filesystem::path& root,
                            const std::filesystem::path& candidate) {
-    const std::filesystem::path relative = candidate.lexically_relative(root);
-    if (relative.empty() || relative.is_absolute())
-        return relative.empty();
+    if (root.root_name() != candidate.root_name() ||
+        root.root_directory() != candidate.root_directory())
+        return false;
+    const auto relative = candidate.lexically_relative(root);
+    if (relative.empty())
+        return candidate == root;
+    if (relative.is_absolute())
+        return false;
     for (const auto& component : relative) {
         if (component == "..")
             return false;
     }
     return true;
 }
-
-} // namespace
 
 ManifestParseResult ParseManifest(const nlohmann::json& document) {
     if (!document.is_object()) {
