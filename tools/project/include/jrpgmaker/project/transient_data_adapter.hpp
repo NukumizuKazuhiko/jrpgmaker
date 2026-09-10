@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -10,6 +11,8 @@
 #include "jrpgmaker/project/workspace.hpp"
 
 namespace jrpgmaker::project {
+
+inline constexpr std::size_t kMaxTransientDataFileBytes = plugin::kMaxPluginValidationFileBytes;
 
 struct TransientDataAdapterResult {
     std::optional<DocumentAdapter> adapter;

@@ -7,6 +7,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include "jrpgmaker/project/transient_data_adapter.hpp"
+
 namespace {
 
 std::string ReadText(const std::filesystem::path& path) {
@@ -156,6 +158,40 @@ TEST_CASE("projecttool data commands use workspace diff and commit semantics",
     REQUIRE(written["id"] == "calendar.blackbox");
     REQUIRE(ReadText(target.string() + ".bak") == before);
     REQUIRE_FALSE(std::filesystem::exists(target.string() + ".tmp"));
+
+    std::error_code error;
+    std::filesystem::remove(output, error);
+    std::filesystem::remove_all(root, error);
+}
+
+TEST_CASE("projecttool data commands reject an oversized schedule calendar dependency",
+          "[projecttool][p13][data-write][resource-budget]") {
+    const auto root = MakePluginProject(false);
+    const auto relative = std::filesystem::path("assets/data/schedule_demo.json");
+    const auto target = root / relative;
+    const auto before = ReadText(target);
+    const auto calendar = root / "assets/data/calendar_demo.json";
+    auto oversized_calendar = ReadText(calendar);
+    oversized_calendar.append(
+        jrpgmaker::project::kMaxTransientDataFileBytes + 1 - oversized_calendar.size(), ' ');
+    std::ofstream(calendar, std::ios::binary | std::ios::trunc) << oversized_calendar;
+    const auto patch = root / "schedule_patch.json";
+    std::ofstream(patch) << R"({"entries":[]})";
+    const auto output = root.parent_path() / "jrpgmaker_projecttool_schedule_budget_output.txt";
+    const auto command_prefix = std::filesystem::path(JRPGMAKER_PROJECTTOOL_EXECUTABLE).string();
+    const auto arguments = " " + root.string() + " " + relative.generic_string() + " " +
+                           patch.string() + " > " + output.string() + " 2>&1";
+
+    for (const auto* command : {" data-diff", " data-write"}) {
+        CAPTURE(command);
+        REQUIRE(std::system((command_prefix + command + arguments).c_str()) != 0);
+        const auto text = ReadText(output);
+        INFO(text);
+        REQUIRE(text.find("project.transient_data.byte_budget") != std::string::npos);
+        REQUIRE(ReadText(target) == before);
+        REQUIRE_FALSE(std::filesystem::exists(target.string() + ".tmp"));
+        REQUIRE_FALSE(std::filesystem::exists(target.string() + ".bak"));
+    }
 
     std::error_code error;
     std::filesystem::remove(output, error);

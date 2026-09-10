@@ -15,6 +15,31 @@
 
 namespace {
 
+enum class BoundedJsonReadStatus { kOk, kInvalid, kByteBudget };
+
+BoundedJsonReadStatus ReadBoundedJson(const std::filesystem::path& path, nlohmann::json& document) {
+    std::error_code error;
+    const auto size = std::filesystem::file_size(path, error);
+    if (error)
+        return BoundedJsonReadStatus::kInvalid;
+    if (size > jrpgmaker::project::kMaxTransientDataFileBytes)
+        return BoundedJsonReadStatus::kByteBudget;
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return BoundedJsonReadStatus::kInvalid;
+    std::string bytes(static_cast<std::size_t>(size), '\0');
+    if (!bytes.empty())
+        input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!input || input.peek() != std::ifstream::traits_type::eof())
+        return BoundedJsonReadStatus::kInvalid;
+    try {
+        document = nlohmann::json::parse(bytes);
+    } catch (const nlohmann::json::exception&) {
+        return BoundedJsonReadStatus::kInvalid;
+    }
+    return BoundedJsonReadStatus::kOk;
+}
+
 bool IsSafeRelativePath(const std::filesystem::path& path) {
     if (path.empty() || path.is_absolute() || path.has_root_name())
         return false;
@@ -151,13 +176,12 @@ TransientDataAdapterResult CreateTransientDataAdapter(
         });
     } else if (name == "schedule_demo.json") {
         nlohmann::json calendar_document;
-        try {
-            std::ifstream input(project_root / "assets/data/calendar_demo.json");
-            if (!input || !(input >> calendar_document))
-                return diagnostic("project.transient_data.invalid");
-        } catch (const std::exception&) {
+        const auto read =
+            ReadBoundedJson(project_root / "assets/data/calendar_demo.json", calendar_document);
+        if (read == BoundedJsonReadStatus::kByteBudget)
+            return diagnostic("project.transient_data.byte_budget");
+        if (read != BoundedJsonReadStatus::kOk)
             return diagnostic("project.transient_data.invalid");
-        }
         const auto calendar = core::ParseCalendarDefinition(calendar_document);
         if (!calendar.ok)
             return diagnostic("project.transient_data.invalid");
